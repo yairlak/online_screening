@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+# /usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
 Created on Wed Dec 15 12:44:11 2021
@@ -7,206 +7,114 @@ Created on Wed Dec 15 12:44:11 2021
 """
 
 import os
+import argparse
+from pprint import pprint
 import numpy as np
 import pandas as pd
-import utils
-from scipy import stats
-from sklearn.linear_model import RidgeCV
-from sklearn.model_selection import KFold
-from tqdm import tqdm
 import matplotlib.pyplot as plt
-import statsmodels.api as sm
-from regressors import stats as statsreg
-from mne.stats import fdr_correction
 
-tmin, tmax = 300, 800
-add_freq = True
-concept_source = 'Top-down Category (WordNet)'
-# concept_source = 'Bottom-up Category (Human Raters)'
+# utilility modules
+from data_manip import DataHandler
+from data_manip import prepare_features, prepare_neural_data
+from model_manip import train_model
+from viz import plot_weight_of_encoding_model
+from stats import add_FDR_correction
 
-#########
-# PATHS #
-#########
-path2wordembeddings = '../data/THINGS/sensevec_augmented_with_wordvec.csv'
-path2metadata = '../data/THINGS/things_concepts.tsv'
+parser = argparse.ArgumentParser()
+# GENERAL
+parser.add_argument('--concept_source', default='Top-down Category (manual selection)',
+                    help='Field name from THINGS for semantic categories',
+                    choices = ['Bottom-up Category (Human Raters)',
+                               'Top-down Category (WordNet)',
+                               'Top-down Category (manual selection)'])
+parser.add_argument('--response-measure', default='spike_count',
+                    help='Which measure is used to summarize the neural response',
+                    choices = ['spike_count', 'zscore'])
+parser.add_argument('--feature_type', default='word_embeddings',
+                    help='Which measure is used to summarize the neural response',
+                    choices = ['semantic_categories', 'word_embeddings'])
+# STATS
+parser.add_argument('--alpha', type=float, default=0.05,
+                    help='alpha for stats')
+
+# FLAGS
+parser.add_argument('--add-freq', action='store_true', default=False,
+                    help='If True, adds word frequency as another feature')
+parser.add_argument('--dont-plot', action='store_true', default=False,
+                    help='If True, plotting to figures folder is supressed')
+# PATHS
+parser.add_argument('--path2metadata',
+                    default='../data/THINGS/things_concepts.tsv',
+                    help='TSV file containing semantic categories, etc.')
+parser.add_argument('--path2wordembeddings',
+                    default='../data/THINGS/sensevec_augmented_with_wordvec.csv')
+parser.add_argument('--path2data', 
+                    default='../data/aos_after_manual_clustering/')
+
+args=parser.parse_args()
 
 #############
 # LOAD DATA #
 #############
-path2data = f'../data/aos_after_manual_clustering/'
-data = utils.get_data(path2data)
-
-###################
-# LOAD EMBEDDINGS #
-###################
-df_metadata = pd.read_csv(path2metadata, delimiter='\t')
-df_word_embeddings = pd.read_csv(path2wordembeddings, delimiter=',')
-
-min_freq = np.nanmin(df_metadata['SUBTLEX freq'].values)
+data = DataHandler(args) # class for handling neural and feature data
+data.load_metadata() # -> data.df_metadata
+data.load_neural_data() # -> data.neural_data
+data.load_word_embeddings() # -> data.df_word_embeddings
 
 ############
 # ENCODING #
 ############
-
-
-def get_semantic_categories(objects):
-    categories = []
-    for obj in objects:
-        df_object = df_metadata.loc[df_metadata['Word'] == obj]
-        if df_object[concept_source].size>0:
-            concept_category = df_object[concept_source].values[0]
-            if concept_category is np.nan:
-                concept_category = 'other'
-        else:
-            concept_category = 'other'
-        categories.append(concept_category)
-    return categories
-
-
-
 list_dicts = []
-sessions = list(data.keys())
+sessions = list(data.neural_data.keys())
 for session in sessions:
-    objectnames = data[session]['objectname']
-    objectnames_unique = list(set(data[session]['objectname']))
-    categories = get_semantic_categories(objectnames_unique)
-    
-    category_list = list(set(categories))
-    if np.nan in category_list:
-        IX_nan = category_list.index(np.nan)
-        category_list[IX_nan] = 'other' # replace nan
-    category_list = list(set(category_list))
-    
-    category_list = sorted(category_list)
-    n_concepts = len(category_list)
-    
-    units = list(set(data[session].keys()) - set(['objectname']))
-    unit_names = [data[session][unit]['channel_name'] for unit in units]
+    units = list(set(data.neural_data[session]['units'].keys()))
+    unit_names = [data.neural_data[session]['units'][unit]['channel_name'] for unit in units]
     
     for unit, unit_name in zip(units, unit_names):
-        spike_trains = data[session][unit]['trial']
-        kind = data[session][unit]['kind']
-        print(f'{session}, Unit {unit}/({len(units)}), {unit_name} ({kind})')
-        # Compute spike count in [tmin, tmax] for each trail
-        X, y, logfreqs = [], [], []
-        dict_cat2object = {}
-        for spike_train, objectname in zip(spike_trains, objectnames):
-            # Neural data
-            spike_train = spike_train.squeeze()
-            IXs = np.logical_and(spike_train>=tmin, spike_train<=tmax)
-            spike_train_crop = spike_train[IXs]
-            IXs_baseline = spike_train<0
-            spike_train_baseline = spike_train[IXs_baseline]
-            spike_count_rel = spike_train_crop.size - spike_train_baseline.size
-            y.append(spike_count_rel)
-            
-            # Object features (frequency + semantic category)
-            df_object = df_metadata.loc[df_metadata['Word'] == objectname]
-            if df_object['SUBTLEX freq'].size>0: # word frequency
-                freq = df_object['SUBTLEX freq'].values[0] 
-            else:
-                freq = min_freq
-            freq = np.max([freq, 1]) # avoid zero because of log below
-            logfreqs.append(np.log10(freq))
-            
-            if df_object[concept_source].size>0:
-                concept_category = df_object[concept_source].values[0]
-                if concept_category is np.nan:
-                    concept_category = 'other'
-            else:
-                concept_category = 'other'
-                
-            if concept_category in dict_cat2object.keys():
-                dict_cat2object[concept_category].append(objectname)
-            else:
-                dict_cat2object[concept_category] = [objectname]
-                
-            IX_category = category_list.index(concept_category)
-            category_onehot = np.zeros(n_concepts)
-            category_onehot[IX_category] = 1 # one-hot encoding of category
-            X.append(category_onehot)
-        for key in dict_cat2object.keys():
-            dict_cat2object[key] = list(set(dict_cat2object[key]))
-        # to numpy
-        logfreqs = stats.zscore(logfreqs)
-        X = np.asarray(X)
-        if add_freq:
-            X = np.hstack((X, logfreqs[:, np.newaxis]))
-        y = np.asarray(y)
+        print(f'{session}, Unit {unit}/({len(units)}), {unit_name} ({data.neural_data[session]["units"][unit]["kind"]})')
+        print('n_objects in "other"', len(data.neural_data[session]['dict_cat2object']['other']))
+        # PREPARE DATA FOR ENCODING MODEL
+        X, X_names, remove = prepare_features(data, session, unit)
+        y = prepare_neural_data(data, session, unit)
         
-        # Model
-        model = RidgeCV(alphas=np.logspace(-5, 5))
-        model.fit(X, y)
-        r2 = model.score(X, y)
-        coefs = model.coef_ # n_features
-        pvals = statsreg.coef_pval(model, X, y) # n_features + 1 (for intercept)
-        r2_adj = statsreg.adj_r2_score(model, X, y)
-        # X = sm.add_constant(X)
-        # model = sm.OLS(y, X)
-        # results = model.fit()
-        # coefs = results.params
-        # pvals = results.pvalues
-        # r2 = results.rsquared
+        # REMOVE trials with no feature-data (e.g., nan in word-embedding)
+        if remove:
+            print('{len(remove)} trials were removed.')
+            X = np.delete(X, remove, axis=0)
+            y = np.delete(y, remove, axis=0)
         
+        # FIT AN ENCODING MODEL
+        results = train_model(X, y) 
+        # Results is a dict with keys: model, r2, r2_adj, coefs, pvals
+        
+        # PLOT WEIGHTS OF ENCODING MODEL
+        if not args.dont_plot:
+            fn_fig = f'weights_{args.feature_type}_{session}_{unit}_{unit_name}.png'
+            plot_weight_of_encoding_model(results, X_names,
+                                          data,
+                                          session, unit,
+                                          fn_fig, alpha=args.alpha)
+        
+        # COLLECT RESULTS INTO A DATAFRAME
         d = {'session':session,
              'unit':unit,
              'unit name':unit_name,
-             'kind':kind,
-             'dict_cat2object':dict_cat2object,
-              'coefs':coefs,
-              'pvals':pvals,
-              'r2':r2,
-              'r2_adj':r2_adj}
+             'kind':data.neural_data[session]['units'][unit]['kind'],
+             'dict_cat2object':data.neural_data[session]['dict_cat2object'],
+             'model':results['model'],
+             'coefs':results['coefs'],
+             'pvals':results['pvals'],
+             'r2':results['r2'],
+             'r2_adj':results['r2_adj']}
 
         list_dicts.append(d)
-df = pd.DataFrame(list_dicts)           
+        
+# SAVE RESULTS TO JSON
+df = pd.DataFrame(list_dicts)
+df = add_FDR_correction(df)         
+fn_df = '../results/encoding.json'
+df.to_json(fn_df)
 
-# FDR
-alpha = 0.05
-# pvals = df['pvals'].values # n_ROIs X n_times
-# shapes = [pvals[i].shape for i in range(951)]
-# shapes_cumsum = np.cumsum(shapes)
-# pvals_cat = np.concatenate(pvals)
-# reject_fdr, pvals_fdr = fdr_correction(pvals_cat,
-#                                        alpha=alpha,
-#                                        method='indep')
-# pvals_fdr_whole_brain = np.empty(len(shapes))
-# for i in rangeW(len(shapes)):
-#     st = shapes_cumsum[i-1] if i>0 else 0
-#     ed = shapes_cumsum[i]
-#     pvals_fdr_whole_brain[i] = pvals_fdr[st:ed]
-# df['pvals_fdr_whole_brain'] = pvals_fdr.reshape((pvals.shape[0], -1)).tolist()
-# df['reject_fdr_whole_brain'] = reject_fdr.reshape((pvals.shape[0], -1)).tolist()
-
-
-fn = '../results/encoding.json'
-df.to_json(fn)
-
-# Plot
-for i, row in df.iterrows():
-    fig, ax = plt.subplots(figsize=(25, 10))
-    xlabels = [f'{category} ({len(dict_cat2object[category])})'
-                for category in row['dict_cat2object'].keys()]
-    if add_freq:
-        xlabels += ['log-frequency']
-    xlabels = [xlabel.replace('_', ' ') for xlabel in xlabels]
-    ax.bar(xlabels, row['coefs'])
-    # for i_cat, reject in enumerate(row['reject_fdr_whole_brain'][1:]):
-    for i_cat, pval in enumerate(row['pvals'][1:]):
-        if pval<alpha:
-            ax.annotate('*', (i_cat, row['coefs'][i_cat] + 0.05))
-            
-    # Cosmetics
-    ax.set_xticklabels(xlabels, rotation=45)
-    ax.set_ylabel('Coefficient size', fontsize=18)
-    ax.set_ylim([0, 1])
-    ax.set_xlabel('Semantic category', fontsize=24)
-    ax.set_title(f"{row['session']}, Unit {row['unit']}, {row['unit name']} ({row['kind']}); Model R2-adjusted = {row['r2_adj']:1.2f}", fontsize=20)
-    plt.subplots_adjust(bottom=0.25)
-    fn = f"{row['session']}_{row['unit']}_{row['unit name']}.png"
-    fig.savefig(os.path.join('../figures', fn))
-    plt.close(fig)
-            
-            
-            
-            
+    
+    
+    

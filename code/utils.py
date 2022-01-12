@@ -3,36 +3,6 @@ import os
 import numpy as np
 import glob
 
-def get_data(path2data):
-
-    data = {}
-    
-    # Get all session files in target folder
-    fn_cherries = glob.glob(os.path.join(path2data, '*cherries.mat'))
-    
-    # load trialInfo + cherries for each session
-    for fn_cherrie in fn_cherries:
-        # Load cherries (contains also condition info)
-        cherries = sio.loadmat(fn_cherrie)
-        
-        # Get subject and session numbers
-        subject = int(cherries['conditions']['subject'][0][0][0][0])
-        session = int(cherries['conditions']['session'][0][0][0][0])
-        data[f'{subject}_{session}'] = {}
-        data[f'{subject}_{session}']['objectname'] = [e[0] for e in
-                                                     cherries['conditions']\
-                                                     ['objectname'][0][0][0]]
-        for unit_num in range(cherries['cherries'].shape[1]):
-            data[f'{subject}_{session}'][unit_num + 1] = {}
-            data[f'{subject}_{session}'][unit_num + 1]['trial'] = cherries['cherries'][0, unit_num]['trial'][0, :]
-            data[f'{subject}_{session}'][unit_num + 1]['class_num'] = cherries['cherries'][0, unit_num]['classno'][0, 0]
-            data[f'{subject}_{session}'][unit_num + 1]['channel_num'] = cherries['cherries'][0, unit_num]['channr'][0, 0]
-            data[f'{subject}_{session}'][unit_num + 1]['channel_name'] = cherries['cherries'][0, unit_num]['chnname'][0]
-            data[f'{subject}_{session}'][unit_num + 1]['site'] = cherries['cherries'][0, unit_num]['site'][0]
-            data[f'{subject}_{session}'][unit_num + 1]['kind'] = cherries['cherries'][0, unit_num]['kind'][0]
-
-    return data
-
 
 def get_spike_profile(path2data, ch_num, class_num):
     curr_data = sio.loadmat(os.path.join(path2data, f'times_CSC{ch_num}'))
@@ -76,5 +46,7 @@ def smooth_with_gaussian(time_series, sfreq=1000, gaussian_width = 50, N=1000):
     smoothed_time_series = np.convolve(time_series, gaussian_window/norm_factor, mode="full") # smooth
     smoothed_time_series = smoothed_time_series[int(round(N/2)):-(int(round(N/2))-1)] # trim ends
     return smoothed_time_series
+
+
 
 
