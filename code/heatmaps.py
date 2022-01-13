@@ -6,6 +6,7 @@
 """
 
 import os
+import glob
 import argparse
 from pprint import pprint
 import numpy as np
@@ -13,6 +14,7 @@ import pandas as pd
 
 from typing import List
 from dataclasses import dataclass
+import mat73
 import scipy
 import scipy.io
 import scipy.interpolate 
@@ -27,7 +29,6 @@ import dash_html_components as html
 #from dash import dcc
 #from dash import html
 from dash.dependencies import Input, Output
-
 
 # utilility modules
 from data_manip import DataHandler
@@ -51,6 +52,8 @@ parser.add_argument('--path2wordembeddings',
                     default='../data/THINGS/sensevec_augmented_with_wordvec.csv')
 parser.add_argument('--path2data', 
                     default='../data/aos_after_manual_clustering/') # also work with nos?
+parser.add_argument('--path2images', 
+                    default='../figures/heatmaps/') 
 
 args=parser.parse_args()
 
@@ -111,6 +114,34 @@ def getInterpolatedMap(x, y, z) :
 
     return px.imshow(zi,aspect=0.8,color_continuous_scale='RdBu',origin='lower')
 
+def createHeatMap(tuner) : 
+    
+    fig = getInterpolatedMap(np.array(tuner.stimuliX), np.array(tuner.stimuliY), np.array(tuner.zscores)) 
+    
+    zScores = np.copy(tuner.zscores)
+    zScores -= min(zScores)
+    zScores /= max(zScores)
+
+    for stimulusNum in range(len(tuner.stimuliNames)) :
+        opacityStim = zScores[stimulusNum]
+        fig.add_trace(
+            go.Scatter(
+                mode='text',
+                x=rescaleX([tuner.stimuliX[stimulusNum]]), y=rescaleY([tuner.stimuliY[stimulusNum]]),
+                text=[tuner.stimuliNames[stimulusNum]],
+                hovertext=[tuner.stimuliNames[stimulusNum] + ", z: " + str(round(tuner.zscores[stimulusNum], 2))],
+                opacity=opacityStim,
+                textfont=dict(
+                    size=12,
+                    color="black"
+                ),
+                name='zscore'
+            )
+        )
+
+    fig.update_layout(graphLayout)
+
+    return fig
 
 #############
 # LOAD DATA #
@@ -126,9 +157,10 @@ def getInterpolatedMap(x, y, z) :
 #else:
 #    sessions = [args.session]
 
-
+saveImages = False
 interpolateFactor = 100
 paddingFactor = 1.1
+alpha = 0.001
 
 thingsConceptsNames = pd.read_csv(args.path2things + "unique_id.csv", sep='\n', header=None).values[:,0]
 senseVecs_embedded = pd.read_csv(args.path2things + "sensevec_TSNE.csv", sep=';', header=None).values
@@ -138,6 +170,7 @@ tuners = [ # clusters might not fit (manual clustering took place)
     Tuner("088e03aos1", 77, 1, "Engine", "aos", [], [], [], [], []),
     Tuner("088e03aos1", 75, 2, "Lizard", "aos", [], [], [], [], []), 
     Tuner("088e03aos1", 87, 2, "Zucchini", "aos", [], [], [], [], []), 
+    Tuner("088e28aos3", 92, 1, "Photograph", "aos",  [], [], [], [], []),
     Tuner("089e02aos1", 84, 1, "Ambulance", "aos",  [], [], [], [], []),
     Tuner("089e24aos2", 77, 2, "Machine Gun", "aos",  [], [], [], [], []),
     Tuner("090e05aos1", 49, 1, "Waffle1", "aos",  [], [], [], [], []),
@@ -172,8 +205,46 @@ yMaxThings = yThings.max()
 xThingsRescaled = rescaleX(xThings)
 yThingsRescaled = rescaleY(yThings)
 
+inputPath = args.path2data #+ tuner.paradigm + "_after_manual_clustering/"
+allCells = []
+allCherriesFiles = glob.glob(inputPath + "*_cherries.mat")
+for cherryFile in allCherriesFiles : 
+    subjectSession = cherryFile.split("\\")[-1].split("_")[0]
+
+    cherries = scipy.io.loadmat(inputPath + subjectSession + "_cherries.mat")["cherries"]
+    stimlookup = scipy.io.loadmat(inputPath + subjectSession + "_stimlookup.mat")["stimlookup"][0]
+    zScores = scipy.io.loadmat(inputPath + subjectSession + "_zscores.mat")["zscores_rs"]
+    pvals = mat73.loadmat(inputPath + subjectSession + "_os_responses.mat")["pvals_rs"]
+
+    channels = cherries["channr"][0]
+    clusters = cherries["classno"][0]
+
+    stimuliNums = []
+    stimuliNames = []
+    stimuliX = []
+    stimuliY = []
+
+    for stim in stimlookup : 
+        stimInThings = np.where(thingsConceptsNames == stim[0])[0][0]
+        stimuliNums.append(stimInThings)
+        stimuliNames.append(stim[0])
+        stimuliX.append(xThings[stimInThings])
+        stimuliY.append(yThings[stimInThings])
+    
+    for cellNum in range(len(cherries[0])) : 
+        if all(pval >= alpha for pval in pvals[cellNum]) : 
+            #print("Skipping " + subjectSession + ", cell " + str(cellNum))
+            continue
+        print("Loaded " + subjectSession + ", cell " + str(cellNum))
+        channel = channels[cellNum][0][0]
+        cluster = clusters[cellNum][0][0]
+        name = subjectSession + " channel " + str(channel) + " cluster " + str(cluster)
+        allCells.append(Tuner(subjectSession, channel, cluster, name, "aos", 
+        stimuliNums, stimuliX, stimuliY, stimuliNames, zScores[cellNum]))
+
+    print("Loaded " + subjectSession + " completely\n")
+
 for tuner in tuners : 
-    inputPath = args.path2data #+ tuner.paradigm + "_after_manual_clustering/"
     cherries = scipy.io.loadmat(inputPath + tuner.subjectsession + "_cherries.mat")["cherries"]
     channels = cherries["channr"][0]
     clusters = cherries["classno"][0]
@@ -205,13 +276,35 @@ graphLayout = go.Layout(
     yaxis=dict(ticks='', showticklabels=False),
     showlegend=False, 
     autosize=False,
-    height=figureHeight
+    height=600,
+    width=900
+)
+
+graphLayoutBig = go.Layout(
+    height=figureHeight,
+    width=1100
 )
 
 heatmap = getInterpolatedMap(np.array(tuners[0].stimuliX), np.array(tuners[0].stimuliY), np.array(tuners[0].zscores))
 
-print("Ready!")
+print("Loaded data!\n")
 
+allHeatmaps = []
+for cell in allCells : 
+    heatMapFigure = createHeatMap(cell)
+    allHeatmaps.append(
+        html.Div([
+            html.H3(children='Activation heatmap ' + cell.name),
+            html.Div([
+                dcc.Graph(id='heatmap-' + cell.name, figure=heatMapFigure)
+            ], className="nine columns"),
+        ], className="row"),
+    )
+    if saveImages : 
+        heatMapFigure.write_image(args.path2images + "\\" + cell.subjectsession + "_ch" + str(cell.channel) + "_cl" + str(cell.cluster) + ".png")
+    print("Created heatmap for " + cell.name)
+
+print("Done loading all heatmaps!")
 
 app.layout = html.Div(children=[
     html.H1(children='Tuners'),
@@ -239,6 +332,8 @@ app.layout = html.Div(children=[
             ), 
         ], className="two columns"),
     ], className="row"),
+
+    html.Div(children = allHeatmaps),
 ])
 
 
@@ -252,32 +347,10 @@ def update_output_div(active_cell):
     else : 
         tuner = tuners[active_cell['row']]
 
-    fig = getInterpolatedMap(np.array(tuner.stimuliX), np.array(tuner.stimuliY), np.array(tuner.zscores)) 
-    
-    zScores = np.copy(tuner.zscores)
-    zScores -= min(zScores)
-    zScores /= max(zScores)
+    fig = createHeatMap(tuner)
+    fig.update_layout(graphLayoutBig)
 
-    for stimulusNum in range(len(tuner.stimuliNames)) :
-        opacityStim = zScores[stimulusNum]
-        fig.add_trace(
-            go.Scatter(
-                mode='text',
-                x=rescaleX([tuner.stimuliX[stimulusNum]]), y=rescaleY([tuner.stimuliY[stimulusNum]]),
-                text=[tuner.stimuliNames[stimulusNum]],
-                hovertext=[tuner.stimuliNames[stimulusNum] + ", z: " + str(round(tuner.zscores[stimulusNum], 2))],
-                opacity=opacityStim,
-                textfont=dict(
-                    size=12,
-                    color="black"
-                ),
-                name='zscore'
-            )
-        )
-
-    fig.update_layout(graphLayout)
-
-    return fig
+    return fig 
 
 
 if __name__ == '__main__':
