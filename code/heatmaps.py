@@ -199,34 +199,14 @@ table_options = [{'tuners-column': tuners[i].name, 'id': i} for i in range(len(t
 table_options_heatmap = [{'tuners-heatmap-column': tuners[i].name, 'id': i} for i in range(len(tuners))]
 
 figureHeight = 900
-figThings = go.Figure(layout = go.Layout(height=figureHeight))
-
-figThings.add_trace(
-    go.Scatter(
-        mode='markers',
-        x=xThings, y=yThings,
-        hovertext=thingsConceptsNames,
-        text=thingsConceptsNames,
-        marker=dict(color='LightSkyBlue'),
-        name='THINGS'
-    )
-)
-
-scatterThingsRescaled = go.Scatter(
-        mode='markers',
-        x=xThingsRescaled, y=yThingsRescaled,
-        hovertext=thingsConceptsNames,
-        text=thingsConceptsNames,
-        marker=dict(color='LightSkyBlue'),
-        name='THINGS'
-    )
-
 
 graphLayout = go.Layout(
     xaxis=dict(ticks='', showticklabels=False),
-    yaxis=dict(ticks='', showticklabels=False)
+    yaxis=dict(ticks='', showticklabels=False),
+    showlegend=False, 
+    autosize=False,
+    height=figureHeight
 )
-figThings.update_layout(graphLayout)
 
 heatmap = getInterpolatedMap(np.array(tuners[0].stimuliX), np.array(tuners[0].stimuliY), np.array(tuners[0].zscores))
 
@@ -239,9 +219,7 @@ app.layout = html.Div(children=[
     html.Div([
         html.H2(children='Activation heatmap'),
         
-        #html.Img(id='heatmap'), # img element
         html.Div([
-            #html.Img(id='heatmap'), # img element
             dcc.Graph(id='heatmap', figure=heatmap)
         ], className="nine columns"),
 
@@ -261,72 +239,7 @@ app.layout = html.Div(children=[
             ), 
         ], className="two columns"),
     ], className="row"),
-  
-    html.Div([
-        html.H2(children='Activation visualization'),
-        html.Div([
-            dcc.Graph(id='thingsGraph', figure=figThings)
-        ], className="nine columns"),
-
-        html.Div([
-            dash_table.DataTable(
-                id='tuners-table',
-                style_cell={'textAlign': 'left'},
-                columns=[{"name": "Tuners", "id": "tuners-column", "deletable": False, "selectable": True}],
-                data=table_options, 
-                editable=False,
-                page_action='none',
-                style_table={
-                    'margin-top': 100,
-                    'height': figureHeight - 180,
-                    'overflowY': 'scroll'
-                }
-            ), 
-        ], className="two columns"),
-    ], className="row"),
 ])
-
-@app.callback(
-    Output(component_id='thingsGraph', component_property='figure'),
-    Input('tuners-table', 'active_cell')
-)
-def update_output_div(active_cell):
-    if(active_cell == None) :
-        tuner = tuners[0]
-    else : 
-        tuner = tuners[active_cell['row']]
-        
-    fig = go.Figure(layout = go.Layout(height=figureHeight))
-    
-
-    fig.add_trace(
-        go.Scatter(
-            mode='markers',
-            x=xThings, y=yThings,
-            hovertext=thingsConceptsNames,
-            text=thingsConceptsNames,
-            marker=dict(color='LightSkyBlue'),
-            name='THINGS'
-        )
-    )
-
-    fig.add_trace(
-        go.Scatter(
-            mode='markers',
-            x=tuner.stimuliX, y=tuner.stimuliY,
-            hovertext=tuner.stimuliNames,
-            #text=thingsConceptsNames,
-            marker_size=tuner.zscores * 5,
-            marker=dict(color='red'),
-            name='coactivation'
-        )
-    )
-
-    
-    fig.update_layout(showlegend=False)
-    fig.update_layout(graphLayout)
-
-    return fig
 
 
 @app.callback(
@@ -341,27 +254,6 @@ def update_output_div(active_cell):
 
     fig = getInterpolatedMap(np.array(tuner.stimuliX), np.array(tuner.stimuliY), np.array(tuner.zscores)) 
     
-    #fig.add_trace(scatterThingsRescaled)
-    
-    ##fig.add_trace(
-    ##    go.Scatter(
-    ##        mode='text',
-    ##        #mode='marker',
-    ##        x=rescaleX(tuner.stimuliX), y=rescaleY(tuner.stimuliY),
-    ##        hovertext=[tuner.stimuliNames[i] + ", z: " + str(round(tuner.zscores[i], 2)) for i in range(len(tuner.stimuliNames))],
-    ##        text=[tuner.stimuliNames[i] for i in range(len(tuner.stimuliNames))],
-    ##        #textposition='top center',
-    ##        #marker_size=tuner.zscores.clip(min=1) * 5,
-    ##        #marker=dict(color='lime'),
-    ##        opacity=tuner.zscores.clip(min=1) / max(tuner.zscores),
-    ##        textfont=dict(
-    ##            size=18,
-    ##            color="black"
-    ##        ),
-    ##        name='zscore'
-    ##    )
-    ##)
-
     zScores = np.copy(tuner.zscores)
     zScores -= min(zScores)
     zScores /= max(zScores)
@@ -382,17 +274,8 @@ def update_output_div(active_cell):
                 name='zscore'
             )
         )
-    
 
-
-    #fig.update_traces(textposition='top center')
-
-    fig.update_layout(showlegend=False)
     fig.update_layout(graphLayout)
-    fig.update_layout(
-        autosize=False,
-        height=figureHeight
-    )
 
     return fig
 
