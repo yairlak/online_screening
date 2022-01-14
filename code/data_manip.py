@@ -28,12 +28,19 @@ class DataHandler(object):
         
         # load trialInfo + cherries for each session
         for fn_cherrie in fn_cherries:
-            # Load cherries (contains also condition info)
+
+            subject_session_name = fn_cherrie.split(os.sep)[-1].split("_")[0]
+
+            # Load cherries (contains also condition info), zscores and pvalues
             cherries = sio.loadmat(fn_cherrie)
+            zscores = sio.loadmat(self.path2data + os.sep + subject_session_name + '_zscores.mat')["zscores_rs"]
+            pvals = sio.loadmat(self.path2data + os.sep + subject_session_name + '_os_responses.mat')["pvals_rs"]
             
             # Get subject and session numbers
             subject = int(cherries['conditions']['subject'][0][0][0][0])
             session = int(cherries['conditions']['session'][0][0][0][0])
+            if subject_session_name == '090e13aos2' : # There seems to be the wrong session number stored
+                session = 2
             neural_data[f'{subject}_{session}'] = {}
             objectnames = [e[0] for e in cherries['conditions']['objectname'][0][0][0]]
             neural_data[f'{subject}_{session}']['objectnames'] = objectnames
@@ -51,7 +58,8 @@ class DataHandler(object):
                 neural_data[f'{subject}_{session}']['units'][unit_num + 1]['channel_name'] = cherries['cherries'][0, unit_num]['chnname'][0]
                 neural_data[f'{subject}_{session}']['units'][unit_num + 1]['site'] = cherries['cherries'][0, unit_num]['site'][0]
                 neural_data[f'{subject}_{session}']['units'][unit_num + 1]['kind'] = cherries['cherries'][0, unit_num]['kind'][0]
-                
+                neural_data[f'{subject}_{session}']['units'][unit_num + 1]['zscores'] = zscores[unit_num]
+                neural_data[f'{subject}_{session}']['units'][unit_num + 1]['p_vals'] = pvals[unit_num]
     
         self.neural_data = neural_data
         
@@ -63,6 +71,10 @@ class DataHandler(object):
     def load_word_embeddings(self):
         self.df_word_embeddings = pd.read_csv(self.path2wordembeddings,
                                               delimiter=',',
+                                              header=None)
+    def load_word_embeddings_tsne(self):
+        self.df_word_embeddings_tsne = pd.read_csv(self.path2wordembeddingsTSNE,
+                                              delimiter=';',
                                               header=None)
         
 
