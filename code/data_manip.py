@@ -35,7 +35,8 @@ class DataHandler(object):
             cherries = sio.loadmat(fn_cherrie)
             zscores = sio.loadmat(self.path2data + os.sep + subject_session_name + '_zscores.mat')["zscores_rs"]
             pvals = sio.loadmat(self.path2data + os.sep + subject_session_name + '_os_responses.mat')["pvals_rs"]
-            
+            stimlookup = sio.loadmat(self.path2data + os.sep + subject_session_name + '_stimlookup.mat')["stimlookup"][0]
+
             # Get subject and session numbers
             subject = int(cherries['conditions']['subject'][0][0][0][0])
             session = int(cherries['conditions']['session'][0][0][0][0])
@@ -43,7 +44,10 @@ class DataHandler(object):
                 session = 2
             neural_data[f'{subject}_{session}'] = {}
             objectnames = [e[0] for e in cherries['conditions']['objectname'][0][0][0]]
+            objectnumbers = [int(e) for e in cherries['conditions']['objectnumber'][0][0][0]]
             neural_data[f'{subject}_{session}']['objectnames'] = objectnames
+            neural_data[f'{subject}_{session}']['objectnumbers'] = objectnumbers
+            neural_data[f'{subject}_{session}']['stimlookup'] = [stim[0] for stim in stimlookup]
             neural_data[f'{subject}_{session}']['dict_cat2object'] = \
                 get_dict_cat2object(objectnames,
                                     self.df_metadata, self.concept_source)
@@ -76,9 +80,14 @@ class DataHandler(object):
         self.df_word_embeddings_tsne = pd.read_csv(self.path2wordembeddingsTSNE,
                                               delimiter=';',
                                               header=None)
+
+    def load_similarity_matrix(self): 
+        self.similarity_matrix = pd.read_csv(self.path2semanticdata + 'similarityMatrix_' + self.metric + '.csv',
+                                              delimiter=',',
+                                              header=None)
         
-
-
+def get_THINGS_indices(df_metadata, objects) : 
+    return [np.where(object == df_metadata.uniqueID)[0][0] for object in objects]
 
 def get_dict_cat2object(objectnames, df_metadata, concept_source):
     dict_cat2object = {}

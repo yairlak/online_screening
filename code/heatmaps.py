@@ -8,14 +8,12 @@
 import os
 import glob
 import argparse
-from pprint import pprint
 import numpy as np
 import pandas as pd
 
 import time
 from typing import List
 from dataclasses import dataclass
-import mat73
 import scipy
 import scipy.io
 import scipy.interpolate 
@@ -33,7 +31,6 @@ from dash.dependencies import Input, Output
 
 # utilility modules
 from data_manip import DataHandler
-from data_manip import prepare_features, prepare_neural_data
 
 parser = argparse.ArgumentParser()
 
@@ -51,7 +48,7 @@ parser.add_argument('--concept_source', default='Top-down Category (manual selec
                                'Top-down Category (manual selection)'])
 
 # FLAGS
-parser.add_argument('--dont_plot', action='store_true', default=False, # TODO
+parser.add_argument('--dont_plot', action='store_true', default=True, # TODO
                     help='If True, plotting to figures folder is supressed')
 
 # STATS
@@ -78,8 +75,6 @@ parser.add_argument('--path2images',
                     default='../figures/heatmaps/') 
 
 args=parser.parse_args()
-
-## TODO: v7 os_responses
 
 
 @dataclass
@@ -281,7 +276,6 @@ print("Time preparing data: " + str(time.time() - startPrepareData) + " s")
 external_stylesheets = ['https://codepen.io/chriddyp/pen/bWLwgP.css']
 app = dash.Dash(__name__, external_stylesheets=external_stylesheets)
 
-table_options = [{'tuners-column': tuners[i].name, 'id': i} for i in range(len(tuners))]
 table_options_heatmap = [{'tuners-heatmap-column': tuners[i].name, 'id': i} for i in range(len(tuners))]
 
 figureHeight = 900
