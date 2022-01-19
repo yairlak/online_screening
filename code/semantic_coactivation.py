@@ -10,10 +10,12 @@ import numpy as np
 import time
 import argparse
 import itertools
+import statistics 
 
 from typing import List
-from dataclasses import field
 from dataclasses import dataclass
+from scipy.optimize import curve_fit
+from scipy.signal import savgol_filter
 import plotly.graph_objects as go
 import plotly.express as px
 
@@ -25,6 +27,7 @@ import dash_html_components as html
 #from dash import dcc
 #from dash import html
 from dash.dependencies import Input, Output
+from sympy import re
 
 # utilility modules
 from data_manip import DataHandler
@@ -39,23 +42,24 @@ parser.add_argument('--session', default=None, type=str,
                             e.g., '90_1'.")
 
 # DATA AND MODEL
-parser.add_argument('--concept_source', default='Top-down Category (manual selection)',
-                    help='Field name from THINGS for semantic categories',
-                    choices = ['Bottom-up Category (Human Raters)',
-                               'Top-down Category (WordNet)',
-                               'Top-down Category (manual selection)'])
 parser.add_argument('--metric', default='euclidean',
-                    help='distance metric')
+                    help='Distance metric')
 
 # FLAGS
 parser.add_argument('--dont_plot', action='store_true', default=True, 
                     help='If True, plotting to figures folder is supressed')
+parser.add_argument('--load_cat2object', default=False, 
+                    help='If True, cat2object is loaded')
 
 # STATS
 parser.add_argument('--alpha', type=float, default=0.001,
-                    help='alpha for stats')
+                    help='Alpha for stats')
 
 # PLOT
+parser.add_argument('--step', type=float, default=0.01,
+                    help='Plotting detail')
+parser.add_argument('--max_stdev_outliers', type=float, default=5,
+                    help='Limit for excluding outliers')            
 
 # PATHS
 parser.add_argument('--path2metadata',
@@ -66,7 +70,7 @@ parser.add_argument('--path2wordembeddings',
 parser.add_argument('--path2semanticdata',
                     default='../data/semantic_data/')
 parser.add_argument('--path2data', 
-                    default='../data/aos_after_manual_clustering/') # also work with nos?
+                    default='../data/aosnos_after_manual_clustering/') # also work with nos?
 parser.add_argument('--path2images', 
                     default='../figures/semantic_coactivation/') 
 
@@ -76,14 +80,12 @@ args=parser.parse_args()
 @dataclass
 class Region:
     sitename: str
-    coactivationMatrix: List 
-    copresentationMatrix: List 
-    coactivationMatrixFlattened: List
-    copresentationMatrixFlattened: List 
-    coactivationNormalizedFlattened: List 
-    similarityMatrixFlattened: List
+    coactivation: List 
+    copresentation: List 
+    coactivationNormalized: List
+    similarity: List
 
-def createTableDiv(title, figureId, fig, tableId, columnName, columnId, columnData) : 
+def createTableDiv(title, figureId, tableId, columnName, columnId, columnData) : 
     
     return html.Div(children=[
 
@@ -91,7 +93,7 @@ def createTableDiv(title, figureId, fig, tableId, columnName, columnId, columnDa
             html.H2(children=title),
             
             html.Div([
-                dcc.Graph(id=figureId, figure=fig)
+                dcc.Graph(id=figureId)
             ], className="nine columns"),
 
             html.Div([
@@ -113,28 +115,96 @@ def createTableDiv(title, figureId, fig, tableId, columnName, columnId, columnDa
     ])
 
 
-def createRegionsDiv(name, fig) : 
+def createRegionsDiv(name) : 
     figureId = name + "-overview"
     tableId = name + "-regions-table"
     columnId = name + "-regions-column"
     columnData = [{columnId: site, 'id': site} for site in allSiteNames]
 
     return createTableDiv(
-        name, figureId, fig, tableId, "Regions", columnId, columnData), figureId, tableId
+        name, figureId, tableId, "Regions", columnId, columnData), figureId, tableId
+
+def smooth(y, numPoints):
+    if len(y) == 0 : 
+        return y 
+    else : 
+        return np.convolve(y, np.ones(numPoints)/numPoints, mode='same')
+
+def Gauss(x, a, x0, sigma):
+    return a * np.exp(-(x - x0)**2 / (2 * sigma**2))
+
+def createPlot(x, y, yLabel, filename) :
+
+    if len(y) == 0 : 
+        meanY = 0
+        stdevY = 1
+    elif len(y) == 1 : 
+        meanY = y[0]
+        stdevY = 1
+    else : 
+        meanY = statistics.mean(y)
+        stdevY = statistics.stdev(y)
+    relevantIndices = np.where(abs(y - meanY) <= args.max_stdev_outliers * stdevY)
+    xWithoutOutliers = x[relevantIndices]
+    yWithoutOutliers = y[relevantIndices]
+
+    if len(x) - len(xWithoutOutliers) > 0 : 
+        print("-Excluded " + str(len(x) - len(xWithoutOutliers)) + " outliers-")
+
+    if meanY == 0 : 
+        yGauss = yWithoutOutliers
+    else : 
+        mean = sum(xWithoutOutliers * yWithoutOutliers) / sum(yWithoutOutliers)
+        sigma = np.sqrt(sum(yWithoutOutliers * (xWithoutOutliers - mean)**2) / sum(yWithoutOutliers))
+
+        popt,pcov = curve_fit(Gauss, xWithoutOutliers, yWithoutOutliers, p0=[max(yWithoutOutliers), mean, sigma])
+        yGauss = Gauss(xWithoutOutliers, *popt)
+    #yFitted = savgol_filter(y, 51, 3) # window size 51, polynomial order 3
 
 
-def createPlot(x, y, filename) :
-    fig = px.scatter(x = x, y = y)
-    #fig.update_layout(graphLayoutBig)
+    fig = go.Figure()
+    fig.add_trace(
+        go.Scatter(
+            x=xWithoutOutliers,
+            y=yWithoutOutliers,
+            mode='markers',
+            name='data'
+            #trendline="lowess", 
+            #trendline_options=dict(frac=0.1)
+        ))
+    
+    
+    fig.add_trace(
+        go.Scatter(
+            x=xWithoutOutliers,
+            y=smooth(yWithoutOutliers, 5),
+            mode='lines',
+            name='smoothed 5 point avg'
+        ))
+
+    fig.add_trace(
+        go.Scatter(
+            x=xWithoutOutliers,
+            y=yGauss,
+            mode='lines',
+            name='Gaussian fit'
+        ))
+    
+    fig.update_layout(
+        xaxis_title="Semantic similarity",
+        yaxis_title=yLabel,
+    )
 
     if not args.dont_plot : 
         fig.write_image(args.path2images + os.sep + filename + ".png")
 
     return fig
 
+
 #############
 # LOAD DATA #
 #############
+print("\n--- START ---")
 startLoadData = time.time()
 
 data = DataHandler(args) # class for handling neural and feature data
@@ -156,19 +226,21 @@ print("\nTime loading data: " + str(time.time() - startLoadData) + " s\n")
 figureHeight = 900
 figureWidth = 1100
 
+paradigm = args.path2data.split(os.sep)[-1].split('/')[-2].split('_')[0]
+includeSelfSimilarity = False
+#minResponses = 3
 startPrepareDataTime = time.time()
 nTHINGS = len(data.df_metadata.uniqueID)
-#zscoreMatrix = np.zeros((nTHINGS, nTHINGS))
 
-trianglarIndices = np.triu_indices(nTHINGS, k = 0) # k = 1 --> without diagonal
-similarityMatrixFlattened = data.similarity_matrix.to_numpy()[trianglarIndices]
-uniqueSimilarities = np.unique(data.similarity_matrix.to_numpy())
+uniqueSimilarities = np.arange(0.0, 1.0 + (1.0 % args.step), args.step)
+nSimilarities = len(uniqueSimilarities)
+similarityMatrixToIndex = (data.similarity_matrix.to_numpy() / args.step).astype(int)
 
 allRegionsName = 'All'
 allSiteNames = [allRegionsName]
 regions = {}
 
-regions[allRegionsName] = Region(allRegionsName, np.zeros((nTHINGS, nTHINGS)), np.zeros((nTHINGS, nTHINGS)), [], [], [], [])
+regions[allRegionsName] = Region(allRegionsName, np.zeros((nSimilarities)), np.zeros((nSimilarities)), [], [])
 
 for session in sessions:
     if not hasattr(args, 'unit'):
@@ -188,12 +260,14 @@ for session in sessions:
 
         if site not in allSiteNames : 
             allSiteNames.append(site)
-            regions[site] = Region(site, np.zeros((nTHINGS, nTHINGS)), np.zeros((nTHINGS, nTHINGS)), [], [], [], [])
+            regions[site] = Region(site, np.zeros((nSimilarities)), np.zeros((nSimilarities)), [], [])
 
     for site in allSitesSession : 
         for i1, i2 in itertools.product(thingsIndices, thingsIndices) : 
-            regions[allRegionsName].copresentationMatrix[i1, i2] += len(units)
-            regions[site].copresentationMatrix[i1, i2] += len(units)
+            if i1 == i2 and not includeSelfSimilarity :
+                continue
+            regions[allRegionsName].copresentation[similarityMatrixToIndex[i1, i2]] += len(units)
+            regions[site].copresentation[similarityMatrixToIndex[i1, i2]] += len(units)
 
     for unit in units:
         pvals = data.neural_data[session]['units'][unit]['p_vals']
@@ -201,9 +275,11 @@ for session in sessions:
         site = data.neural_data[session]['units'][unit]['site']
         responses = [thingsIndices[i] for i in np.where(pvals < args.alpha)[0]]
 
-        for i1, i2 in itertools.product(responses, responses) : 
-            regions[allRegionsName].coactivationMatrix[i1, i2]
-            regions[site].coactivationMatrix[i1, i2] += 1
+        for i1, i2 in itertools.product(responses, responses) :  
+            if i1 == i2 and not includeSelfSimilarity :
+                continue
+            regions[allRegionsName].coactivation[similarityMatrixToIndex[i1, i2]] += 1
+            regions[site].coactivation[similarityMatrixToIndex[i1, i2]] += 1
         
 
 print("Time preparing data: " + str(time.time() - startPrepareDataTime) + " s\n")
@@ -219,33 +295,30 @@ figurePrepareTime = time.time()
 for site in allSiteNames : 
 
     siteData = regions[site]
+    print("Create figures for " + site)
 
-    siteData.coactivationMatrixFlattened = siteData.coactivationMatrix[trianglarIndices]
-    siteData.copresentationMatrixFlattened = siteData.copresentationMatrix[trianglarIndices]
+    relevantIndices = np.where(siteData.copresentation != 0)
+    #relevantIndices = np.where(np.logical_and(siteData.copresentation !=0, siteData.coactivation > minResponses))
+    #relevantIndices = np.intersect1d(np.where(siteData.copresentation != 0), np.where(siteData.coactivation > minResponses))
+    siteData.similarity = uniqueSimilarities[relevantIndices]
+    siteData.coactivation = siteData.coactivation[relevantIndices]
+    siteData.copresentation = siteData.copresentation[relevantIndices]
+    siteData.coactivationNormalized = siteData.coactivation / siteData.copresentation
 
-    relevantIndices = np.where(siteData.copresentationMatrixFlattened !=0 )
-    siteData.similarityMatrixFlattened = similarityMatrixFlattened[relevantIndices]
-    siteData.coactivationMatrixFlattened = siteData.coactivationMatrixFlattened[relevantIndices]
-    siteData.copresentationMatrixFlattened = siteData.copresentationMatrixFlattened[relevantIndices]
-    siteData.coactivationNormalizedFlattened = siteData.coactivationMatrixFlattened / siteData.copresentationMatrixFlattened
-
+    fileDescription = paradigm + '_' + args.metric + '_' + site 
     allRegionCoactivationPlots.append(
-        createPlot(siteData.similarityMatrixFlattened, siteData.coactivationMatrixFlattened, "coactivation_" + site))
+        createPlot(siteData.similarity, siteData.coactivation, "Number of coactivations", "coactivation_" + fileDescription))
     allRegionCopresentationPlots.append(
-        createPlot(siteData.similarityMatrixFlattened, siteData.copresentationMatrixFlattened, "copresentation_" + site))
+        createPlot(siteData.similarity, siteData.copresentation, "Number of copresentations", "copresentation_" + fileDescription))
     allRegionCoactivationNormalizedPlots.append(
-        createPlot(siteData.similarityMatrixFlattened, siteData.coactivationNormalizedFlattened, "coactivation_normalized_" + site))
+        createPlot(siteData.similarity, siteData.coactivationNormalized * 100, "Normalized coactivation probability in %", "coactivation_normalized_" + fileDescription))
     
-    print("Created figures for " + site)
 
 print("\nTime creating figures: " + str(time.time() - figurePrepareTime) + " s\n")
 
-coactivationDiv, coactivationFigId, coactivationTableId = createRegionsDiv(
-    "Coactivation", siteData.coactivationMatrixFlattened)
-copresentationDiv, copresentationFigId, copresentationTableId = createRegionsDiv(
-    "Copresentation", siteData.copresentationMatrixFlattened)
-coactivationNormalizedDiv, coactivationNormalizedFigId, coactivationNormalizedTableId = createRegionsDiv(
-    "Coactivation - Normalized", siteData.coactivationNormalizedFlattened)
+coactivationDiv, coactivationFigId, coactivationTableId = createRegionsDiv("Coactivation")
+copresentationDiv, copresentationFigId, copresentationTableId = createRegionsDiv("Copresentation")
+coactivationNormalizedDiv, coactivationNormalizedFigId, coactivationNormalizedTableId = createRegionsDiv("Coactivation - Normalized")
 
 
 external_stylesheets = ['https://codepen.io/chriddyp/pen/bWLwgP.css']

@@ -48,9 +48,11 @@ class DataHandler(object):
             neural_data[f'{subject}_{session}']['objectnames'] = objectnames
             neural_data[f'{subject}_{session}']['objectnumbers'] = objectnumbers
             neural_data[f'{subject}_{session}']['stimlookup'] = [stim[0] for stim in stimlookup]
-            neural_data[f'{subject}_{session}']['dict_cat2object'] = \
-                get_dict_cat2object(objectnames,
-                                    self.df_metadata, self.concept_source)
+            
+            if self.load_cat2object : 
+                neural_data[f'{subject}_{session}']['dict_cat2object'] = \
+                    get_dict_cat2object(objectnames,
+                                        self.df_metadata, self.concept_source)
             
             
             neural_data[f'{subject}_{session}']['units'] = {}
