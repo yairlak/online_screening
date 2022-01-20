@@ -44,9 +44,11 @@ parser.add_argument('--session', default=None, type=str,
 # DATA AND MODEL
 parser.add_argument('--metric', default='euclidean',
                     help='Distance metric')
+parser.add_argument('--similarity_matrix_delimiter', default=',', type=str,
+                    help='Similarity metric delimiter')
 
 # FLAGS
-parser.add_argument('--dont_plot', action='store_true', default=True, 
+parser.add_argument('--dont_plot', action='store_true', default=False, 
                     help='If True, plotting to figures folder is supressed')
 parser.add_argument('--load_cat2object', default=False, 
                     help='If True, cat2object is loaded')
@@ -114,7 +116,6 @@ def createTableDiv(title, figureId, tableId, columnName, columnId, columnData) :
         ], className="row"),
     ])
 
-
 def createRegionsDiv(name) : 
     figureId = name + "-overview"
     tableId = name + "-regions-table"
@@ -133,7 +134,51 @@ def smooth(y, numPoints):
 def Gauss(x, a, x0, sigma):
     return a * np.exp(-(x - x0)**2 / (2 * sigma**2))
 
-def createPlot(x, y, yLabel, filename) :
+def fitPartialGaussian(x, y) : 
+    if len(y) <= 2 or not np.any(y > 0): 
+        return x, y
+
+    maxIndex = np.amax(np.where(y > 0)) + 1
+
+    xGauss = x[:maxIndex]
+    xGauss = np.append(xGauss, xGauss[-1]-xGauss[-2] + xGauss[-1])
+    for i in range(1,maxIndex) : 
+        xGauss = np.append(xGauss, x[maxIndex-i]-x[maxIndex-i-1] + xGauss[-1])
+
+    yPart = y[:maxIndex]
+    yGaussInput = np.concatenate((yPart, yPart[::-1]))
+
+    yGauss = fitGauss(xGauss, yGaussInput)
+
+    xGaussPart = xGauss[:maxIndex]
+    yGaussPart = yGauss[:maxIndex]
+
+    return xGaussPart, yGaussPart 
+
+def fitGauss(x, y) : 
+    mean = sum(x * y) / sum(y)
+    sigma = np.sqrt(sum(y * (x - mean)**2) / sum(y))
+
+    try : 
+        popt,pcov = curve_fit(Gauss, x, y, p0=[max(y), mean, sigma])
+    except Exception: 
+        print("WARNING: Error fitting gauss")
+        return y
+
+    yGauss = Gauss(x, *popt)
+
+    return yGauss
+
+def addPlot(fig, x, y, mode, name) : 
+    fig.add_trace(
+        go.Scatter(
+            x=x,
+            y=y,
+            mode=mode,
+            name=name
+        ))
+
+def createPlot(x, y, yLabel, filename, plotHalfGaussian) :
 
     if len(y) == 0 : 
         meanY = 0
@@ -154,44 +199,28 @@ def createPlot(x, y, yLabel, filename) :
     if meanY == 0 : 
         yGauss = yWithoutOutliers
     else : 
-        mean = sum(xWithoutOutliers * yWithoutOutliers) / sum(yWithoutOutliers)
-        sigma = np.sqrt(sum(yWithoutOutliers * (xWithoutOutliers - mean)**2) / sum(yWithoutOutliers))
+        yGauss = fitGauss(xWithoutOutliers, yWithoutOutliers)
 
-        popt,pcov = curve_fit(Gauss, xWithoutOutliers, yWithoutOutliers, p0=[max(yWithoutOutliers), mean, sigma])
-        yGauss = Gauss(xWithoutOutliers, *popt)
-    #yFitted = savgol_filter(y, 51, 3) # window size 51, polynomial order 3
-
+    try : 
+        yFitted = savgol_filter(yWithoutOutliers, 15, 3) # window size 51, polynomial order 3
+    except Exception : 
+        print("WARNING: Error applying filter")
+        yFitted = yWithoutOutliers
 
     fig = go.Figure()
-    fig.add_trace(
-        go.Scatter(
-            x=xWithoutOutliers,
-            y=yWithoutOutliers,
-            mode='markers',
-            name='data'
-            #trendline="lowess", 
-            #trendline_options=dict(frac=0.1)
-        ))
-    
-    
-    fig.add_trace(
-        go.Scatter(
-            x=xWithoutOutliers,
-            y=smooth(yWithoutOutliers, 5),
-            mode='lines',
-            name='smoothed 5 point avg'
-        ))
 
-    fig.add_trace(
-        go.Scatter(
-            x=xWithoutOutliers,
-            y=yGauss,
-            mode='lines',
-            name='Gaussian fit'
-        ))
+    addPlot(fig, xWithoutOutliers, yWithoutOutliers, 'markers', 'Data')
+    #addPlot(fig, xWithoutOutliers, smooth(yWithoutOutliers, 5), 'lines', 'Smoothed 5 point avg')
+    addPlot(fig, xWithoutOutliers, yGauss, 'lines', 'Gaussian fit')
+    addPlot(fig, xWithoutOutliers, yFitted, 'lines', 'Savgol filter')
     
+    if plotHalfGaussian : 
+        xPartialGauss, yPartialGauss = fitPartialGaussian(xWithoutOutliers, yWithoutOutliers)
+        addPlot(fig, xPartialGauss, yPartialGauss, 'lines', 'Half gaussian fit')
+
     fig.update_layout(
-        xaxis_title="Semantic similarity",
+        title_text=' '.join(filename.split('_')),
+        xaxis_title='Semantic similarity',
         yaxis_title=yLabel,
     )
 
@@ -307,11 +336,11 @@ for site in allSiteNames :
 
     fileDescription = paradigm + '_' + args.metric + '_' + site 
     allRegionCoactivationPlots.append(
-        createPlot(siteData.similarity, siteData.coactivation, "Number of coactivations", "coactivation_" + fileDescription))
+        createPlot(siteData.similarity, siteData.coactivation, "Number of coactivations", "coactivation_" + fileDescription, False))
     allRegionCopresentationPlots.append(
-        createPlot(siteData.similarity, siteData.copresentation, "Number of copresentations", "copresentation_" + fileDescription))
+        createPlot(siteData.similarity, siteData.copresentation, "Number of copresentations", "copresentation_" + fileDescription, False))
     allRegionCoactivationNormalizedPlots.append(
-        createPlot(siteData.similarity, siteData.coactivationNormalized * 100, "Normalized coactivation probability in %", "coactivation_normalized_" + fileDescription))
+        createPlot(siteData.similarity, siteData.coactivationNormalized * 100, "Normalized coactivation probability in %", "coactivation_normalized_" + fileDescription, True))
     
 
 print("\nTime creating figures: " + str(time.time() - figurePrepareTime) + " s\n")

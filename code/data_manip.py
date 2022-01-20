@@ -85,7 +85,7 @@ class DataHandler(object):
 
     def load_similarity_matrix(self): 
         self.similarity_matrix = pd.read_csv(self.path2semanticdata + 'similarityMatrix_' + self.metric + '.csv',
-                                              delimiter=',',
+                                              delimiter=self.similarity_matrix_delimiter,
                                               header=None)
         
 def get_THINGS_indices(df_metadata, objects) : 
