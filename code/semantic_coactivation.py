@@ -13,7 +13,7 @@ import itertools
 import statistics 
 
 from typing import List
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from scipy.optimize import curve_fit
 from scipy.signal import savgol_filter
 import plotly.graph_objects as go
@@ -80,15 +80,25 @@ args=parser.parse_args()
 
 
 @dataclass
+class NormArray:
+    y : List = field(default_factory=lambda: np.zeros((nSimilarities)))
+    normalizer : List = field(default_factory=lambda: np.zeros((nSimilarities)))
+    similarity : List = field(default_factory=lambda: [])
+    relevantIndices : List = field(default_factory=lambda: [])
+
+    def normalize(self) : 
+        self.relevantIndices = np.where(self.normalizer != 0)
+        self.normalizer = self.normalizer[self.relevantIndices]
+        self.similarity = uniqueSimilarities[self.relevantIndices]
+        self.y = self.y[self.relevantIndices] / self.normalizer
+        #return y, uniqueSimilarities[relevantIndices], relevantIndices
+
+
+@dataclass
 class Region:
     sitename: str
-    coactivation: List 
-    copresentation: List 
-    coactivationNormalized: List
-    zscores: List
-    zscoresNormalizer : List
-    similarity: List
-    similarityZscores: List
+    coactivationNorm : NormArray
+    zScoresNorm : NormArray
 
 def createTableDiv(title, figureId, tableId, columnName, columnId, columnData) : 
     
@@ -233,7 +243,6 @@ def createPlot(x, y, yLabel, filename, plotHalfGaussian) :
 
     return fig
 
-
 #############
 # LOAD DATA #
 #############
@@ -273,7 +282,7 @@ allRegionsName = 'All'
 allSiteNames = [allRegionsName]
 regions = {}
 
-regions[allRegionsName] = Region(allRegionsName, np.zeros((nSimilarities)), np.zeros((nSimilarities)), [], np.zeros((nSimilarities)), np.zeros((nSimilarities)), [], [])
+regions[allRegionsName] = Region(allRegionsName, NormArray(), NormArray())
 
 for session in sessions:
     if not hasattr(args, 'unit'):
@@ -293,14 +302,14 @@ for session in sessions:
 
         if site not in allSiteNames : 
             allSiteNames.append(site)
-            regions[site] = Region(site, np.zeros((nSimilarities)), np.zeros((nSimilarities)), [], np.zeros((nSimilarities)), np.zeros((nSimilarities)), [], [])
+            regions[site] = Region(site, NormArray(), NormArray())
 
     for site in allSitesSession : 
         for i1, i2 in itertools.product(thingsIndices, thingsIndices) : 
             if i1 == i2 and not includeSelfSimilarity :
                 continue
-            regions[allRegionsName].copresentation[similarityMatrixToIndex[i1, i2]] += len(units)
-            regions[site].copresentation[similarityMatrixToIndex[i1, i2]] += len(units)
+            regions[allRegionsName].coactivationNorm.normalizer[similarityMatrixToIndex[i1, i2]] += len(units) # copresentation
+            regions[site].coactivationNorm.normalizer[similarityMatrixToIndex[i1, i2]] += len(units)
 
     for unit in units:
         pvals = data.neural_data[session]['units'][unit]['p_vals']
@@ -312,8 +321,8 @@ for session in sessions:
         for i1, i2 in itertools.product(responses, responses) :  
             if i1 == i2 and not includeSelfSimilarity :
                 continue
-            regions[allRegionsName].coactivation[similarityMatrixToIndex[i1, i2]] += 1
-            regions[site].coactivation[similarityMatrixToIndex[i1, i2]] += 1
+            regions[allRegionsName].coactivationNorm.y[similarityMatrixToIndex[i1, i2]] += 1
+            regions[site].coactivationNorm.y[similarityMatrixToIndex[i1, i2]] += 1
 
         if len(responses) > 0 :
             bestZIndex = np.argmax(zscores)# np.where(zscores == np.amax(zscores))[0][0]
@@ -323,10 +332,10 @@ for session in sessions:
                     continue
                 index = thingsIndices[i]
                 indexBest = thingsIndices[bestZIndex]
-                regions[allRegionsName].zscores[similarityMatrixToIndex[index, indexBest]] += zscores[i]
-                regions[site].zscores[similarityMatrixToIndex[index, indexBest]] += zscores[i]
-                regions[allRegionsName].zscoresNormalizer[similarityMatrixToIndex[index, indexBest]] += 1
-                regions[site].zscoresNormalizer[similarityMatrixToIndex[index, indexBest]] += 1
+                regions[allRegionsName].zScoresNorm.y[similarityMatrixToIndex[index, indexBest]] += zscores[i]
+                regions[site].zScoresNorm.y[similarityMatrixToIndex[index, indexBest]] += zscores[i]
+                regions[allRegionsName].zScoresNorm.normalizer[similarityMatrixToIndex[index, indexBest]] += 1
+                regions[site].zScoresNorm.normalizer[similarityMatrixToIndex[index, indexBest]] += 1
             
         
 
@@ -346,31 +355,21 @@ for site in allSiteNames :
     siteData = regions[site]
     print("Create figures for " + site)
 
-    relevantIndices = np.where(siteData.copresentation != 0)
-    #relevantIndices = np.where(np.logical_and(siteData.copresentation !=0, siteData.coactivation > minResponses))
-    #relevantIndices = np.intersect1d(np.where(siteData.copresentation != 0), np.where(siteData.coactivation > minResponses))
-    siteData.similarity = uniqueSimilarities[relevantIndices]
-    siteData.coactivation = siteData.coactivation[relevantIndices]
-    siteData.copresentation = siteData.copresentation[relevantIndices]
-    siteData.coactivationNormalized = siteData.coactivation / siteData.copresentation
+    coactivationBeforeNormalization = siteData.coactivationNorm.y
+    siteData.coactivationNorm.normalize()
+    siteData.zScoresNorm.normalize()
 
-    #siteData.zscores, siteData.similarityZscores, relevantIndicesZscores = getNormalizedData(y, normalizer)
-    relevantIndicesZscores = np.where(siteData.zscoresNormalizer != 0)
-    siteData.zscores = siteData.zscores[relevantIndicesZscores]
-    siteData.zscoresNormalizer = siteData.zscoresNormalizer[relevantIndicesZscores]
-    siteData.similarityZscores = uniqueSimilarities[relevantIndicesZscores]
-    siteData.zscores = siteData.zscores / siteData.zscoresNormalizer
+    coactivationBeforeNormalization = coactivationBeforeNormalization[siteData.coactivationNorm.relevantIndices]
 
     fileDescription = paradigm + '_' + args.metric + '_' + site 
     allRegionCoactivationPlots.append(
-        createPlot(siteData.similarity, siteData.coactivation, "Number of coactivations", "coactivation_" + fileDescription, False))
+        createPlot(siteData.coactivationNorm.similarity, coactivationBeforeNormalization, "Number of coactivations", "coactivation_" + fileDescription, False))
     allRegionCopresentationPlots.append(
-        createPlot(siteData.similarity, siteData.copresentation, "Number of copresentations", "copresentation_" + fileDescription, False))
+        createPlot(siteData.coactivationNorm.similarity, siteData.coactivationNorm.normalizer, "Number of copresentations", "copresentation_" + fileDescription, False))
     allRegionCoactivationNormalizedPlots.append(
-        createPlot(siteData.similarity, siteData.coactivationNormalized * 100, "Normalized coactivation probability in %", "coactivation_normalized_" + fileDescription, True))
+        createPlot(siteData.coactivationNorm.similarity, siteData.coactivationNorm.y * 100, "Normalized coactivation probability in %", "coactivation_normalized_" + fileDescription, True))
     allRegionZScoresPlots.append(
-        createPlot(siteData.similarityZscores, siteData.zscores, "Avg zscores", "zscores_" + fileDescription, True))
-    
+        createPlot(siteData.zScoresNorm.similarity, siteData.zScoresNorm.y, "Avg zscores", "zscores_" + fileDescription, True))
     
 
 print("\nTime creating figures: " + str(time.time() - figurePrepareTime) + " s\n")
