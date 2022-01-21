@@ -48,7 +48,7 @@ parser.add_argument('--similarity_matrix_delimiter', default=',', type=str,
                     help='Similarity metric delimiter')
 
 # FLAGS
-parser.add_argument('--dont_plot', action='store_true', default=False, 
+parser.add_argument('--dont_plot', action='store_true', default=True, 
                     help='If True, plotting to figures folder is supressed')
 parser.add_argument('--load_cat2object', default=False, 
                     help='If True, cat2object is loaded')
@@ -85,7 +85,10 @@ class Region:
     coactivation: List 
     copresentation: List 
     coactivationNormalized: List
+    zscores: List
+    zscoresNormalizer : List
     similarity: List
+    similarityZscores: List
 
 def createTableDiv(title, figureId, tableId, columnName, columnId, columnData) : 
     
@@ -148,7 +151,7 @@ def fitPartialGaussian(x, y) :
     yPart = y[:maxIndex]
     yGaussInput = np.concatenate((yPart, yPart[::-1]))
 
-    yGauss = fitGauss(xGauss, yGaussInput)
+    xGauss, yGauss = fitGauss(xGauss, yGaussInput)
 
     xGaussPart = xGauss[:maxIndex]
     yGaussPart = yGauss[:maxIndex]
@@ -163,11 +166,11 @@ def fitGauss(x, y) :
         popt,pcov = curve_fit(Gauss, x, y, p0=[max(y), mean, sigma])
     except Exception: 
         print("WARNING: Error fitting gauss")
-        return y
+        return [], []
 
     yGauss = Gauss(x, *popt)
 
-    return yGauss
+    return x, yGauss
 
 def addPlot(fig, x, y, mode, name) : 
     fig.add_trace(
@@ -197,9 +200,10 @@ def createPlot(x, y, yLabel, filename, plotHalfGaussian) :
         print("-Excluded " + str(len(x) - len(xWithoutOutliers)) + " outliers-")
 
     if meanY == 0 : 
+        xGauss = xWithoutOutliers
         yGauss = yWithoutOutliers
     else : 
-        yGauss = fitGauss(xWithoutOutliers, yWithoutOutliers)
+        xGauss, yGauss = fitGauss(xWithoutOutliers, yWithoutOutliers)
 
     try : 
         yFitted = savgol_filter(yWithoutOutliers, 15, 3) # window size 51, polynomial order 3
@@ -211,7 +215,7 @@ def createPlot(x, y, yLabel, filename, plotHalfGaussian) :
 
     addPlot(fig, xWithoutOutliers, yWithoutOutliers, 'markers', 'Data')
     #addPlot(fig, xWithoutOutliers, smooth(yWithoutOutliers, 5), 'lines', 'Smoothed 5 point avg')
-    addPlot(fig, xWithoutOutliers, yGauss, 'lines', 'Gaussian fit')
+    addPlot(fig, xGauss, yGauss, 'lines', 'Gaussian fit')
     addPlot(fig, xWithoutOutliers, yFitted, 'lines', 'Savgol filter')
     
     if plotHalfGaussian : 
@@ -269,7 +273,7 @@ allRegionsName = 'All'
 allSiteNames = [allRegionsName]
 regions = {}
 
-regions[allRegionsName] = Region(allRegionsName, np.zeros((nSimilarities)), np.zeros((nSimilarities)), [], [])
+regions[allRegionsName] = Region(allRegionsName, np.zeros((nSimilarities)), np.zeros((nSimilarities)), [], np.zeros((nSimilarities)), np.zeros((nSimilarities)), [], [])
 
 for session in sessions:
     if not hasattr(args, 'unit'):
@@ -289,7 +293,7 @@ for session in sessions:
 
         if site not in allSiteNames : 
             allSiteNames.append(site)
-            regions[site] = Region(site, np.zeros((nSimilarities)), np.zeros((nSimilarities)), [], [])
+            regions[site] = Region(site, np.zeros((nSimilarities)), np.zeros((nSimilarities)), [], np.zeros((nSimilarities)), np.zeros((nSimilarities)), [], [])
 
     for site in allSitesSession : 
         for i1, i2 in itertools.product(thingsIndices, thingsIndices) : 
@@ -300,8 +304,9 @@ for session in sessions:
 
     for unit in units:
         pvals = data.neural_data[session]['units'][unit]['p_vals']
-        #zscores = data.neural_data[session]['units'][unit]['zscores']
+        zscores = data.neural_data[session]['units'][unit]['zscores']
         site = data.neural_data[session]['units'][unit]['site']
+        #responseIndices = np.where(pvals < args.alpha)[0]
         responses = [thingsIndices[i] for i in np.where(pvals < args.alpha)[0]]
 
         for i1, i2 in itertools.product(responses, responses) :  
@@ -309,6 +314,20 @@ for session in sessions:
                 continue
             regions[allRegionsName].coactivation[similarityMatrixToIndex[i1, i2]] += 1
             regions[site].coactivation[similarityMatrixToIndex[i1, i2]] += 1
+
+        if len(responses) > 0 :
+            bestZIndex = np.argmax(zscores)# np.where(zscores == np.amax(zscores))[0][0]
+
+            for i in range(len(zscores)) : # responseIndices
+                if i == bestZIndex and not includeSelfSimilarity : 
+                    continue
+                index = thingsIndices[i]
+                indexBest = thingsIndices[bestZIndex]
+                regions[allRegionsName].zscores[similarityMatrixToIndex[index, indexBest]] += zscores[i]
+                regions[site].zscores[similarityMatrixToIndex[index, indexBest]] += zscores[i]
+                regions[allRegionsName].zscoresNormalizer[similarityMatrixToIndex[index, indexBest]] += 1
+                regions[site].zscoresNormalizer[similarityMatrixToIndex[index, indexBest]] += 1
+            
         
 
 print("Time preparing data: " + str(time.time() - startPrepareDataTime) + " s\n")
@@ -319,6 +338,7 @@ print("Time preparing data: " + str(time.time() - startPrepareDataTime) + " s\n"
 allRegionCoactivationPlots = []
 allRegionCopresentationPlots = []
 allRegionCoactivationNormalizedPlots = []
+allRegionZScoresPlots = []
 
 figurePrepareTime = time.time()
 for site in allSiteNames : 
@@ -334,6 +354,13 @@ for site in allSiteNames :
     siteData.copresentation = siteData.copresentation[relevantIndices]
     siteData.coactivationNormalized = siteData.coactivation / siteData.copresentation
 
+    #siteData.zscores, siteData.similarityZscores, relevantIndicesZscores = getNormalizedData(y, normalizer)
+    relevantIndicesZscores = np.where(siteData.zscoresNormalizer != 0)
+    siteData.zscores = siteData.zscores[relevantIndicesZscores]
+    siteData.zscoresNormalizer = siteData.zscoresNormalizer[relevantIndicesZscores]
+    siteData.similarityZscores = uniqueSimilarities[relevantIndicesZscores]
+    siteData.zscores = siteData.zscores / siteData.zscoresNormalizer
+
     fileDescription = paradigm + '_' + args.metric + '_' + site 
     allRegionCoactivationPlots.append(
         createPlot(siteData.similarity, siteData.coactivation, "Number of coactivations", "coactivation_" + fileDescription, False))
@@ -341,6 +368,9 @@ for site in allSiteNames :
         createPlot(siteData.similarity, siteData.copresentation, "Number of copresentations", "copresentation_" + fileDescription, False))
     allRegionCoactivationNormalizedPlots.append(
         createPlot(siteData.similarity, siteData.coactivationNormalized * 100, "Normalized coactivation probability in %", "coactivation_normalized_" + fileDescription, True))
+    allRegionZScoresPlots.append(
+        createPlot(siteData.similarityZscores, siteData.zscores, "Avg zscores", "zscores_" + fileDescription, True))
+    
     
 
 print("\nTime creating figures: " + str(time.time() - figurePrepareTime) + " s\n")
@@ -348,6 +378,7 @@ print("\nTime creating figures: " + str(time.time() - figurePrepareTime) + " s\n
 coactivationDiv, coactivationFigId, coactivationTableId = createRegionsDiv("Coactivation")
 copresentationDiv, copresentationFigId, copresentationTableId = createRegionsDiv("Copresentation")
 coactivationNormalizedDiv, coactivationNormalizedFigId, coactivationNormalizedTableId = createRegionsDiv("Coactivation - Normalized")
+zscoresDiv, zscoresFigId, zscoresTableId = createRegionsDiv("Avg zscores dependent on semantic similarity to best response")
 
 
 external_stylesheets = ['https://codepen.io/chriddyp/pen/bWLwgP.css']
@@ -357,7 +388,8 @@ app.layout = html.Div(children=[
     html.H1(children='Tuners'),
     coactivationDiv, 
     copresentationDiv, 
-    coactivationNormalizedDiv
+    coactivationNormalizedDiv, 
+    zscoresDiv
 ])
 
 print("\n--- Ready! ---\n\n")
@@ -390,5 +422,12 @@ def update_output_div(active_cell):
 def update_output_div(active_cell):
     return getActivePlot(allRegionCoactivationNormalizedPlots, active_cell)
 
+@app.callback(
+    Output(component_id=zscoresFigId, component_property='figure'), 
+    Input(zscoresTableId, 'active_cell')
+)
+def update_output_div(active_cell):
+    return getActivePlot(allRegionZScoresPlots, active_cell)
+    
 if __name__ == '__main__':
     app.run_server(debug=False) # why ?

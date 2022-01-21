@@ -40,16 +40,13 @@ parser.add_argument('--session', default=None, type=str,
                         Otherwise, format should be '{subject}_{session}, \
                             e.g., '90_1'.")
 
-# DATA AND MODEL
-parser.add_argument('--concept_source', default='Top-down Category (manual selection)',
-                    help='Field name from THINGS for semantic categories',
-                    choices = ['Bottom-up Category (Human Raters)',
-                               'Top-down Category (WordNet)',
-                               'Top-down Category (manual selection)'])
-
 # FLAGS
-parser.add_argument('--dont_plot', action='store_true', default=True, # TODO
+parser.add_argument('--show_all', action='store_true', default=False,
+                    help='If True, all heatmaps are shown on dashboard')
+parser.add_argument('--dont_plot', action='store_true', default=True,
                     help='If True, plotting to figures folder is supressed')
+parser.add_argument('--load_cat2object', default=False, 
+                    help='If True, cat2object is loaded')
 
 # STATS
 parser.add_argument('--alpha', type=float, default=0.001,
@@ -130,7 +127,7 @@ def getInterpolatedMap(x, y, z) :
     rbf = scipy.interpolate.Rbf(xWithBorder, yWithBorder, zWithBorder, function='linear')
     zi = rbf(xi, yi)
 
-    return px.imshow(zi,aspect=0.8,color_continuous_scale='RdBu',origin='lower')
+    return px.imshow(zi,aspect=0.8,color_continuous_scale='RdBu_r',origin='lower')
 
 def createHeatMap(tuner) : 
     
@@ -278,7 +275,7 @@ app = dash.Dash(__name__, external_stylesheets=external_stylesheets)
 
 table_options_heatmap = [{'tuners-heatmap-column': tuners[i].name, 'id': i} for i in range(len(tuners))]
 
-figureHeight = 900
+figureHeight = 750
 
 graphLayout = go.Layout(
     xaxis=dict(ticks='', showticklabels=False),
@@ -291,27 +288,28 @@ graphLayout = go.Layout(
 
 graphLayoutBig = go.Layout(
     height=figureHeight,
-    width=1100
+    width=figureHeight*3/2
 )
 
 heatmap = getInterpolatedMap(np.array(tuners[0].stimuliX), np.array(tuners[0].stimuliY), np.array(tuners[0].zscores))
 
 allHeatmaps = []
-for cell in allUnits : 
-    heatMapFigure = createHeatMap(cell)
-    allHeatmaps.append(
-        html.Div([
-            html.H3(children='Activation heatmap ' + cell.name),
+if args.show_all : 
+    for cell in allUnits : 
+        heatMapFigure = createHeatMap(cell)
+        allHeatmaps.append(
             html.Div([
-                dcc.Graph(id='heatmap-' + cell.name, figure=heatMapFigure)
-            ], className="nine columns"),
-        ], className="row"),
-    )
-    if not args.dont_plot : 
-        heatMapFigure.write_image(args.path2images + "\\" + cell.subjectsession + "_ch" + str(cell.channel) + "_cl" + str(cell.cluster) + ".png")
-    print("Created heatmap for " + cell.name)
+                html.H3(children='Activation heatmap ' + cell.name),
+                html.Div([
+                    dcc.Graph(id='heatmap-' + cell.name, figure=heatMapFigure)
+                ], className="nine columns"),
+            ], className="row"),
+        )
+        if not args.dont_plot : 
+            heatMapFigure.write_image(args.path2images + "\\" + cell.subjectsession + "_ch" + str(cell.channel) + "_cl" + str(cell.cluster) + ".png")
+        print("Created heatmap for " + cell.name)
 
-print("Done loading all heatmaps!")
+    print("Done loading all heatmaps!")
 
 app.layout = html.Div(children=[
     html.H1(children='Tuners'),
@@ -342,6 +340,8 @@ app.layout = html.Div(children=[
 
     html.Div(children = allHeatmaps),
 ])
+
+print("\n--- Ready! ---\n\n")
 
 
 @app.callback(
