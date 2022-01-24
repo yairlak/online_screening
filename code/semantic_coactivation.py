@@ -6,6 +6,7 @@
 """
 
 import os
+import math
 import numpy as np
 import time
 import argparse
@@ -93,12 +94,17 @@ class NormArray:
         self.y = self.y[self.relevantIndices] / self.normalizer
         #return y, uniqueSimilarities[relevantIndices], relevantIndices
 
+    def addValue(self, index, value) : 
+        self.y[index] += value
+        self.normalizer[index] += 1
+
 
 @dataclass
 class Region:
     sitename: str
-    coactivationNorm : NormArray
-    zScoresNorm : NormArray
+    coactivationNorm : NormArray = field(default_factory=lambda: NormArray())
+    zScoresNorm : NormArray = field(default_factory=lambda: NormArray())
+    cohensD : NormArray = field(default_factory=lambda: NormArray())
 
 def createTableDiv(title, figureId, tableId, columnName, columnId, columnData) : 
     
@@ -268,6 +274,10 @@ print("\nTime loading data: " + str(time.time() - startLoadData) + " s\n")
 figureHeight = 900
 figureWidth = 1100
 
+startTimeAvgFiringRate = 100
+stopTimeAvgFiringRate = 1000
+firingRateFactor = (1000 / (stopTimeAvgFiringRate - startTimeAvgFiringRate))
+
 paradigm = args.path2data.split(os.sep)[-1].split('/')[-2].split('_')[0]
 includeSelfSimilarity = False
 #minResponses = 3
@@ -282,14 +292,19 @@ allRegionsName = 'All'
 allSiteNames = [allRegionsName]
 regions = {}
 
-regions[allRegionsName] = Region(allRegionsName, NormArray(), NormArray())
+regions[allRegionsName] = Region(allRegionsName)
 
 for session in sessions:
+    
+    startPrepareSessionData = time.time()
+    
     if not hasattr(args, 'unit'):
         units = list(set(data.neural_data[session]['units'].keys()))
     else:
         units = [args.unit]
 
+    stimlookup = data.neural_data[session]['stimlookup']
+    objectNames = data.neural_data[session]['objectnames']
     thingsIndices = get_THINGS_indices(data.df_metadata, data.neural_data[session]['stimlookup'])
 
     # do it before to make it faster
@@ -302,7 +317,7 @@ for session in sessions:
 
         if site not in allSiteNames : 
             allSiteNames.append(site)
-            regions[site] = Region(site, NormArray(), NormArray())
+            regions[site] = Region(site)
 
     for site in allSitesSession : 
         for i1, i2 in itertools.product(thingsIndices, thingsIndices) : 
@@ -315,7 +330,7 @@ for session in sessions:
         pvals = data.neural_data[session]['units'][unit]['p_vals']
         zscores = data.neural_data[session]['units'][unit]['zscores']
         site = data.neural_data[session]['units'][unit]['site']
-        #responseIndices = np.where(pvals < args.alpha)[0]
+        trials = data.neural_data[session]['units'][unit]['trial']
         responses = [thingsIndices[i] for i in np.where(pvals < args.alpha)[0]]
 
         for i1, i2 in itertools.product(responses, responses) :  
@@ -325,21 +340,63 @@ for session in sessions:
             regions[site].coactivationNorm.y[similarityMatrixToIndex[i1, i2]] += 1
 
         if len(responses) > 0 :
-            bestZIndex = np.argmax(zscores)# np.where(zscores == np.amax(zscores))[0][0]
+            bestZIndex = np.argmax(zscores)
+            indexBest = thingsIndices[bestZIndex]
 
             for i in range(len(zscores)) : # responseIndices
                 if i == bestZIndex and not includeSelfSimilarity : 
                     continue
                 index = thingsIndices[i]
-                indexBest = thingsIndices[bestZIndex]
-                regions[allRegionsName].zScoresNorm.y[similarityMatrixToIndex[index, indexBest]] += zscores[i]
-                regions[site].zScoresNorm.y[similarityMatrixToIndex[index, indexBest]] += zscores[i]
-                regions[allRegionsName].zScoresNorm.normalizer[similarityMatrixToIndex[index, indexBest]] += 1
-                regions[site].zScoresNorm.normalizer[similarityMatrixToIndex[index, indexBest]] += 1
-            
+                similarityIndex = similarityMatrixToIndex[index, indexBest]
+                regions[allRegionsName].zScoresNorm.addValue(similarityIndex, zscores[i])
+                regions[site].zScoresNorm.addValue(similarityIndex, zscores[i])
+                
+            # Cohens d    
+            numStimuliSession = len(thingsIndices)
+            meanFiringRatesStimuli = np.zeros((numStimuliSession))
+            stddevFiringRatesStimuli = np.zeros((numStimuliSession))
         
+            numAllTrials = len(trials)
+            allFiringRates = np.zeros((numAllTrials))
+        
+            for stimNum in range(numStimuliSession) :
+                relevantTrials = np.where(np.asarray(objectNames) == stimlookup[stimNum])[0]
+                responseFiringRates = []
+                
+                for t in relevantTrials :
+                    relevantSpikes = trials[t]
+                    relevantSpikes = relevantSpikes[np.where(relevantSpikes >= startTimeAvgFiringRate) and np.where(relevantSpikes < stopTimeAvgFiringRate)]
+                    firingRate = float(len(relevantSpikes)) * firingRateFactor
+                    responseFiringRates.append(firingRate)
+                    allFiringRates[t] = firingRate
 
-print("Time preparing data: " + str(time.time() - startPrepareDataTime) + " s\n")
+                meanFiringRatesStimuli[stimNum] = statistics.mean(responseFiringRates)
+                stddevFiringRatesStimuli[stimNum] = statistics.stdev(responseFiringRates)
+
+            meanAll = statistics.mean(allFiringRates)
+            stddevAll = statistics.stdev(allFiringRates)
+
+            #for response in responses : 
+            for stimNum in range(numStimuliSession) : 
+
+                index = thingsIndices[stimNum]
+                if indexBest == index and not includeSelfSimilarity :
+                    continue
+        
+                mean1 = meanFiringRatesStimuli[stimNum]
+                s1 = stddevFiringRatesStimuli[stimNum]
+                stddevNorm = math.sqrt(s1 * s1 + stddevAll * stddevAll)
+                if stddevNorm == 0 : 
+                    print('stddev is 0')
+                    
+                cohensDResult = (mean1 - meanAll) / stddevNorm
+                similarityIndex = similarityMatrixToIndex[indexBest, index]
+                regions[allRegionsName].cohensD.addValue(similarityIndex, cohensDResult)
+                regions[site].cohensD.addValue(similarityIndex, cohensDResult)
+        
+    print("Prepared data of session " + session + ". Time: " + str(time.time() - startPrepareSessionData) + " s" )
+
+print("\nTime preparing data: " + str(time.time() - startPrepareDataTime) + " s\n")
 
 
 #regionsColumn = [{'regions-column': site, 'id': site} for site in allSiteNames]
@@ -348,6 +405,7 @@ allRegionCoactivationPlots = []
 allRegionCopresentationPlots = []
 allRegionCoactivationNormalizedPlots = []
 allRegionZScoresPlots = []
+allRegionCohensDPlots = []
 
 figurePrepareTime = time.time()
 for site in allSiteNames : 
@@ -358,6 +416,7 @@ for site in allSiteNames :
     coactivationBeforeNormalization = siteData.coactivationNorm.y
     siteData.coactivationNorm.normalize()
     siteData.zScoresNorm.normalize()
+    siteData.cohensD.normalize()
 
     coactivationBeforeNormalization = coactivationBeforeNormalization[siteData.coactivationNorm.relevantIndices]
 
@@ -369,7 +428,9 @@ for site in allSiteNames :
     allRegionCoactivationNormalizedPlots.append(
         createPlot(siteData.coactivationNorm.similarity, siteData.coactivationNorm.y * 100, "Normalized coactivation probability in %", "coactivation_normalized_" + fileDescription, True))
     allRegionZScoresPlots.append(
-        createPlot(siteData.zScoresNorm.similarity, siteData.zScoresNorm.y, "Avg zscores", "zscores_" + fileDescription, True))
+        createPlot(siteData.zScoresNorm.similarity, siteData.zScoresNorm.y, "Mean zscores", "zscores_" + fileDescription, True))
+    allRegionCohensDPlots.append(
+        createPlot(siteData.cohensD.similarity, siteData.cohensD.y, "Mean cohens d", "cohensd_" + fileDescription, True))
     
 
 print("\nTime creating figures: " + str(time.time() - figurePrepareTime) + " s\n")
@@ -377,7 +438,8 @@ print("\nTime creating figures: " + str(time.time() - figurePrepareTime) + " s\n
 coactivationDiv, coactivationFigId, coactivationTableId = createRegionsDiv("Coactivation")
 copresentationDiv, copresentationFigId, copresentationTableId = createRegionsDiv("Copresentation")
 coactivationNormalizedDiv, coactivationNormalizedFigId, coactivationNormalizedTableId = createRegionsDiv("Coactivation - Normalized")
-zscoresDiv, zscoresFigId, zscoresTableId = createRegionsDiv("Avg zscores dependent on semantic similarity to best response")
+zscoresDiv, zscoresFigId, zscoresTableId = createRegionsDiv("Mean zscores dependent on semantic similarity to best response")
+cohensDDiv, cohensDFigId, cohensDTableId = createRegionsDiv("Mean cohens d dependent on semantic similarity to best response")
 
 
 external_stylesheets = ['https://codepen.io/chriddyp/pen/bWLwgP.css']
@@ -388,7 +450,8 @@ app.layout = html.Div(children=[
     coactivationDiv, 
     copresentationDiv, 
     coactivationNormalizedDiv, 
-    zscoresDiv
+    zscoresDiv, 
+    cohensDDiv
 ])
 
 print("\n--- Ready! ---\n\n")
@@ -427,6 +490,14 @@ def update_output_div(active_cell):
 )
 def update_output_div(active_cell):
     return getActivePlot(allRegionZScoresPlots, active_cell)
+
+
+@app.callback(
+    Output(component_id=cohensDFigId, component_property='figure'), 
+    Input(cohensDTableId, 'active_cell')
+)
+def update_output_div(active_cell):
+    return getActivePlot(allRegionCohensDPlots, active_cell)
     
 if __name__ == '__main__':
     app.run_server(debug=False) # why ?
