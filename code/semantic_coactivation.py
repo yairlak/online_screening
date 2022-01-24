@@ -28,7 +28,6 @@ import dash_html_components as html
 #from dash import dcc
 #from dash import html
 from dash.dependencies import Input, Output
-from sympy import re
 
 # utilility modules
 from data_manip import DataHandler
@@ -62,7 +61,9 @@ parser.add_argument('--alpha', type=float, default=0.001,
 parser.add_argument('--step', type=float, default=0.01,
                     help='Plotting detail')
 parser.add_argument('--max_stdev_outliers', type=float, default=5,
-                    help='Limit for excluding outliers')            
+                    help='Limit for excluding outliers')   
+parser.add_argument('--max_responses_unit', type=float, default=20,
+                    help='Limit for counting responses per unit for histogram')               
 
 # PATHS
 parser.add_argument('--path2metadata',
@@ -105,6 +106,7 @@ class Region:
     coactivationNorm : NormArray = field(default_factory=lambda: NormArray())
     zScoresNorm : NormArray = field(default_factory=lambda: NormArray())
     cohensD : NormArray = field(default_factory=lambda: NormArray())
+    numResponsesHist : List = field (default_factory=lambda: [])
 
 def createTableDiv(title, figureId, tableId, columnName, columnId, columnData) : 
     
@@ -197,6 +199,10 @@ def addPlot(fig, x, y, mode, name) :
             name=name
         ))
 
+def saveImg(fig, filename) : 
+    if not args.dont_plot : 
+        fig.write_image(args.path2images + filename + ".png")
+
 def createPlot(x, y, yLabel, filename, plotHalfGaussian) :
 
     if len(y) == 0 : 
@@ -239,13 +245,12 @@ def createPlot(x, y, yLabel, filename, plotHalfGaussian) :
         addPlot(fig, xPartialGauss, yPartialGauss, 'lines', 'Half gaussian fit')
 
     fig.update_layout(
-        title_text=' '.join(filename.split('_')),
+        title_text=' '.join(filename.replace(os.sep, '_').split('_')),
         xaxis_title='Semantic similarity',
         yaxis_title=yLabel,
     )
 
-    if not args.dont_plot : 
-        fig.write_image(args.path2images + os.sep + filename + ".png")
+    saveImg(fig, filename)
 
     return fig
 
@@ -340,6 +345,9 @@ for session in sessions:
             regions[site].coactivationNorm.y[similarityMatrixToIndex[i1, i2]] += 1
 
         if len(responses) > 0 :
+            regions[allRegionsName].numResponsesHist.append(len(responses))
+            regions[site].numResponsesHist.append(len(responses))
+
             bestZIndex = np.argmax(zscores)
             indexBest = thingsIndices[bestZIndex]
 
@@ -398,14 +406,12 @@ for session in sessions:
 
 print("\nTime preparing data: " + str(time.time() - startPrepareDataTime) + " s\n")
 
-
-#regionsColumn = [{'regions-column': site, 'id': site} for site in allSiteNames]
-
 allRegionCoactivationPlots = []
 allRegionCopresentationPlots = []
 allRegionCoactivationNormalizedPlots = []
 allRegionZScoresPlots = []
 allRegionCohensDPlots = []
+allRegionNumResponsesPlots = []
 
 figurePrepareTime = time.time()
 for site in allSiteNames : 
@@ -422,15 +428,20 @@ for site in allSiteNames :
 
     fileDescription = paradigm + '_' + args.metric + '_' + site 
     allRegionCoactivationPlots.append(
-        createPlot(siteData.coactivationNorm.similarity, coactivationBeforeNormalization, "Number of coactivations", "coactivation_" + fileDescription, False))
+        createPlot(siteData.coactivationNorm.similarity, coactivationBeforeNormalization, "Number of coactivations", "coactivation" + os.sep + fileDescription, False))
     allRegionCopresentationPlots.append(
-        createPlot(siteData.coactivationNorm.similarity, siteData.coactivationNorm.normalizer, "Number of copresentations", "copresentation_" + fileDescription, False))
+        createPlot(siteData.coactivationNorm.similarity, siteData.coactivationNorm.normalizer, "Number of copresentations", "copresentation" + os.sep + fileDescription, False))
     allRegionCoactivationNormalizedPlots.append(
-        createPlot(siteData.coactivationNorm.similarity, siteData.coactivationNorm.y * 100, "Normalized coactivation probability in %", "coactivation_normalized_" + fileDescription, True))
+        createPlot(siteData.coactivationNorm.similarity, siteData.coactivationNorm.y * 100, "Normalized coactivation probability in %", "coactivation_normalized" + os.sep + fileDescription, True))
     allRegionZScoresPlots.append(
-        createPlot(siteData.zScoresNorm.similarity, siteData.zScoresNorm.y, "Mean zscores", "zscores_" + fileDescription, True))
+        createPlot(siteData.zScoresNorm.similarity, siteData.zScoresNorm.y, "Mean zscores", "zscores" + os.sep + fileDescription, True))
     allRegionCohensDPlots.append(
-        createPlot(siteData.cohensD.similarity, siteData.cohensD.y, "Mean cohens d", "cohensd_" + fileDescription, True))
+        createPlot(siteData.cohensD.similarity, siteData.cohensD.y, "Mean cohens d", "cohensd" + os.sep + fileDescription, True))
+
+    counts, bins = np.histogram(siteData.numResponsesHist, bins=range(args.max_responses_unit + 1))
+    numResponsesFig = px.bar(x=bins[:-1], y=counts, labels={'x':'Number of units', 'y':'Number of responses'})
+    allRegionNumResponsesPlots.append(numResponsesFig)
+    saveImg(numResponsesFig, "num_responses" + os.sep + paradigm + '_' + site)
     
 
 print("\nTime creating figures: " + str(time.time() - figurePrepareTime) + " s\n")
@@ -440,6 +451,7 @@ copresentationDiv, copresentationFigId, copresentationTableId = createRegionsDiv
 coactivationNormalizedDiv, coactivationNormalizedFigId, coactivationNormalizedTableId = createRegionsDiv("Coactivation - Normalized")
 zscoresDiv, zscoresFigId, zscoresTableId = createRegionsDiv("Mean zscores dependent on semantic similarity to best response")
 cohensDDiv, cohensDFigId, cohensDTableId = createRegionsDiv("Mean cohens d dependent on semantic similarity to best response")
+numRespDiv, numRespFigId, numRespTableId = createRegionsDiv("Number of units with respective response counts")
 
 
 external_stylesheets = ['https://codepen.io/chriddyp/pen/bWLwgP.css']
@@ -451,7 +463,8 @@ app.layout = html.Div(children=[
     copresentationDiv, 
     coactivationNormalizedDiv, 
     zscoresDiv, 
-    cohensDDiv
+    cohensDDiv,
+    numRespDiv
 ])
 
 print("\n--- Ready! ---\n\n")
@@ -491,13 +504,19 @@ def update_output_div(active_cell):
 def update_output_div(active_cell):
     return getActivePlot(allRegionZScoresPlots, active_cell)
 
-
 @app.callback(
     Output(component_id=cohensDFigId, component_property='figure'), 
     Input(cohensDTableId, 'active_cell')
 )
 def update_output_div(active_cell):
     return getActivePlot(allRegionCohensDPlots, active_cell)
+    
+@app.callback(
+    Output(component_id=numRespFigId, component_property='figure'), 
+    Input(numRespTableId, 'active_cell')
+)
+def update_output_div(active_cell):
+    return getActivePlot(allRegionNumResponsesPlots, active_cell)
     
 if __name__ == '__main__':
     app.run_server(debug=False) # why ?
