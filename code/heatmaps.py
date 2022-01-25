@@ -13,12 +13,14 @@ import pandas as pd
 
 import time
 from typing import List
+from dataclasses import field
 from dataclasses import dataclass
 import scipy
 import scipy.io
 import scipy.interpolate 
 import plotly.graph_objects as go
 import plotly.express as px
+import dash_bootstrap_components as dbc
 
 import dash
 import dash_table
@@ -30,6 +32,8 @@ import dash_html_components as html
 from dash.dependencies import Input, Output
 
 # utilility modules
+from plot_helper import plotRaster
+from plot_helper import RasterInput
 from data_manip import DataHandler
 
 parser = argparse.ArgumentParser()
@@ -73,7 +77,6 @@ parser.add_argument('--path2images',
 
 args=parser.parse_args()
 
-
 @dataclass
 class Tuner:
     subjectsession: str
@@ -86,6 +89,8 @@ class Tuner:
     stimuliY: List[float]
     stimuliNames: List[str]
     zscores: List[float]
+    responses: List[RasterInput] = field(default_factory=lambda: [])
+    #rasters: List = field(default_factory=lambda: [])
 
 def rescaleX(x) :
     xPadding = np.asarray([xOut / args.padding_factor for xOut in x])
@@ -129,7 +134,7 @@ def getInterpolatedMap(x, y, z) :
 
     return px.imshow(zi,aspect=0.8,color_continuous_scale='RdBu_r',origin='lower')
 
-def createHeatMap(tuner) : 
+def createHeatMap(tuner, figureHeight) : 
     
     fig = getInterpolatedMap(np.array(tuner.stimuliX), np.array(tuner.stimuliY), np.array(tuner.zscores)) 
     
@@ -154,9 +159,64 @@ def createHeatMap(tuner) :
             )
         )
 
-    fig.update_layout(graphLayout)
+    figureWidth = figureHeight*3/2
+    graphLayout = go.Layout(
+        xaxis=dict(ticks='', showticklabels=False),
+        yaxis=dict(ticks='', showticklabels=False),
+        showlegend=False, 
+        autosize=False,
+        height=figureHeight,
+        width=figureWidth
+    )
 
-    return fig
+    fig.update_layout(graphLayout)
+    maxColumn = 30
+
+    column = 0
+
+    rows = []
+    cols = []
+    responsesSorted = sorted(tuner.responses, key=lambda x: x.pval)
+
+    for response in responsesSorted : 
+        rasterFigure = plotRaster(response, linewidth=1.5)
+        rasterFigure.update_layout(go.Layout(
+            autosize=False,
+            height = int(figureHeight / 6),
+            width = int(figureWidth / 6), 
+            margin=go.layout.Margin(l=0, r=10, b=35, t=25, pad=0)
+        ))
+
+        rasterDiv = html.Div(
+            children=[dcc.Graph(id='raster-' + tuner.name + "-" + response.stimulusName, figure=rasterFigure) ], 
+            style={ 'width': '19%'},            
+            className="columns") 
+        cols.append(dbc.Col(rasterDiv))
+
+        column += 1
+        if column == maxColumn : 
+            rows.append(dbc.Row(cols))
+            column = 0
+            cols = []
+    
+    if len(cols) > 0 : 
+        rows.append(dbc.Row(cols))
+
+    rasterPlotsDiv = html.Div(children=cols, 
+        style={
+            'margin-left': 80,
+            'margin-top': 0,
+            'margin-bottom': 30,
+        }
+    )
+
+    tunerDivGrid = html.Div([
+        dbc.Row(html.Div(children=[dcc.Graph(id='heatmap-' + tuner.name, figure=fig)])),
+        dbc.Row(rasterPlotsDiv),
+    ])
+
+
+    return [tunerDivGrid]
 
 #############
 # LOAD DATA #
@@ -185,24 +245,24 @@ tuners = [ # clusters might not fit (manual clustering took place)
     Tuner("88_1", 87, 2, "Zucchini", "aos", [], [], [], [], []), 
     Tuner("88_3", 92, 1, "Photograph", "aos",  [], [], [], [], []),
     Tuner("89_1", 84, 1, "Ambulance", "aos",  [], [], [], [], []),
-    Tuner("89_2", 77, 2, "Machine Gun", "aos",  [], [], [], [], []),
-    Tuner("90_1", 49, 1, "Waffle1", "aos",  [], [], [], [], []),
-    Tuner("90_1", 49, 2, "Waffle2", "aos",  [], [], [], [], []),
-    Tuner("90_1", 49, 3, "Waffle3", "aos",  [], [], [], [], []),
-    Tuner("90_1", 60, 2, "Ferry1", "aos",  [], [], [], [], []),
-    Tuner("90_1", 60, 3, "Ferry2", "aos",  [], [], [], [], []),
-    Tuner("90_2", 65, 3, "Hamburger1", "aos",  [], [], [], [], []),
-    Tuner("90_2", 65, 4, "Hamburger2", "aos",  [], [], [], [], []),
-    Tuner("90_2", 68, 3, "Pancake", "aos",  [], [], [], [], []),
-    Tuner("90_3", 49, 4, "Lipstick", "aos",  [], [], [], [], []),
+    #Tuner("89_2", 77, 2, "Machine Gun", "aos",  [], [], [], [], []),
+    #Tuner("90_1", 49, 1, "Waffle1", "aos",  [], [], [], [], []),
+    #Tuner("90_1", 49, 2, "Waffle2", "aos",  [], [], [], [], []),
+    #Tuner("90_1", 49, 3, "Waffle3", "aos",  [], [], [], [], []),
+    #Tuner("90_1", 60, 2, "Ferry1", "aos",  [], [], [], [], []),
+    #Tuner("90_1", 60, 3, "Ferry2", "aos",  [], [], [], [], []),
+    #Tuner("90_2", 65, 3, "Hamburger1", "aos",  [], [], [], [], []),
+    #Tuner("90_2", 65, 4, "Hamburger2", "aos",  [], [], [], [], []),
+    #Tuner("90_2", 68, 3, "Pancake", "aos",  [], [], [], [], []),
+    #Tuner("90_3", 49, 4, "Lipstick", "aos",  [], [], [], [], []),
     #Tuner("90_3", 52, 1, "Onion1", "aos",  [], [], [], [], []),
     #Tuner("90_3", 52, 2, "Onion2", "aos",  [], [], [], [], []),
     #Tuner("90_3", 52, 3, "Onion2", "aos",  [], [], [], [], []),
-    Tuner("90_4", 52, 1, "Potato", "aos",  [], [], [], [], []),
-    Tuner("90_5", 52, 2, "Coin", "aos",  [], [], [], [], []),
-    Tuner("90_5", 56, 1, "Hamburger1", "aos",  [], [], [], [], []),
-    Tuner("90_5", 56, 3, "Hamburger2", "aos",  [], [], [], [], []),
-    Tuner("90_5", 67, 1, "Donkey - Petfood - Carrot", "aos",  [], [], [], [], []),
+    #Tuner("90_4", 52, 1, "Potato", "aos",  [], [], [], [], []),
+    #Tuner("90_5", 52, 2, "Coin", "aos",  [], [], [], [], []),
+    #Tuner("90_5", 56, 1, "Hamburger1", "aos",  [], [], [], [], []),
+    #Tuner("90_5", 56, 3, "Hamburger2", "aos",  [], [], [], [], []),
+    #Tuner("90_5", 67, 1, "Donkey - Petfood - Carrot", "aos",  [], [], [], [], []),
 
 ]
 
@@ -232,6 +292,7 @@ for session in sessions:
     sessionNr = session.split("_")[1]
 
     stimuliNames = np.unique(data.neural_data[session]['objectnames'])
+    stimuliNamesTrials = data.neural_data[session]['objectnames']
 
     stimuliNums = []
     stimuliX = []
@@ -249,8 +310,17 @@ for session in sessions:
         channelName = data.neural_data[session]['units'][unit]['channel_name']
         channel = data.neural_data[session]['units'][unit]['channel_num']
         cluster = data.neural_data[session]['units'][unit]['class_num']
+        trials = data.neural_data[session]['units'][unit]['trial']
         name = "pat " + str(patientNr) + ", session " + str(sessionNr) + ", " + channelName + ", channel " + str(channel) + ", cluster " + str(cluster)
         
+        responses = []
+        responseIndices = np.where(pvals < args.alpha)[0]
+        for responseIndex in responseIndices : 
+            stimulusName = stimuliNames[responseIndex]
+            trialIndices = np.where(np.asarray(stimuliNamesTrials) == stimulusName)[0]
+            stimulusTrials = trials[trialIndices]
+            responses.append(RasterInput(stimulusName, pvals[responseIndex], trials[trialIndices]))
+
         for tuner in tuners : 
             if tuner.subjectsession == session and tuner.channel == channel and tuner.cluster == cluster : 
                 tuner.zscores = zscores
@@ -258,13 +328,14 @@ for session in sessions:
                 tuner.stimuliNames = stimuliNames
                 tuner.stimuliX = stimuliX
                 tuner.stimuliY = stimuliY
+                tuner.responses = responses
 
         if all(pval >= args.alpha for pval in pvals) : 
             #print("Skipping " + subjectSession + ", cell " + str(cellNum))
             continue
 
         allUnits.append(Tuner(session, channel, cluster, name, "aos", 
-            stimuliNums, stimuliX, stimuliY, stimuliNames, zscores))
+            stimuliNums, stimuliX, stimuliY, stimuliNames, zscores, responses))
 
     print("Prepared session " + session)
 
@@ -275,28 +346,23 @@ app = dash.Dash(__name__, external_stylesheets=external_stylesheets)
 
 table_options_heatmap = [{'tuners-heatmap-column': tuners[i].name, 'id': i} for i in range(len(tuners))]
 
-figureHeight = 750
+figureHeight = 600
+figureHeightBig = 750
 
-graphLayout = go.Layout(
-    xaxis=dict(ticks='', showticklabels=False),
-    yaxis=dict(ticks='', showticklabels=False),
-    showlegend=False, 
-    autosize=False,
-    height=600,
-    width=900
-)
-
-graphLayoutBig = go.Layout(
-    height=figureHeight,
-    width=figureHeight*3/2
-)
 
 heatmap = getInterpolatedMap(np.array(tuners[0].stimuliX), np.array(tuners[0].stimuliY), np.array(tuners[0].zscores))
+
+startTimeTunerPlots = time.time()
+tunerHeatmaps = []
+for tuner in tuners : 
+    tunerHeatmaps.append(createHeatMap(tuner, figureHeightBig))
+
+print("Time preparing tuner plots: " + str(time.time() - startTimeTunerPlots) + " s")
 
 allHeatmaps = []
 if args.show_all : 
     for cell in allUnits : 
-        heatMapFigure = createHeatMap(cell)
+        heatMapFigure = createHeatMap(cell, figureHeight)
         allHeatmaps.append(
             html.Div([
                 html.H3(children='Activation heatmap ' + cell.name),
@@ -313,13 +379,11 @@ if args.show_all :
 
 app.layout = html.Div(children=[
     html.H1(children='Tuners'),
+    html.H2(children='Activation heatmap'),
 
     html.Div([
-        html.H2(children='Activation heatmap'),
         
-        html.Div([
-            dcc.Graph(id='heatmap', figure=heatmap)
-        ], className="nine columns"),
+        html.Div(id='heatmapDiv', className = "nine columns"),
 
         html.Div([
             dash_table.DataTable(
@@ -338,26 +402,24 @@ app.layout = html.Div(children=[
         ], className="two columns"),
     ], className="row"),
 
-    html.Div(children = allHeatmaps),
+    #html.Div(children = allHeatmaps),
 ])
 
 print("\n--- Ready! ---\n\n")
 
 
 @app.callback(
-    Output(component_id='heatmap', component_property='figure'), #src
+    Output(component_id='heatmapDiv', component_property='children'), #src
     Input('tuners-heatmap-table', 'active_cell')
 )
 def update_output_div(active_cell):
+ 
     if(active_cell == None) :
-        tuner = tuners[0]
+        tunerIndex = 0
     else : 
-        tuner = tuners[active_cell['row']]
+        tunerIndex = active_cell['row']
 
-    fig = createHeatMap(tuner)
-    fig.update_layout(graphLayoutBig)
-
-    return fig 
+    return tunerHeatmaps[tunerIndex]
 
 
 if __name__ == '__main__':
