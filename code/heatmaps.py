@@ -47,7 +47,7 @@ parser.add_argument('--session', default=None, type=str,
 # FLAGS
 parser.add_argument('--show_all', action='store_true', default=False,
                     help='If True, all heatmaps are shown on dashboard')
-parser.add_argument('--dont_plot', action='store_true', default=True,
+parser.add_argument('--dont_plot', action='store_true', default=True, ## TODO !!
                     help='If True, plotting to figures folder is supressed')
 parser.add_argument('--load_cat2object', default=False, 
                     help='If True, cat2object is loaded')
@@ -136,6 +136,7 @@ def getInterpolatedMap(x, y, z) :
 
 def createHeatMap(tuner, figureHeight) : 
     
+    ## Heatmap
     fig = getInterpolatedMap(np.array(tuner.stimuliX), np.array(tuner.stimuliY), np.array(tuner.zscores)) 
     
     zScores = np.copy(tuner.zscores)
@@ -170,11 +171,8 @@ def createHeatMap(tuner, figureHeight) :
     )
 
     fig.update_layout(graphLayout)
-    maxColumn = 30
 
-    column = 0
-
-    rows = []
+    ## Raster plots
     cols = []
     responsesSorted = sorted(tuner.responses, key=lambda x: x.pval)
 
@@ -188,35 +186,17 @@ def createHeatMap(tuner, figureHeight) :
         ))
 
         rasterDiv = html.Div(
-            children=[dcc.Graph(id='raster-' + tuner.name + "-" + response.stimulusName, figure=rasterFigure) ], 
-            style={ 'width': '19%'},            
-            className="columns") 
-        cols.append(dbc.Col(rasterDiv))
-
-        column += 1
-        if column == maxColumn : 
-            rows.append(dbc.Row(cols))
-            column = 0
-            cols = []
-    
-    if len(cols) > 0 : 
-        rows.append(dbc.Row(cols))
-
-    rasterPlotsDiv = html.Div(children=cols, 
-        style={
-            'margin-left': 80,
-            'margin-top': 0,
-            'margin-bottom': 30,
-        }
-    )
+            children=[dcc.Graph(id='raster-' + tuner.name + '-' + response.stimulusName, figure=rasterFigure) ], 
+            style={'width': '19%', 'margin-left': 0,},            
+            className='columns') 
+        cols.append(rasterDiv)
 
     tunerDivGrid = html.Div([
-        dbc.Row(html.Div(children=[dcc.Graph(id='heatmap-' + tuner.name, figure=fig)])),
-        dbc.Row(rasterPlotsDiv),
+        html.Div(children=[dcc.Graph(id='heatmap-' + tuner.name, figure=fig)]),
+        html.Div(children=cols, style={'margin-left': 80,'margin-top': 0,'margin-bottom': 30,}),
     ])
 
-
-    return [tunerDivGrid]
+    return tunerDivGrid
 
 #############
 # LOAD DATA #
@@ -245,26 +225,28 @@ tuners = [ # clusters might not fit (manual clustering took place)
     Tuner("88_1", 87, 2, "Zucchini", "aos", [], [], [], [], []), 
     Tuner("88_3", 92, 1, "Photograph", "aos",  [], [], [], [], []),
     Tuner("89_1", 84, 1, "Ambulance", "aos",  [], [], [], [], []),
-    #Tuner("89_2", 77, 2, "Machine Gun", "aos",  [], [], [], [], []),
-    #Tuner("90_1", 49, 1, "Waffle1", "aos",  [], [], [], [], []),
-    #Tuner("90_1", 49, 2, "Waffle2", "aos",  [], [], [], [], []),
-    #Tuner("90_1", 49, 3, "Waffle3", "aos",  [], [], [], [], []),
-    #Tuner("90_1", 60, 2, "Ferry1", "aos",  [], [], [], [], []),
-    #Tuner("90_1", 60, 3, "Ferry2", "aos",  [], [], [], [], []),
-    #Tuner("90_2", 65, 3, "Hamburger1", "aos",  [], [], [], [], []),
-    #Tuner("90_2", 65, 4, "Hamburger2", "aos",  [], [], [], [], []),
-    #Tuner("90_2", 68, 3, "Pancake", "aos",  [], [], [], [], []),
-    #Tuner("90_3", 49, 4, "Lipstick", "aos",  [], [], [], [], []),
+    Tuner("89_2", 77, 2, "Machine Gun", "aos",  [], [], [], [], []),
+    Tuner("90_1", 49, 1, "Waffle1", "aos",  [], [], [], [], []),
+    Tuner("90_1", 49, 2, "Waffle2", "aos",  [], [], [], [], []),
+    Tuner("90_1", 49, 3, "Waffle3", "aos",  [], [], [], [], []),
+    Tuner("90_1", 60, 2, "Ferry1", "aos",  [], [], [], [], []),
+    Tuner("90_1", 60, 3, "Ferry2", "aos",  [], [], [], [], []),
+    Tuner("90_2", 65, 3, "Hamburger1", "aos",  [], [], [], [], []),
+    Tuner("90_2", 65, 4, "Hamburger2", "aos",  [], [], [], [], []),
+    Tuner("90_2", 68, 3, "Pancake", "aos",  [], [], [], [], []),
+    Tuner("90_3", 49, 4, "Lipstick", "aos",  [], [], [], [], []),
     #Tuner("90_3", 52, 1, "Onion1", "aos",  [], [], [], [], []),
     #Tuner("90_3", 52, 2, "Onion2", "aos",  [], [], [], [], []),
     #Tuner("90_3", 52, 3, "Onion2", "aos",  [], [], [], [], []),
-    #Tuner("90_4", 52, 1, "Potato", "aos",  [], [], [], [], []),
-    #Tuner("90_5", 52, 2, "Coin", "aos",  [], [], [], [], []),
-    #Tuner("90_5", 56, 1, "Hamburger1", "aos",  [], [], [], [], []),
-    #Tuner("90_5", 56, 3, "Hamburger2", "aos",  [], [], [], [], []),
-    #Tuner("90_5", 67, 1, "Donkey - Petfood - Carrot", "aos",  [], [], [], [], []),
-
+    Tuner("90_4", 52, 1, "Potato", "aos",  [], [], [], [], []),
+    Tuner("90_5", 52, 2, "Coin", "aos",  [], [], [], [], []),
+    Tuner("90_5", 56, 1, "Hamburger1", "aos",  [], [], [], [], []),
+    Tuner("90_5", 56, 3, "Hamburger2", "aos",  [], [], [], [], []),
+    Tuner("90_5", 67, 1, "Donkey - Petfood - Carrot", "aos",  [], [], [], [], []),
 ]
+
+figureHeight = 600
+figureHeightBig = 750
 
 nConcepts = data.df_word_embeddings_tsne.shape[0]
 xThings = data.df_word_embeddings_tsne[:][1]
@@ -346,16 +328,17 @@ app = dash.Dash(__name__, external_stylesheets=external_stylesheets)
 
 table_options_heatmap = [{'tuners-heatmap-column': tuners[i].name, 'id': i} for i in range(len(tuners))]
 
-figureHeight = 600
-figureHeightBig = 750
-
 
 heatmap = getInterpolatedMap(np.array(tuners[0].stimuliX), np.array(tuners[0].stimuliY), np.array(tuners[0].zscores))
 
 startTimeTunerPlots = time.time()
 tunerHeatmaps = []
 for tuner in tuners : 
-    tunerHeatmaps.append(createHeatMap(tuner, figureHeightBig))
+    heatmap = createHeatMap(tuner, figureHeightBig)
+    tunerHeatmaps.append(heatmap)
+    if not args.dont_plot : 
+        heatmap.write_image(args.path2images + os.sep + "interesting" + os.sep + tuner.subjectsession + "_ch" + str(tuner.channel) + "_cl" + str(tuner.cluster) + "_" + tuner.name + ".png")
+    print("Created heatmap for " + tuner.name)    
 
 print("Time preparing tuner plots: " + str(time.time() - startTimeTunerPlots) + " s")
 
@@ -395,14 +378,14 @@ app.layout = html.Div(children=[
                 page_action='none',
                 style_table={
                     'margin-top': 100,
-                    'height': figureHeight - 180,
+                    'height': figureHeightBig - 200,
                     'overflowY': 'scroll'
                 }
             ), 
         ], className="two columns"),
     ], className="row"),
 
-    #html.Div(children = allHeatmaps),
+    html.Div(children = allHeatmaps),
 ])
 
 print("\n--- Ready! ---\n\n")
