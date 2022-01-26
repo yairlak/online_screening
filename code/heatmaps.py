@@ -47,7 +47,7 @@ parser.add_argument('--session', default=None, type=str,
                             e.g., '90_1'.")
 
 # FLAGS
-parser.add_argument('--show_all', default=True,
+parser.add_argument('--show_all', default=False,
                     help='If True, all heatmaps are shown on dashboard')
 parser.add_argument('--dont_plot', action='store_true', default=False, 
                     help='If True, plotting to figures folder is supressed')
@@ -84,6 +84,7 @@ class Tuner:
     subjectsession: str
     channel: int
     cluster: int
+    unitType: str
     name: str
     paradigm: str
     stimuli: List[int] 
@@ -92,7 +93,6 @@ class Tuner:
     stimuliNames: List[str]
     zscores: List[float]
     responses: List[RasterInput] = field(default_factory=lambda: [])
-    #rasters: List = field(default_factory=lambda: [])
 
 def rescaleX(x) :
     xPadding = np.asarray([xOut / args.padding_factor for xOut in x])
@@ -145,6 +145,7 @@ def createHeatMap(tuner, figureHeight, savePath=args.path2images, addName=False)
     zScores -= min(zScores)
     zScores /= max(zScores)
 
+    ## Text / labels 
     for stimulusNum in range(len(tuner.stimuliNames)) :
         opacityStim = zScores[stimulusNum]
         heatmap.add_trace(
@@ -164,7 +165,7 @@ def createHeatMap(tuner, figureHeight, savePath=args.path2images, addName=False)
 
     figureWidth = figureHeight*3/2
     graphLayout = go.Layout(
-        title_text="session: " + tuner.subjectsession + ", channel: " + str(tuner.channel) + ", cluster: " + str(tuner.cluster),
+        title_text="session: " + tuner.subjectsession + ", channel: " + str(tuner.channel) + ", cluster: " + str(tuner.cluster) + ", " + tuner.unitType, 
         xaxis=dict(ticks='', showticklabels=False),
         yaxis=dict(ticks='', showticklabels=False),
         showlegend=False, 
@@ -230,6 +231,8 @@ def createHeatMap(tuner, figureHeight, savePath=args.path2images, addName=False)
         if ax[:5]=='yaxis':
             rasterGrid['layout'][ax]['visible']=False
             rasterGrid['layout'][ax]['showticklabels']=False
+            #rasterGrid['layout'][ax]['range']=[0, len(response.spikes)]  # can only be set for all together (?)
+            
 
     if not args.dont_plot : 
         filename = savePath + os.sep + tuner.subjectsession + "_ch" + str(tuner.channel) + "_cl" + str(tuner.cluster) 
@@ -286,29 +289,31 @@ print("\nTime loading data: " + str(time.time() - startLoadData) + " s\n")
 
 tuners = [ # clusters might not fit (manual clustering took place)
     #Tuner("088e03aos1", 17, 1, "Pacifier", "aos", [], [], [], [], []),
-    Tuner("88_1", 77, 1, "Engine", "aos", [], [], [], [], []),
-    Tuner("88_1", 75, 2, "Lizard", "aos", [], [], [], [], []), 
-    Tuner("88_1", 87, 2, "Zucchini", "aos", [], [], [], [], []), 
-    Tuner("88_3", 92, 1, "Photograph", "aos",  [], [], [], [], []),
-    Tuner("89_1", 84, 1, "Ambulance", "aos",  [], [], [], [], []),
-    #Tuner("89_2", 77, 2, "Machine Gun", "aos",  [], [], [], [], []),
-    Tuner("90_1", 49, 1, "Waffle1", "aos",  [], [], [], [], []),
-    Tuner("90_1", 49, 2, "Waffle2", "aos",  [], [], [], [], []),
-    Tuner("90_1", 49, 3, "Waffle3", "aos",  [], [], [], [], []),
-    Tuner("90_1", 60, 2, "Ferry1", "aos",  [], [], [], [], []),
-    Tuner("90_1", 60, 3, "Ferry2", "aos",  [], [], [], [], []),
-    Tuner("90_2", 65, 3, "Hamburger1", "aos",  [], [], [], [], []),
-    Tuner("90_2", 65, 4, "Hamburger2", "aos",  [], [], [], [], []),
-    Tuner("90_2", 68, 3, "Pancake", "aos",  [], [], [], [], []),
-    Tuner("90_3", 49, 4, "Lipstick", "aos",  [], [], [], [], []),
-    #Tuner("90_3", 52, 1, "Onion1", "aos",  [], [], [], [], []),
-    #Tuner("90_3", 52, 2, "Onion2", "aos",  [], [], [], [], []),
-    #Tuner("90_3", 52, 3, "Onion2", "aos",  [], [], [], [], []),
-    Tuner("90_4", 52, 1, "Potato", "aos",  [], [], [], [], []),
-    Tuner("90_5", 52, 2, "Coin", "aos",  [], [], [], [], []),
-    Tuner("90_5", 56, 1, "Hamburger1", "aos",  [], [], [], [], []),
-    Tuner("90_5", 56, 3, "Hamburger2", "aos",  [], [], [], [], []),
-    Tuner("90_5", 67, 1, "Donkey - Petfood - Carrot", "aos",  [], [], [], [], []),
+    Tuner("88_1", 77, 1, [], "Engine", "aos", [], [], [], [], []),
+    Tuner("88_1", 75, 2, [], "Lizard", "aos", [], [], [], [], []), 
+    Tuner("88_1", 87, 2, [], "Zucchini", "aos", [], [], [], [], []), 
+    Tuner("88_3", 73, 2, [], "Terrarium", "aos",  [], [], [], [], []),
+    Tuner("88_3", 92, 1, [], "Photograph", "aos",  [], [], [], [], []),
+    Tuner("89_1", 84, 1, [], "Ambulance", "aos",  [], [], [], [], []),
+    #Tuner("89_2", 77, 2, [], "Machine Gun", "aos",  [], [], [], [], []),
+    Tuner("89_3", 62, 1, [], "Machine Gun", "aos",  [], [], [], [], []),
+    Tuner("90_1", 49, 1, [], "Waffle1", "aos",  [], [], [], [], []),
+    Tuner("90_1", 49, 2, [], "Waffle2", "aos",  [], [], [], [], []),
+    Tuner("90_1", 49, 3, [], "Waffle3", "aos",  [], [], [], [], []),
+    Tuner("90_1", 60, 2, [], "Ferry1", "aos",  [], [], [], [], []),
+    Tuner("90_1", 60, 3, [], "Ferry2", "aos",  [], [], [], [], []),
+    Tuner("90_2", 65, 3, [], "Hamburger1", "aos",  [], [], [], [], []),
+    Tuner("90_2", 65, 4, [], "Hamburger2", "aos",  [], [], [], [], []),
+    Tuner("90_2", 68, 3, [], "Pancake", "aos",  [], [], [], [], []),
+    Tuner("90_3", 49, 4, [], "Lipstick", "aos",  [], [], [], [], []),
+    #Tuner("90_3", 52, 1, [], "Onion1", "aos",  [], [], [], [], []),
+    #Tuner("90_3", 52, 2, [], "Onion2", "aos",  [], [], [], [], []),
+    #Tuner("90_3", 52, 3, [], "Onion2", "aos",  [], [], [], [], []),
+    Tuner("90_4", 52, 1, [], "Potato", "aos",  [], [], [], [], []),
+    Tuner("90_5", 52, 2, [], "Coin", "aos",  [], [], [], [], []),
+    Tuner("90_5", 56, 1, [], "Hamburger1", "aos",  [], [], [], [], []),
+    Tuner("90_5", 56, 3, [], "Hamburger2", "aos",  [], [], [], [], []),
+    Tuner("90_5", 67, 1, [], "Donkey - Petfood - Carrot", "aos",  [], [], [], [], []),
 ]
 
 figureHeight = 600
@@ -359,7 +364,8 @@ for session in sessions:
         channel = data.neural_data[session]['units'][unit]['channel_num']
         cluster = data.neural_data[session]['units'][unit]['class_num']
         trials = data.neural_data[session]['units'][unit]['trial']
-        name = "pat " + str(patientNr) + ", session " + str(sessionNr) + ", " + channelName + ", channel " + str(channel) + ", cluster " + str(cluster)
+        kind = data.neural_data[session]['units'][unit]['kind']
+        name = "pat " + str(patientNr) + ", session " + str(sessionNr) + ", " + channelName + ", channel " + str(channel) + ", cluster " + str(cluster) + ", " + kind
         
         responses = []
         responseIndices = np.where(pvals < args.alpha)[0]
@@ -377,12 +383,13 @@ for session in sessions:
                 tuner.stimuliX = stimuliX
                 tuner.stimuliY = stimuliY
                 tuner.responses = responses
+                tuner.unitType = kind
 
         if all(pval >= args.alpha for pval in pvals) : 
             #print("Skipping " + subjectSession + ", cell " + str(cellNum))
             continue
 
-        allUnits.append(Tuner(session, channel, cluster, name, "aos", 
+        allUnits.append(Tuner(session, channel, cluster, kind, name, "aos", 
             stimuliNums, stimuliX, stimuliY, stimuliNames, zscores, responses))
 
     print("Prepared session " + session)

@@ -26,7 +26,8 @@ def plotRaster(rasterInput, linewidth=1) :
 
     fig=go.Figure()
 
-    for trial in range(len(rasterInput.spikes)) : 
+    numTrials = len(rasterInput.spikes)
+    for trial in range(numTrials) : 
         spikesTrial = rasterInput.spikes[trial][0]
         spikes = spikesTrial[np.where(spikesTrial <= rasterInput.maxX)[0]]
         spikes = spikesTrial[np.where(spikesTrial > rasterInput.minX)[0]]
@@ -53,6 +54,7 @@ def plotRaster(rasterInput, linewidth=1) :
         showlegend=False,
         yaxis_visible=False, 
         yaxis_showticklabels=False, 
+        yaxis_range=[0, numTrials],
 
         xaxis_range=[rasterInput.minX,rasterInput.maxX],
         xaxis = dict(
