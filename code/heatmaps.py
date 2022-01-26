@@ -20,15 +20,17 @@ import scipy.io
 import scipy.interpolate 
 import plotly.graph_objects as go
 import plotly.express as px
-import dash_bootstrap_components as dbc
+from plotly.subplots import make_subplots
+import matplotlib.pyplot as plt
+from PIL import Image
 
 import dash
-import dash_table
-import dash_core_components as dcc
-import dash_html_components as html
-#from dash import dash_table
-#from dash import dcc
-#from dash import html
+#import dash_table
+#import dash_core_components as dcc
+#import dash_html_components as html
+from dash import dash_table
+from dash import dcc
+from dash import html
 from dash.dependencies import Input, Output
 
 # utilility modules
@@ -45,9 +47,9 @@ parser.add_argument('--session', default=None, type=str,
                             e.g., '90_1'.")
 
 # FLAGS
-parser.add_argument('--show_all', action='store_true', default=False,
+parser.add_argument('--show_all', default=True,
                     help='If True, all heatmaps are shown on dashboard')
-parser.add_argument('--dont_plot', action='store_true', default=True, ## TODO !!
+parser.add_argument('--dont_plot', action='store_true', default=False, 
                     help='If True, plotting to figures folder is supressed')
 parser.add_argument('--load_cat2object', default=False, 
                     help='If True, cat2object is loaded')
@@ -134,10 +136,10 @@ def getInterpolatedMap(x, y, z) :
 
     return px.imshow(zi,aspect=0.8,color_continuous_scale='RdBu_r',origin='lower')
 
-def createHeatMap(tuner, figureHeight) : 
-    
+def createHeatMap(tuner, figureHeight, savePath=args.path2images, addName=False) : 
+
     ## Heatmap
-    fig = getInterpolatedMap(np.array(tuner.stimuliX), np.array(tuner.stimuliY), np.array(tuner.zscores)) 
+    heatmap = getInterpolatedMap(np.array(tuner.stimuliX), np.array(tuner.stimuliY), np.array(tuner.zscores))
     
     zScores = np.copy(tuner.zscores)
     zScores -= min(zScores)
@@ -145,7 +147,7 @@ def createHeatMap(tuner, figureHeight) :
 
     for stimulusNum in range(len(tuner.stimuliNames)) :
         opacityStim = zScores[stimulusNum]
-        fig.add_trace(
+        heatmap.add_trace(
             go.Scatter(
                 mode='text',
                 x=rescaleX([tuner.stimuliX[stimulusNum]]), y=rescaleY([tuner.stimuliY[stimulusNum]]),
@@ -162,6 +164,7 @@ def createHeatMap(tuner, figureHeight) :
 
     figureWidth = figureHeight*3/2
     graphLayout = go.Layout(
+        title_text="session: " + tuner.subjectsession + ", channel: " + str(tuner.channel) + ", cluster: " + str(tuner.cluster),
         xaxis=dict(ticks='', showticklabels=False),
         yaxis=dict(ticks='', showticklabels=False),
         showlegend=False, 
@@ -170,30 +173,93 @@ def createHeatMap(tuner, figureHeight) :
         width=figureWidth
     )
 
-    fig.update_layout(graphLayout)
+    heatmap.update_layout(graphLayout)
 
     ## Raster plots
-    cols = []
+    numCols = 5
+    numRowsRaster = int(len(tuner.responses) / numCols) + 1
+
+    specs=[]
+    for rowNum in range(numRowsRaster) : 
+        specsCols = []
+        for colNum in range(numCols) : 
+            specsCols.append({})
+        specs.append(specsCols)
+
     responsesSorted = sorted(tuner.responses, key=lambda x: x.pval)
 
+    subplot_titles=[]
+    for response in responsesSorted : 
+        pval = response.pval
+        if pval < 0.0001 : 
+            pval = np.format_float_scientific(pval, precision=3)
+        else : 
+            pval = round(pval, 7)
+        subplot_titles.append(response.stimulusName + ', pval: ' + str(pval))
+
+    rasterGrid = make_subplots(rows=numRowsRaster, cols=numCols, specs=specs, subplot_titles=subplot_titles)
+
+    for title in rasterGrid['layout']['annotations']:
+        title['font'] = dict(size=10)
+
+    rowNum = 0
+    colNum = 0
     for response in responsesSorted : 
         rasterFigure = plotRaster(response, linewidth=1.5)
-        rasterFigure.update_layout(go.Layout(
-            autosize=False,
-            height = int(figureHeight / 6),
-            width = int(figureWidth / 6), 
-            margin=go.layout.Margin(l=0, r=10, b=35, t=25, pad=0)
-        ))
+        for line in rasterFigure.data : 
+            rasterGrid.add_trace(line, row=rowNum+1, col=colNum+1)
 
-        rasterDiv = html.Div(
-            children=[dcc.Graph(id='raster-' + tuner.name + '-' + response.stimulusName, figure=rasterFigure) ], 
-            style={'width': '19%', 'margin-left': 0,},            
-            className='columns') 
-        cols.append(rasterDiv)
+        colNum += 1
+        if colNum == numCols : 
+            rowNum += 1
+            colNum = 0
+
+    rasterGrid.update_layout(go.Layout(
+        showlegend=False, 
+        autosize=False,
+        height = int(figureHeight / 4) * numRowsRaster + 100,
+        width = int(figureWidth), 
+    ))
+
+    for ax in rasterGrid['layout']:
+        if ax[:5]=='xaxis':
+            rasterGrid['layout'][ax]['range']=[-500,1500]
+            rasterGrid['layout'][ax]['tickmode']='array'
+            rasterGrid['layout'][ax]['tickvals']=[0, 1000]
+            rasterGrid['layout'][ax]['tickfont']=dict(size=8)
+        if ax[:5]=='yaxis':
+            rasterGrid['layout'][ax]['visible']=False
+            rasterGrid['layout'][ax]['showticklabels']=False
+
+    if not args.dont_plot : 
+        filename = savePath + os.sep + tuner.subjectsession + "_ch" + str(tuner.channel) + "_cl" + str(tuner.cluster) 
+        if addName : 
+            filename += "_" + tuner.name
+        heatmapFilename = filename + "_heatmap.png"
+        rasterFilename = filename + "_rasterplots.png"
+        completeFilename = filename + ".png"
+
+        heatmap.write_image(heatmapFilename)
+        rasterGrid.write_image(rasterFilename)
+
+        pltHeatmap = Image.open(heatmapFilename)
+        pltRaster = Image.open(rasterFilename)
+
+        totalWidth = max([pltHeatmap.size[0], pltRaster.size[0]])
+        totalHeight = pltHeatmap.size[1] + pltRaster.size[1]
+        completeImage = Image.new('RGB', (totalWidth, totalHeight))
+
+        completeImage.paste(pltHeatmap, (0,0))
+        completeImage.paste(pltRaster, (0,pltHeatmap.size[1]))
+        completeImage.save(completeFilename)
+
+        os.remove(heatmapFilename)
+        os.remove(rasterFilename)
+
 
     tunerDivGrid = html.Div([
-        html.Div(children=[dcc.Graph(id='heatmap-' + tuner.name, figure=fig)]),
-        html.Div(children=cols, style={'margin-left': 80,'margin-top': 0,'margin-bottom': 30,}),
+        html.Div(children=[dcc.Graph(id='heatmap-' + tuner.name, figure=heatmap)], style={'margin-bottom': 0}),
+        html.Div(children=[dcc.Graph(id='rasterGrid-' + tuner.name, figure=rasterGrid)], style={'margin-top': 0})
     ])
 
     return tunerDivGrid
@@ -215,7 +281,7 @@ if args.session is None:
 else:
     sessions = [args.session]
 
-print("Time loading data: " + str(time.time() - startLoadData) + " s\n")
+print("\nTime loading data: " + str(time.time() - startLoadData) + " s\n")
 
 
 tuners = [ # clusters might not fit (manual clustering took place)
@@ -225,7 +291,7 @@ tuners = [ # clusters might not fit (manual clustering took place)
     Tuner("88_1", 87, 2, "Zucchini", "aos", [], [], [], [], []), 
     Tuner("88_3", 92, 1, "Photograph", "aos",  [], [], [], [], []),
     Tuner("89_1", 84, 1, "Ambulance", "aos",  [], [], [], [], []),
-    Tuner("89_2", 77, 2, "Machine Gun", "aos",  [], [], [], [], []),
+    #Tuner("89_2", 77, 2, "Machine Gun", "aos",  [], [], [], [], []),
     Tuner("90_1", 49, 1, "Waffle1", "aos",  [], [], [], [], []),
     Tuner("90_1", 49, 2, "Waffle2", "aos",  [], [], [], [], []),
     Tuner("90_1", 49, 3, "Waffle3", "aos",  [], [], [], [], []),
@@ -321,7 +387,7 @@ for session in sessions:
 
     print("Prepared session " + session)
 
-print("Time preparing data: " + str(time.time() - startPrepareData) + " s")
+print("Time preparing data: " + str(time.time() - startPrepareData) + " s\n")
 
 external_stylesheets = ['https://codepen.io/chriddyp/pen/bWLwgP.css']
 app = dash.Dash(__name__, external_stylesheets=external_stylesheets)
@@ -329,18 +395,17 @@ app = dash.Dash(__name__, external_stylesheets=external_stylesheets)
 table_options_heatmap = [{'tuners-heatmap-column': tuners[i].name, 'id': i} for i in range(len(tuners))]
 
 
-heatmap = getInterpolatedMap(np.array(tuners[0].stimuliX), np.array(tuners[0].stimuliY), np.array(tuners[0].zscores))
+startHeatmap = getInterpolatedMap(np.array(tuners[0].stimuliX), np.array(tuners[0].stimuliY), np.array(tuners[0].zscores))
 
 startTimeTunerPlots = time.time()
 tunerHeatmaps = []
 for tuner in tuners : 
-    heatmap = createHeatMap(tuner, figureHeightBig)
-    tunerHeatmaps.append(heatmap)
-    if not args.dont_plot : 
-        heatmap.write_image(args.path2images + os.sep + "interesting" + os.sep + tuner.subjectsession + "_ch" + str(tuner.channel) + "_cl" + str(tuner.cluster) + "_" + tuner.name + ".png")
+    tunerHeatmaps.append(
+        createHeatMap(tuner, figureHeightBig, args.path2images + os.sep + "interesting", True))
+
     print("Created heatmap for " + tuner.name)    
 
-print("Time preparing tuner plots: " + str(time.time() - startTimeTunerPlots) + " s")
+print("Time preparing tuner plots: " + str(time.time() - startTimeTunerPlots) + " s\n")
 
 allHeatmaps = []
 if args.show_all : 
@@ -349,13 +414,12 @@ if args.show_all :
         allHeatmaps.append(
             html.Div([
                 html.H3(children='Activation heatmap ' + cell.name),
-                html.Div([
-                    dcc.Graph(id='heatmap-' + cell.name, figure=heatMapFigure)
-                ], className="nine columns"),
+                html.Div(children=[heatMapFigure]),
+                #html.Div([
+                #    dcc.Graph(id='heatmap-' + cell.name, figure=heatMapFigure)
+                #], className="nine columns"),
             ], className="row"),
-        )
-        if not args.dont_plot : 
-            heatMapFigure.write_image(args.path2images + "\\" + cell.subjectsession + "_ch" + str(cell.channel) + "_cl" + str(cell.cluster) + ".png")
+        ) 
         print("Created heatmap for " + cell.name)
 
     print("Done loading all heatmaps!")

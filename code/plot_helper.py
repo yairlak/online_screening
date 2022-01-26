@@ -12,13 +12,6 @@ from dataclasses import field
 from dataclasses import dataclass
 
 import plotly.graph_objects as go
-import plotly.express as px
-
-import dash
-import dash_table
-import dash_core_components as dcc
-import dash_html_components as html
-from dash.dependencies import Input, Output
 
 @dataclass
 class RasterInput: 
@@ -29,8 +22,9 @@ class RasterInput:
     maxX : int = field (default_factory=lambda: 1500)
 
 
-def plotRaster(rasterInput, linewidth = 1) : 
-    fig = go.Figure()
+def plotRaster(rasterInput, linewidth=1) : 
+
+    fig=go.Figure()
 
     for trial in range(len(rasterInput.spikes)) : 
         spikesTrial = rasterInput.spikes[trial][0]
@@ -44,7 +38,6 @@ def plotRaster(rasterInput, linewidth = 1) :
                     y=[trial, trial + 1],
                     mode='lines',
                     line_color='black', 
-                    #line=dict(color='firebrick', width=4)
                     line_width=linewidth
             ))
     
@@ -68,7 +61,6 @@ def plotRaster(rasterInput, linewidth = 1) :
             tickfont=dict(size=8),
         )
     )
-    #fig.show()
 
     return fig
 
