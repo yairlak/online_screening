@@ -17,6 +17,7 @@ from typing import List
 from dataclasses import dataclass, field
 from scipy.optimize import curve_fit
 from scipy.signal import savgol_filter
+import matplotlib.pyplot as plt
 import plotly.graph_objects as go
 import plotly.express as px
 
@@ -32,6 +33,7 @@ from dash.dependencies import Input, Output
 # utilility modules
 from data_manip import DataHandler
 from data_manip import get_THINGS_indices
+from data_manip import get_mean_firing_rate_normalized
 
 parser = argparse.ArgumentParser()
 
@@ -42,7 +44,7 @@ parser.add_argument('--session', default=None, type=str,
                             e.g., '90_1'.")
 
 # DATA AND MODEL
-parser.add_argument('--metric', default='euclidean',
+parser.add_argument('--metric', default='cosine',
                     help='Distance metric')
 parser.add_argument('--similarity_matrix_delimiter', default=',', type=str,
                     help='Similarity metric delimiter')
@@ -58,7 +60,7 @@ parser.add_argument('--alpha', type=float, default=0.001,
                     help='Alpha for stats')
 
 # PLOT
-parser.add_argument('--step', type=float, default=0.01,
+parser.add_argument('--step', type=float, default=0.05,
                     help='Plotting detail')
 parser.add_argument('--max_stdev_outliers', type=float, default=5,
                     help='Limit for excluding outliers')   
@@ -87,17 +89,23 @@ class NormArray:
     normalizer : List = field(default_factory=lambda: np.zeros((nSimilarities)))
     similarity : List = field(default_factory=lambda: [])
     relevantIndices : List = field(default_factory=lambda: [])
+    values : List = field(default_factory=lambda: [[] for i in range(nSimilarities)])
+    mean : List = field(default_factory=lambda: [])
+    stddev : List = field(default_factory=lambda: [])
 
     def normalize(self) : 
         self.relevantIndices = np.where(self.normalizer != 0)
         self.normalizer = self.normalizer[self.relevantIndices]
         self.similarity = uniqueSimilarities[self.relevantIndices]
         self.y = self.y[self.relevantIndices] / self.normalizer
+        self.mean = [np.mean(self.values[i]) for i in range(nSimilarities)]
+        self.stddev = [np.std(self.values[i]) for i in range(nSimilarities)]
         #return y, uniqueSimilarities[relevantIndices], relevantIndices
 
     def addValue(self, index, value) : 
         self.y[index] += value
         self.normalizer[index] += 1
+        self.values[index].append(value)
 
 
 @dataclass
@@ -106,7 +114,11 @@ class Region:
     coactivationNorm : NormArray = field(default_factory=lambda: NormArray())
     zScoresNorm : NormArray = field(default_factory=lambda: NormArray())
     cohensD : NormArray = field(default_factory=lambda: NormArray())
+    responseStrength : NormArray = field(default_factory=lambda: NormArray())
+    firingRatesNorm : NormArray = field(default_factory=lambda: NormArray())
     numResponsesHist : List = field (default_factory=lambda: [])
+    similaritiesArray : List = field (default_factory=lambda: [])
+    firingRatesArray : List = field (default_factory=lambda: [])
 
 def createTableDiv(title, figureId, tableId, columnName, columnId, columnData) : 
     
@@ -279,12 +291,14 @@ print("\nTime loading data: " + str(time.time() - startLoadData) + " s\n")
 figureHeight = 900
 figureWidth = 1100
 
+startBaseline = -500
 startTimeAvgFiringRate = 100
-stopTimeAvgFiringRate = 1000
+stopTimeAvgFiringRate = 800 # 800 for rodrigo
 firingRateFactor = (1000 / (stopTimeAvgFiringRate - startTimeAvgFiringRate))
+firingRateFactorBaselines = (1000 / (0 - startBaseline))
 
 paradigm = args.path2data.split(os.sep)[-1].split('/')[-2].split('_')[0]
-includeSelfSimilarity = False
+includeSelfSimilarity = True
 #minResponses = 3
 startPrepareDataTime = time.time()
 nTHINGS = len(data.df_metadata.uniqueID)
@@ -299,7 +313,11 @@ regions = {}
 
 regions[allRegionsName] = Region(allRegionsName)
 
+i = 0
 for session in sessions:
+    if i == 4 : 
+        break
+    i += 1
     
     startPrepareSessionData = time.time()
     
@@ -310,6 +328,7 @@ for session in sessions:
 
     stimlookup = data.neural_data[session]['stimlookup']
     objectNames = data.neural_data[session]['objectnames']
+    stimuliIndices = data.neural_data[session]['objectindices_session']
     thingsIndices = get_THINGS_indices(data.df_metadata, data.neural_data[session]['stimlookup'])
 
     # do it before to make it faster
@@ -337,6 +356,7 @@ for session in sessions:
         site = data.neural_data[session]['units'][unit]['site']
         trials = data.neural_data[session]['units'][unit]['trial']
         responses = [thingsIndices[i] for i in np.where(pvals < args.alpha)[0]]
+        firingRates = get_mean_firing_rate_normalized(trials, stimuliIndices, startTimeAvgFiringRate, stopTimeAvgFiringRate)
 
         for i1, i2 in itertools.product(responses, responses) :  
             if i1 == i2 and not includeSelfSimilarity :
@@ -348,6 +368,7 @@ for session in sessions:
             regions[allRegionsName].numResponsesHist.append(len(responses))
             regions[site].numResponsesHist.append(len(responses))
 
+            # zscores
             bestZIndex = np.argmax(zscores)
             indexBest = thingsIndices[bestZIndex]
 
@@ -358,11 +379,39 @@ for session in sessions:
                 similarityIndex = similarityMatrixToIndex[index, indexBest]
                 regions[allRegionsName].zScoresNorm.addValue(similarityIndex, zscores[i])
                 regions[site].zScoresNorm.addValue(similarityIndex, zscores[i])
+                regions[allRegionsName].firingRatesNorm.addValue(similarityIndex, firingRates[i])
+                regions[site].firingRatesNorm.addValue(similarityIndex, firingRates[i])
+
+                regions[allRegionsName].similaritiesArray.append(data.similarity_matrix[index][indexBest])
+                regions[site].similaritiesArray.append(data.similarity_matrix[index][indexBest])
+                regions[allRegionsName].firingRatesArray.append(firingRates[i])
+                regions[site].firingRatesArray.append(firingRates[i])
+            
+            # firingRates (if highest firing rate should be counted as best stimulus)
+            #bestResponseIndex = np.argmax(firingRates)
+            #indexBest = thingsIndices[bestResponseIndex]
+
+            #for i in range(len(firingRates)) : # responseIndices
+            #    if i == bestZIndex and not includeSelfSimilarity : 
+            #        continue
+            #    index = thingsIndices[i]
+            #    similarityIndex = similarityMatrixToIndex[index, indexBest]
+            #    regions[allRegionsName].firingRatesNorm.addValue(similarityIndex, firingRates[i])
+            #    regions[site].firingRatesNorm.addValue(similarityIndex, firingRates[i])
+
+
+            # Baselines (for response strength)
+            baselineFrequencies = np.zeros((len(trials)))
+            for t in range(len(trials)): 
+                baselineFrequencies[t] = float(len(np.where(trials[t] >= startBaseline) and np.where(trials[t] < 0)) ) * firingRateFactorBaselines
+        
+            meanBaseline = statistics.mean(baselineFrequencies)
                 
             # Cohens d    
             numStimuliSession = len(thingsIndices)
             meanFiringRatesStimuli = np.zeros((numStimuliSession))
             stddevFiringRatesStimuli = np.zeros((numStimuliSession))
+            medianFiringRatesStimuli = np.zeros((numStimuliSession))
         
             numAllTrials = len(trials)
             allFiringRates = np.zeros((numAllTrials))
@@ -380,9 +429,12 @@ for session in sessions:
 
                 meanFiringRatesStimuli[stimNum] = statistics.mean(responseFiringRates)
                 stddevFiringRatesStimuli[stimNum] = statistics.stdev(responseFiringRates)
+                medianFiringRatesStimuli[stimNum] = statistics.median(responseFiringRates)
+
 
             meanAll = statistics.mean(allFiringRates)
             stddevAll = statistics.stdev(allFiringRates)
+            maxMedianFiringRate = max(medianFiringRatesStimuli)
 
             #for response in responses : 
             for stimNum in range(numStimuliSession) : 
@@ -401,7 +453,13 @@ for session in sessions:
                 similarityIndex = similarityMatrixToIndex[indexBest, index]
                 regions[allRegionsName].cohensD.addValue(similarityIndex, cohensDResult)
                 regions[site].cohensD.addValue(similarityIndex, cohensDResult)
-        
+
+                # response strength
+                responseStrengthUnit = max((medianFiringRatesStimuli[stimNum] - meanBaseline) / maxMedianFiringRate, 0)
+                regions[allRegionsName].responseStrength.addValue(similarityIndex, responseStrengthUnit)
+                regions[site].responseStrength.addValue(similarityIndex, responseStrengthUnit)
+
+
     print("Prepared data of session " + session + ". Time: " + str(time.time() - startPrepareSessionData) + " s" )
 
 print("\nTime preparing data: " + str(time.time() - startPrepareDataTime) + " s\n")
@@ -410,7 +468,10 @@ allRegionCoactivationPlots = []
 allRegionCopresentationPlots = []
 allRegionCoactivationNormalizedPlots = []
 allRegionZScoresPlots = []
+allRegionFiringRatesPlots = []
+allRegionFiringRatesBarPlots = []
 allRegionCohensDPlots = []
+allRegionResponseStrengthPlots = []
 allRegionNumResponsesPlots = []
 
 figurePrepareTime = time.time()
@@ -422,11 +483,35 @@ for site in allSiteNames :
     coactivationBeforeNormalization = siteData.coactivationNorm.y
     siteData.coactivationNorm.normalize()
     siteData.zScoresNorm.normalize()
+    siteData.firingRatesNorm.normalize()
     siteData.cohensD.normalize()
+    siteData.responseStrength.normalize()
 
     coactivationBeforeNormalization = coactivationBeforeNormalization[siteData.coactivationNorm.relevantIndices]
 
     fileDescription = paradigm + '_' + args.metric + '_' + site 
+
+    firingRatesBarPlot = go.Figure(data=go.Scatter(
+        x=siteData.firingRatesNorm.similarity,
+        y=siteData.firingRatesNorm.mean,
+        error_y=dict(
+            type='data', # value of error bar given in data coordinates
+            array=siteData.firingRatesNorm.stddev,
+            visible=True),
+        
+        #title_text="Mean firing rates and stddev dependent on semantic similarity",
+        #xaxis_title='Semantic similarity',
+        #yaxis_title='Mean firing rates',
+    ))
+    firingRatesBarPlot.update_layout(
+        title_text="Mean firing rates and stddev dependent on semantic similarity",
+        xaxis_title='Semantic similarity',
+        yaxis_title='Mean firing rates',
+    )
+
+    saveImg(firingRatesBarPlot, "mean_stddev_fr" + os.sep + fileDescription)
+    
+    allRegionFiringRatesBarPlots.append(firingRatesBarPlot)
     allRegionCoactivationPlots.append(
         createPlot(siteData.coactivationNorm.similarity, coactivationBeforeNormalization, "Number of coactivations", "coactivation" + os.sep + fileDescription, False))
     allRegionCopresentationPlots.append(
@@ -435,8 +520,12 @@ for site in allSiteNames :
         createPlot(siteData.coactivationNorm.similarity, siteData.coactivationNorm.y * 100, "Normalized coactivation probability in %", "coactivation_normalized" + os.sep + fileDescription, True))
     allRegionZScoresPlots.append(
         createPlot(siteData.zScoresNorm.similarity, siteData.zScoresNorm.y, "Mean zscores", "zscores" + os.sep + fileDescription, True))
+    allRegionFiringRatesPlots.append(
+        createPlot(siteData.firingRatesNorm.similarity, siteData.firingRatesNorm.y, "Normalized firing rates", "firing_rates" + os.sep + fileDescription, True))
     allRegionCohensDPlots.append(
         createPlot(siteData.cohensD.similarity, siteData.cohensD.y, "Mean cohens d", "cohensd" + os.sep + fileDescription, True))
+    allRegionResponseStrengthPlots.append(
+        createPlot(siteData.responseStrength.similarity, siteData.responseStrength.y, "Mean response strength", "responseStrength" + os.sep + fileDescription, True))
 
     counts, bins = np.histogram(siteData.numResponsesHist, bins=range(args.max_responses_unit + 1))
     numResponsesFig = px.bar(x=bins[:-1], y=counts, labels={'x':'Number of units', 'y':'Number of responses'})
@@ -450,7 +539,10 @@ coactivationDiv, coactivationFigId, coactivationTableId = createRegionsDiv("Coac
 copresentationDiv, copresentationFigId, copresentationTableId = createRegionsDiv("Copresentation")
 coactivationNormalizedDiv, coactivationNormalizedFigId, coactivationNormalizedTableId = createRegionsDiv("Coactivation - Normalized")
 zscoresDiv, zscoresFigId, zscoresTableId = createRegionsDiv("Mean zscores dependent on semantic similarity to best response")
+firingRatesDiv, firingRatesFigId, firingRatesTableId = createRegionsDiv("Normalized firing rates dependent on semantic similarity to best response")
+firingRatesBarsDiv, firingRatesBarsFigId, firingRatesBarsTableId = createRegionsDiv("Error bars for normalized firing rates dependent on semantic similarity to best response")
 cohensDDiv, cohensDFigId, cohensDTableId = createRegionsDiv("Mean cohens d dependent on semantic similarity to best response")
+responseStrengthDiv, responseStrengthFigId, responseStrengthTableId = createRegionsDiv("Mean response strength dependent on semantic similarity to best response")
 numRespDiv, numRespFigId, numRespTableId = createRegionsDiv("Number of units with respective response counts")
 
 
@@ -463,7 +555,10 @@ app.layout = html.Div(children=[
     copresentationDiv, 
     coactivationNormalizedDiv, 
     zscoresDiv, 
+    firingRatesDiv, 
+    firingRatesBarsDiv,
     cohensDDiv,
+    responseStrengthDiv, 
     numRespDiv
 ])
 
@@ -505,11 +600,33 @@ def update_output_div(active_cell):
     return getActivePlot(allRegionZScoresPlots, active_cell)
 
 @app.callback(
+    Output(component_id=firingRatesFigId, component_property='figure'), 
+    Input(firingRatesTableId, 'active_cell')
+)
+def update_output_div(active_cell):
+    return getActivePlot(allRegionFiringRatesPlots, active_cell)
+
+
+@app.callback(
+    Output(component_id=firingRatesBarsFigId, component_property='figure'), 
+    Input(firingRatesBarsTableId, 'active_cell')
+)
+def update_output_div(active_cell):
+    return getActivePlot(allRegionFiringRatesBarPlots, active_cell)
+
+@app.callback(
     Output(component_id=cohensDFigId, component_property='figure'), 
     Input(cohensDTableId, 'active_cell')
 )
 def update_output_div(active_cell):
     return getActivePlot(allRegionCohensDPlots, active_cell)
+    
+@app.callback(
+    Output(component_id=responseStrengthFigId, component_property='figure'), 
+    Input(responseStrengthTableId, 'active_cell')
+)
+def update_output_div(active_cell):
+    return getActivePlot(allRegionResponseStrengthPlots, active_cell)
     
 @app.callback(
     Output(component_id=numRespFigId, component_property='figure'), 

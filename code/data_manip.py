@@ -47,6 +47,7 @@ class DataHandler(object):
             objectnumbers = [int(e) for e in cherries['conditions']['objectnumber'][0][0][0]]
             neural_data[f'{subject}_{session}']['objectnames'] = objectnames
             neural_data[f'{subject}_{session}']['objectnumbers'] = objectnumbers
+            neural_data[f'{subject}_{session}']['objectindices_session'] = [np.where(stimlookup == objectname)[0][0] for objectname in objectnames]
             neural_data[f'{subject}_{session}']['stimlookup'] = [stim[0] for stim in stimlookup]
             
             if self.load_cat2object : 
@@ -105,6 +106,25 @@ def get_dict_cat2object(objectnames, df_metadata, concept_source):
         dict_cat2object[key] = list(set(dict_cat2object[key]))
     
     return dict_cat2object
+
+def get_mean_firing_rate_normalized(trials, objectnumbers, min_t = 100, max_t = 1000) : 
+
+    firing_rates = np.zeros(max(objectnumbers) + 1) 
+    objects = np.unique(objectnumbers)
+
+    for object in objects : 
+        object_trials = trials[np.where(objectnumbers == object)]
+
+        for trail_spikes in object_trials : 
+            trail_spikes = trail_spikes[0]
+            trail_spikes = trail_spikes[np.where(trail_spikes >= min_t)]
+            trail_spikes = trail_spikes[np.where(trail_spikes <= max_t)]
+            firing_rates[object] += len(trail_spikes)
+        #object_trials = object_trials[np.where(object_trials >= min_t)]
+        #object_trials = object_trials[np.where(object_trials <= max_t)]
+        #firing_rates[object - 1] = np.count_nonzero(object_trials)
+
+    return firing_rates / max(firing_rates)
 
 
 def object2category(objectname, df_metadata, concept_source):

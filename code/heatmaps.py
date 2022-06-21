@@ -37,6 +37,7 @@ from dash.dependencies import Input, Output
 from plot_helper import plotRaster
 from plot_helper import RasterInput
 from data_manip import DataHandler
+from data_manip import get_mean_firing_rate_normalized
 
 parser = argparse.ArgumentParser()
 
@@ -46,8 +47,19 @@ parser.add_argument('--session', default=None, type=str,
                         Otherwise, format should be '{subject}_{session}, \
                             e.g., '90_1'.")
 
+# ANALYSIS
+parser.add_argument('--data_type', default="zscores", type=str, # zscores or firing_rates
+                    help="Determines underlying datatype for heatmaps. \
+                        Currently, zscores or firing_rate are implemented.")
+parser.add_argument('--min_t', default=100, type=int,
+                    help="Relevant for calculating mean firing_rate. \
+                        Min time offset of spike after stimulus onset.")
+parser.add_argument('--max_t', default=1000, type=int,
+                    help="Relevant for calculating mean firing_rate. \
+                        Max time offset of spike after stimulus onset.")
+
 # FLAGS
-parser.add_argument('--show_all', default=False,
+parser.add_argument('--show_all', default=True,
                     help='If True, all heatmaps are shown on dashboard')
 parser.add_argument('--dont_plot', action='store_true', default=False, 
                     help='If True, plotting to figures folder is supressed')
@@ -92,6 +104,7 @@ class Tuner:
     stimuliY: List[float]
     stimuliNames: List[str]
     zscores: List[float]
+    firingRates: List[float]
     responses: List[RasterInput] = field(default_factory=lambda: [])
 
 def rescaleX(x) :
@@ -136,24 +149,41 @@ def getInterpolatedMap(x, y, z) :
 
     return px.imshow(zi,aspect=0.8,color_continuous_scale='RdBu_r',origin='lower')
 
-def createHeatMap(tuner, figureHeight, savePath=args.path2images, addName=False) : 
+#def createHeatMapZScores(tuner, figureHeight, savePath=outputPath, addName=False) : 
+#    createHeatMap(tuner, tuner.zscores, figureHeight, savePath, addName)
+
+#def createHeatMapFiringRate(tuner, figureHeight, savePath=outputPath, addName=False) : 
+#    createHeatMap(tuner, tuner.firingRate, figureHeight, savePath, addName)
+
+
+def createHeatMap(tuner, figureHeight, savePath="", addName=False) : 
+
+    if args.data_type == "firing_rates" :
+        outputPath = args.path2images + os.sep + "firingRates" + os.sep + savePath
+        targetValue = tuner.firingRates
+    else : 
+        outputPath = args.path2images + os.sep + "zscores" + os.sep + savePath
+        targetValue = tuner.zscores
+    
+    if not os.path.exists(outputPath):
+        os.makedirs(outputPath)
 
     ## Heatmap
-    heatmap = getInterpolatedMap(np.array(tuner.stimuliX), np.array(tuner.stimuliY), np.array(tuner.zscores))
+    heatmap = getInterpolatedMap(np.array(tuner.stimuliX), np.array(tuner.stimuliY), np.array(targetValue))
     
-    zScores = np.copy(tuner.zscores)
-    zScores -= min(zScores)
-    zScores /= max(zScores)
+    targetValues = np.copy(targetValue)
+    targetValues -= min(targetValues)
+    targetValues /= max(targetValues)
 
     ## Text / labels 
     for stimulusNum in range(len(tuner.stimuliNames)) :
-        opacityStim = zScores[stimulusNum]
+        opacityStim = targetValues[stimulusNum]
         heatmap.add_trace(
             go.Scatter(
                 mode='text',
                 x=rescaleX([tuner.stimuliX[stimulusNum]]), y=rescaleY([tuner.stimuliY[stimulusNum]]),
                 text=[tuner.stimuliNames[stimulusNum]],
-                hovertext=[tuner.stimuliNames[stimulusNum] + ", z: " + str(round(tuner.zscores[stimulusNum], 2))],
+                hovertext=[tuner.stimuliNames[stimulusNum] + ", z: " + str(round(targetValues[stimulusNum], 2))],
                 opacity=opacityStim,
                 textfont=dict(
                     size=12,
@@ -235,7 +265,7 @@ def createHeatMap(tuner, figureHeight, savePath=args.path2images, addName=False)
             
 
     if not args.dont_plot : 
-        filename = savePath + os.sep + tuner.subjectsession + "_ch" + str(tuner.channel) + "_cl" + str(tuner.cluster) 
+        filename = outputPath + os.sep + tuner.subjectsession + "_ch" + str(tuner.channel) + "_cl" + str(tuner.cluster) 
         if addName : 
             filename += "_" + tuner.name
         heatmapFilename = filename + "_heatmap.png"
@@ -289,31 +319,31 @@ print("\nTime loading data: " + str(time.time() - startLoadData) + " s\n")
 
 tuners = [ # clusters might not fit (manual clustering took place)
     #Tuner("088e03aos1", 17, 1, "Pacifier", "aos", [], [], [], [], []),
-    Tuner("88_1", 77, 1, [], "Engine", "aos", [], [], [], [], []),
-    Tuner("88_1", 75, 2, [], "Lizard", "aos", [], [], [], [], []), 
-    Tuner("88_1", 87, 2, [], "Zucchini", "aos", [], [], [], [], []), 
-    Tuner("88_3", 73, 2, [], "Terrarium", "aos",  [], [], [], [], []),
-    Tuner("88_3", 92, 1, [], "Photograph", "aos",  [], [], [], [], []),
-    Tuner("89_1", 84, 1, [], "Ambulance", "aos",  [], [], [], [], []),
+    Tuner("88_1", 77, 1, [], "Engine", "aos", [], [], [], [], [], []),
+    Tuner("88_1", 75, 2, [], "Lizard", "aos", [], [], [], [], [], []), 
+    Tuner("88_1", 87, 2, [], "Zucchini", "aos", [], [], [], [], [], []), 
+    Tuner("88_3", 73, 2, [], "Terrarium", "aos",  [], [], [], [], [], []),
+    Tuner("88_3", 92, 1, [], "Photograph", "aos",  [], [], [], [], [], []),
+    Tuner("89_1", 84, 1, [], "Ambulance", "aos",  [], [], [], [], [], []),
     #Tuner("89_2", 77, 2, [], "Machine Gun", "aos",  [], [], [], [], []),
-    Tuner("89_3", 62, 1, [], "Machine Gun", "aos",  [], [], [], [], []),
-    Tuner("90_1", 49, 1, [], "Waffle1", "aos",  [], [], [], [], []),
-    Tuner("90_1", 49, 2, [], "Waffle2", "aos",  [], [], [], [], []),
-    Tuner("90_1", 49, 3, [], "Waffle3", "aos",  [], [], [], [], []),
-    Tuner("90_1", 60, 2, [], "Ferry1", "aos",  [], [], [], [], []),
-    Tuner("90_1", 60, 3, [], "Ferry2", "aos",  [], [], [], [], []),
-    Tuner("90_2", 65, 3, [], "Hamburger1", "aos",  [], [], [], [], []),
-    Tuner("90_2", 65, 4, [], "Hamburger2", "aos",  [], [], [], [], []),
-    Tuner("90_2", 68, 3, [], "Pancake", "aos",  [], [], [], [], []),
-    Tuner("90_3", 49, 4, [], "Lipstick", "aos",  [], [], [], [], []),
+    Tuner("89_3", 62, 1, [], "Machine Gun", "aos",  [], [], [], [], [], []),
+    Tuner("90_1", 49, 1, [], "Waffle1", "aos",  [], [], [], [], [], []),
+    Tuner("90_1", 49, 2, [], "Waffle2", "aos",  [], [], [], [], [], []),
+    Tuner("90_1", 49, 3, [], "Waffle3", "aos",  [], [], [], [], [], []),
+    Tuner("90_1", 60, 2, [], "Ferry1", "aos",  [], [], [], [], [], []),
+    Tuner("90_1", 60, 3, [], "Ferry2", "aos",  [], [], [], [], [], []),
+    Tuner("90_2", 65, 3, [], "Hamburger1", "aos",  [], [], [], [], [], []),
+    Tuner("90_2", 65, 4, [], "Hamburger2", "aos",  [], [], [], [], [], []),
+    Tuner("90_2", 68, 3, [], "Pancake", "aos",  [], [], [], [], [], []),
+    Tuner("90_3", 49, 4, [], "Lipstick", "aos",  [], [], [], [], [], []),
     #Tuner("90_3", 52, 1, [], "Onion1", "aos",  [], [], [], [], []),
     #Tuner("90_3", 52, 2, [], "Onion2", "aos",  [], [], [], [], []),
     #Tuner("90_3", 52, 3, [], "Onion2", "aos",  [], [], [], [], []),
-    Tuner("90_4", 52, 1, [], "Potato", "aos",  [], [], [], [], []),
-    Tuner("90_5", 52, 2, [], "Coin", "aos",  [], [], [], [], []),
-    Tuner("90_5", 56, 1, [], "Hamburger1", "aos",  [], [], [], [], []),
-    Tuner("90_5", 56, 3, [], "Hamburger2", "aos",  [], [], [], [], []),
-    Tuner("90_5", 67, 1, [], "Donkey - Petfood - Carrot", "aos",  [], [], [], [], []),
+    Tuner("90_4", 52, 1, [], "Potato", "aos",  [], [], [], [], [], []),
+    Tuner("90_5", 52, 2, [], "Coin", "aos",  [], [], [], [], [], []),
+    Tuner("90_5", 56, 1, [], "Hamburger1", "aos",  [], [], [], [], [], []),
+    Tuner("90_5", 56, 3, [], "Hamburger2", "aos",  [], [], [], [], [], []),
+    Tuner("90_5", 67, 1, [], "Donkey - Petfood - Carrot", "aos",  [], [], [], [], [], []),
 ]
 
 figureHeight = 600
@@ -333,6 +363,10 @@ yThingsRescaled = rescaleY(yThings)
 
 startPrepareData = time.time()
 inputPath = args.path2data #+ tuner.paradigm + "_after_manual_clustering/"
+if args.data_type == "firing_rates" :
+    outputPath =  args.path2images + os.sep + "firingRates"
+else : 
+    outputPath = args.path2images + os.sep + "zscores"
 allUnits = []
 
 for session in sessions:
@@ -344,6 +378,7 @@ for session in sessions:
     patientNr = session.split("_")[0]
     sessionNr = session.split("_")[1]
 
+    stimuliIndices = data.neural_data[session]['objectindices_session']
     stimuliNames = np.unique(data.neural_data[session]['objectnames'])
     stimuliNamesTrials = data.neural_data[session]['objectnames']
 
@@ -365,6 +400,7 @@ for session in sessions:
         cluster = data.neural_data[session]['units'][unit]['class_num']
         trials = data.neural_data[session]['units'][unit]['trial']
         kind = data.neural_data[session]['units'][unit]['kind']
+        firingRates = get_mean_firing_rate_normalized(trials, stimuliIndices, args.min_t, args.max_t)
         name = "pat " + str(patientNr) + ", session " + str(sessionNr) + ", " + channelName + ", channel " + str(channel) + ", cluster " + str(cluster) + ", " + kind
         
         responses = []
@@ -378,6 +414,7 @@ for session in sessions:
         for tuner in tuners : 
             if tuner.subjectsession == session and tuner.channel == channel and tuner.cluster == cluster : 
                 tuner.zscores = zscores
+                tuner.firingRates = firingRates
                 tuner.stimuli = stimuliNums
                 tuner.stimuliNames = stimuliNames
                 tuner.stimuliX = stimuliX
@@ -390,7 +427,7 @@ for session in sessions:
             continue
 
         allUnits.append(Tuner(session, channel, cluster, kind, name, "aos", 
-            stimuliNums, stimuliX, stimuliY, stimuliNames, zscores, responses))
+            stimuliNums, stimuliX, stimuliY, stimuliNames, zscores, firingRates, responses))
 
     print("Prepared session " + session)
 
@@ -408,7 +445,7 @@ startTimeTunerPlots = time.time()
 tunerHeatmaps = []
 for tuner in tuners : 
     tunerHeatmaps.append(
-        createHeatMap(tuner, figureHeightBig, args.path2images + os.sep + "interesting", True))
+        createHeatMap(tuner, figureHeightBig, "interesting", True))
 
     print("Created heatmap for " + tuner.name)    
 
@@ -416,18 +453,18 @@ print("Time preparing tuner plots: " + str(time.time() - startTimeTunerPlots) + 
 
 allHeatmaps = []
 if args.show_all : 
-    for cell in allUnits : 
-        heatMapFigure = createHeatMap(cell, figureHeight)
+    for unit in allUnits : 
+        heatMapFigure = createHeatMap(unit, figureHeight)
         allHeatmaps.append(
             html.Div([
-                html.H3(children='Activation heatmap ' + cell.name),
+                html.H3(children='Activation heatmap ' + unit.name),
                 html.Div(children=[heatMapFigure]),
                 #html.Div([
                 #    dcc.Graph(id='heatmap-' + cell.name, figure=heatMapFigure)
                 #], className="nine columns"),
             ], className="row"),
         ) 
-        print("Created heatmap for " + cell.name)
+        print("Created heatmap for " + unit.name)
 
     print("Done loading all heatmaps!")
 
