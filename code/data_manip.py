@@ -107,19 +107,19 @@ def get_dict_cat2object(objectnames, df_metadata, concept_source):
     
     return dict_cat2object
 
-def get_mean_firing_rate_normalized(trials, objectnumbers, min_t = 100, max_t = 1000) : 
+def get_mean_firing_rate_normalized(all_trials, objectnumbers, min_t = 100, max_t = 1000) : 
 
     firing_rates = np.zeros(max(objectnumbers) + 1) 
-    objects = np.unique(objectnumbers)
+    stimuli = np.unique(objectnumbers)
 
-    for object in objects : 
-        object_trials = trials[np.where(objectnumbers == object)]
+    for stim in stimuli : 
+        stim_trials = all_trials[np.where(objectnumbers == stim)]
 
-        for trail_spikes in object_trials : 
-            trail_spikes = trail_spikes[0]
-            trail_spikes = trail_spikes[np.where(trail_spikes >= min_t)]
-            trail_spikes = trail_spikes[np.where(trail_spikes <= max_t)]
-            firing_rates[object] += len(trail_spikes)
+        for trial_spikes in stim_trials : 
+            trial_spikes = trial_spikes[0]
+            trial_spikes = trial_spikes[np.where(trial_spikes >= min_t) and np.where(trial_spikes <= max_t)]
+            #trial_spikes = trial_spikes[]
+            firing_rates[stim] += len(trial_spikes)
         #object_trials = object_trials[np.where(object_trials >= min_t)]
         #object_trials = object_trials[np.where(object_trials <= max_t)]
         #firing_rates[object - 1] = np.count_nonzero(object_trials)
