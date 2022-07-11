@@ -7,6 +7,7 @@ Created on Wed Jan 12 10:46:08 2022
 """
 import os
 import glob
+import mat73
 import numpy as np
 from scipy import stats
 import scipy.io as sio
@@ -30,46 +31,50 @@ class DataHandler(object):
         for fn_cherrie in fn_cherries:
 
             subject_session_name = fn_cherrie.split(os.sep)[-1].split("_")[0]
+            subject_session_path = self.path2data + os.sep + subject_session_name
+            paradigm = subject_session_name[6:9]
 
             # Load cherries (contains also condition info), zscores and pvalues
-            cherries = sio.loadmat(fn_cherrie)
-            zscores = sio.loadmat(self.path2data + os.sep + subject_session_name + '_zscores.mat')["zscores_rs"]
-            pvals = sio.loadmat(self.path2data + os.sep + subject_session_name + '_os_responses.mat')["pvals_rs"]
-            stimlookup = sio.loadmat(self.path2data + os.sep + subject_session_name + '_stimlookup.mat')["stimlookup"][0]
+            cherries = load_matlab_file(fn_cherrie)# sio.loadmat(fn_cherrie)
+            zscores = load_matlab_file(subject_session_path + '_zscores.mat')["zscores_rs"] 
+            pvals = load_matlab_file(subject_session_path + '_os_responses.mat')["pvals_rs"]
+            stimlookup = load_matlab_file(subject_session_path + '_stimlookup.mat')["stimlookup"][0]
 
             # Get subject and session numbers
             subject = int(cherries['conditions']['subject'][0][0][0][0])
             session = int(cherries['conditions']['session'][0][0][0][0])
             if subject_session_name == '090e13aos2' : # There seems to be the wrong session number stored
                 session = 2
-            neural_data[f'{subject}_{session}'] = {}
+            subject_session_key = f'{subject}_{session}_{paradigm}'
+
+            neural_data[subject_session_key] = {}
             objectnames = [e[0] for e in cherries['conditions']['objectname'][0][0][0]]
             objectnumbers = [int(e) for e in cherries['conditions']['objectnumber'][0][0][0]]
-            neural_data[f'{subject}_{session}']['objectnames'] = objectnames
-            neural_data[f'{subject}_{session}']['objectnumbers'] = objectnumbers
-            neural_data[f'{subject}_{session}']['objectindices_session'] = [np.where(stimlookup == objectname)[0][0] for objectname in objectnames]
-            neural_data[f'{subject}_{session}']['stimlookup'] = [stim[0] for stim in stimlookup]
+            neural_data[subject_session_key]['objectnames'] = objectnames
+            neural_data[subject_session_key]['objectnumbers'] = objectnumbers
+            neural_data[subject_session_key]['objectindices_session'] = [np.where(stimlookup == objectname)[0][0] for objectname in objectnames]
+            neural_data[subject_session_key]['stimlookup'] = [stim[0] for stim in stimlookup]
             
             if self.load_cat2object : 
-                neural_data[f'{subject}_{session}']['dict_cat2object'] = \
+                neural_data[subject_session_key]['dict_cat2object'] = \
                     get_dict_cat2object(objectnames,
                                         self.df_metadata, self.concept_source)
             
             
-            neural_data[f'{subject}_{session}']['units'] = {}
+            neural_data[subject_session_key]['units'] = {}
             for unit_num in range(cherries['cherries'].shape[1]):
-                neural_data[f'{subject}_{session}']['units'][unit_num + 1] = {}
-                neural_data[f'{subject}_{session}']['units'][unit_num + 1]['trial'] = cherries['cherries'][0, unit_num]['trial'][0, :]
-                neural_data[f'{subject}_{session}']['units'][unit_num + 1]['class_num'] = cherries['cherries'][0, unit_num]['classno'][0, 0]
-                neural_data[f'{subject}_{session}']['units'][unit_num + 1]['channel_num'] = cherries['cherries'][0, unit_num]['channr'][0, 0]
-                neural_data[f'{subject}_{session}']['units'][unit_num + 1]['channel_name'] = cherries['cherries'][0, unit_num]['chnname'][0]
-                neural_data[f'{subject}_{session}']['units'][unit_num + 1]['site'] = cherries['cherries'][0, unit_num]['site'][0]
-                neural_data[f'{subject}_{session}']['units'][unit_num + 1]['kind'] = cherries['cherries'][0, unit_num]['kind'][0]
-                neural_data[f'{subject}_{session}']['units'][unit_num + 1]['zscores'] = zscores[unit_num]
-                neural_data[f'{subject}_{session}']['units'][unit_num + 1]['p_vals'] = pvals[unit_num]
+                neural_data[subject_session_key]['units'][unit_num + 1] = {}
+                neural_data[subject_session_key]['units'][unit_num + 1]['trial'] = cherries['cherries'][0, unit_num]['trial'][0, :]
+                neural_data[subject_session_key]['units'][unit_num + 1]['class_num'] = cherries['cherries'][0, unit_num]['classno'][0, 0]
+                neural_data[subject_session_key]['units'][unit_num + 1]['channel_num'] = cherries['cherries'][0, unit_num]['channr'][0, 0]
+                neural_data[subject_session_key]['units'][unit_num + 1]['channel_name'] = cherries['cherries'][0, unit_num]['chnname'][0]
+                neural_data[subject_session_key]['units'][unit_num + 1]['site'] = cherries['cherries'][0, unit_num]['site'][0]
+                neural_data[subject_session_key]['units'][unit_num + 1]['kind'] = cherries['cherries'][0, unit_num]['kind'][0]
+                neural_data[subject_session_key]['units'][unit_num + 1]['zscores'] = zscores[unit_num]
+                neural_data[subject_session_key]['units'][unit_num + 1]['p_vals'] = pvals[unit_num]
     
         self.neural_data = neural_data
-        
+
     
     def load_metadata(self):
         self.df_metadata = pd.read_csv(self.path2metadata,
@@ -88,7 +93,14 @@ class DataHandler(object):
         self.similarity_matrix = pd.read_csv(self.path2semanticdata + 'similarityMatrix_' + self.metric + '.csv',
                                               delimiter=self.similarity_matrix_delimiter,
                                               header=None)
-        
+
+def load_matlab_file(file) :  
+    try : 
+        return sio.loadmat(file)
+    except : 
+        return mat73.loadmat(file)
+
+
 def get_THINGS_indices(df_metadata, objects) : 
     return [np.where(object == df_metadata.uniqueID)[0][0] for object in objects]
 
