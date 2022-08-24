@@ -31,32 +31,44 @@ from dash.dependencies import Input, Output
 
 # utilility modules
 from data_manip import DataHandler
-from data_manip import get_THINGS_indices
+#from data_manip import get_THINGS_indices
 from data_manip import get_mean_firing_rate_normalized
 
 parser = argparse.ArgumentParser()
                                   
-parser.add_argument('--dont_plot', action='store_true', default=False, 
-                    help='If True, plotting to figures folder is supressed')
-parser.add_argument('--metric', default='cosine',
-                    help='Distance metric')
-parser.add_argument('--similarity_matrix_delimiter', default=',', type=str,
-                    help='Similarity metric delimiter')
 
+# STATS
+parser.add_argument('--alpha', default=0.001, type=float,
+                    help='Alpha for selecting responding units')
+parser.add_argument('--alpha_unit', default=0.1, type=float,
+                    help='Alpha for selecting considered concepts for responding units')
+parser.add_argument('--metric', default='cosine', type=str,
+                    help='Distance metric')
+parser.add_argument('--start_time_fr', default=100, type=int,
+                    help='Start time for calculating firing rate')
+parser.add_argument('--end_time_fr', default=800, type=int,
+                    help='End time for calculating firing rate')
+
+# FLAGS
 parser.add_argument('--load_cat2object', default=False, 
                     help='If True, cat2object is loaded')
+parser.add_argument('--dont_plot', action='store_true', default=True, 
+                    help='If True, plotting to figures folder is supressed')
 
+# PATHS
 parser.add_argument('--path2metadata',
                     default='../data/THINGS/things_concepts.tsv',
                     help='TSV file containing semantic categories, etc.')
 parser.add_argument('--path2data', 
-                    default='../data/aosnos_after_manual_clustering/') 
+                    default='../data/aos_after_manual_clustering/') 
 parser.add_argument('--path2images', 
                     default='../figures/semantic_coactivation/') 
 parser.add_argument('--path2semanticdata',
                     default='../data/semantic_data/')
 parser.add_argument('--path2wordembeddings',
                     default='../data/THINGS/sensevec_augmented_with_wordvec.csv')
+parser.add_argument('--similarity_matrix_delimiter', default=',', type=str,
+                    help='Similarity metric delimiter')
    
 args=parser.parse_args()
 
@@ -105,8 +117,10 @@ sessions = list(data.neural_data.keys())
 print("\nTime loading data: " + str(time.time() - startLoadData) + " s\n")
 startPrepareDataTime = time.time()
 
-startTimeAvgFiringRate = 100
-stopTimeAvgFiringRate = 800 # 800 for rodrigo
+data.calculate_responses(args.alpha, args.alpha_unit, args.start_time_fr, args.end_time_fr, include_self = False)
+
+print("\nTime calculating responses: " + str(time.time() - startPrepareDataTime) + " s\n")
+startPrepareDataTime = time.time()
 
 tuners = [
     Tuner("Engine", 88, 1, 77, 1, "aos", "", [], [], []),
@@ -136,7 +150,24 @@ tuners = [
     Tuner("Donkey - Petfood - Carrot", 90, 5, 67, 1, "aos", "", [], [], []),
 ]
 
+spearman = []
+
+for responding_cell in data.response_data : 
+    
+    print("Spearman correlation: " + str(responding_cell['spearman']))
+    spearman.append(responding_cell['spearman'])
+
+    tunerIndex = getTunerIndex(responding_cell["subject"], responding_cell["session"], 
+        responding_cell["channel_num"], responding_cell["class_num"], responding_cell["paradigm"]) 
+
+    if tunerIndex >= 0 :
+        print("Found tuner " + tuners[tunerIndex].name)
+        tuners[tunerIndex].firingRates = responding_cell["firing_rates_dist"]
+        tuners[tunerIndex].similarities = responding_cell["similarities"]
+
+
 for session in sessions:
+    break
 
     subjectNum = int(session.split("_")[0])
     sessionNum = int(session.split("_")[1])
@@ -144,7 +175,7 @@ for session in sessions:
     objectNames = data.neural_data[session]['objectnames']
     stimuliIndices = data.neural_data[session]['objectindices_session']
     numStimuli = len(data.neural_data[session]['stimlookup'])
-    thingsIndices = get_THINGS_indices(data.df_metadata, data.neural_data[session]['stimlookup'])
+    thingsIndices = data.get_THINGS_indices(data.neural_data[session]['stimlookup'])
     units = list(set(data.neural_data[session]['units'].keys()))
 
     for unit in units:
@@ -154,7 +185,7 @@ for session in sessions:
         channel = unitData['channel_num']
         cluster = unitData['class_num']
 
-        firingRates = get_mean_firing_rate_normalized(trials, stimuliIndices, startTimeAvgFiringRate, stopTimeAvgFiringRate)
+        firingRates = get_mean_firing_rate_normalized(trials, stimuliIndices, args.start_time_fr, args.end_time_fr)
 
         tunerIndex = getTunerIndex(subjectNum, sessionNum, channel, cluster, sessionParadigm) 
         if tunerIndex >= 0 :
@@ -174,6 +205,10 @@ for session in sessions:
 
 for tuner in tuners : 
 
+    if len(tuner.similarities,) == 0 :
+        print("WARNING: Did not find tuner " + tuner.name)
+        continue
+
     help_fig = px.scatter(x=tuner.similarities, y=tuner.firingRates, trendline="ols") # lowess --> non linear
     # extract points as plain x and y
     x_trend = help_fig["data"][1]['x']
@@ -192,10 +227,29 @@ for tuner in tuners :
     tunerPlot.update_layout(
         title=tuner.name + " -- subj " + str(tuner.subject) + ", sess " + str(tuner.session) + ", ch " + str(tuner.channel) + ", cl " + str(tuner.cluster),
         xaxis_title="Semantic similarity",
-        yaxis_title="Firing rate", 
+        yaxis_title="Firing rate dist", 
         showlegend=False
     )
-    saveImg(tunerPlot, "tuners" + os.sep + args.metric + '_' + tuner.name)
+    saveImg(tunerPlot, "tuners_only_responses" + os.sep + args.metric + '_' + tuner.name)
 
-print("\nTime preparing data: " + str(time.time() - startPrepareDataTime) + " s\n")
+
+spearmanPlot = go.Figure()
+spearmanPlot.add_trace(go.Scatter(
+    x=np.arange(len(spearman)), 
+    y=spearman, 
+    mode='markers', 
+))
+
+spearmanPlot.update_layout(
+    xaxis_title="neuron num",
+    yaxis_title="spearman correlation", 
+    showlegend=False
+)
+saveImg(spearmanPlot, "spearman_only_responses_" + args.metric)
+
+print("\nTime plotting data: " + str(time.time() - startPrepareDataTime) + " s\n")
+
+spearman = np.asarray(spearman)
+spearman = spearman[~np.isnan(spearman)]
+print("Mean spearman: " + str(np.mean(spearman)) + ", std: " + str(np.std(spearman)))
 

@@ -75,6 +75,56 @@ class DataHandler(object):
     
         self.neural_data = neural_data
 
+    def calculate_responses(self, alpha, alpha_unit, start_time_fr, end_time_fr, include_self = False) :
+        self.response_data = []
+
+        for session in self.neural_data : 
+            session_data = self.neural_data[session]
+            stimuli_indices = session_data['objectindices_session']
+            
+            things_indices = np.asarray(self.get_THINGS_indices(session_data['stimlookup']))
+            for unit in session_data['units'] : 
+                unit_data = session_data['units'][unit]
+
+                if not np.any(unit_data['p_vals'] < alpha) : 
+                    continue
+
+                response_indices = np.where(unit_data['p_vals'] < alpha_unit)[0]
+                num_responses = len(response_indices)
+
+                if num_responses > 0 : # should never happen as this should be >= than alpha
+                    response_data_unit = {}
+                    response_data_unit['site'] = unit_data['site']
+                    response_data_unit['channel_num'] = unit_data['channel_num']
+                    response_data_unit['channel_name'] = unit_data['channel_name']
+                    response_data_unit['class_num'] = unit_data['class_num']
+                    response_data_unit['kind'] = unit_data['kind']
+                    response_data_unit['subject'] = int(session.split("_")[0])
+                    response_data_unit['session'] = int(session.split("_")[1])
+                    response_data_unit['paradigm'] = session.split("_")[2]
+                    
+                    firing_rates_all = get_mean_firing_rate_normalized(unit_data['trial'], stimuli_indices, start_time_fr, end_time_fr)
+                    response_data_unit['firing_rates'] = firing_rates_all[response_indices]
+                    response_data_unit['p_vals'] = unit_data['p_vals'][response_indices]
+                    response_data_unit['zscores'] = unit_data['zscores'][response_indices]
+                    response_data_unit['things_indices'] = things_indices[response_indices]
+
+                    response_data_unit['similarities'] = []
+                    response_data_unit['firing_rates_dist'] = []
+
+                    for r1 in range(num_responses) :
+                        for r2 in range(r1) :
+                            if r2 == r1 and not include_self: 
+                                continue
+                            response_data_unit['firing_rates_dist'].append(abs(response_data_unit['firing_rates'][r1] - response_data_unit['firing_rates'][r2]))
+                            response_data_unit['similarities'].append(self.similarity_matrix[response_data_unit['things_indices'][r1]][response_data_unit['things_indices'][r2]])
+                    
+                    spearman_rho, spearman_p = stats.spearmanr(response_data_unit['similarities'], response_data_unit['firing_rates_dist']).correlation
+                    response_data_unit['spearman'] = spearman_rho
+                    response_data_unit['spearman_p'] = spearman_p
+                    
+                    self.response_data.append(response_data_unit)
+
     
     def load_metadata(self):
         self.df_metadata = pd.read_csv(self.path2metadata,
@@ -94,15 +144,17 @@ class DataHandler(object):
                                               delimiter=self.similarity_matrix_delimiter,
                                               header=None)
 
+    def get_THINGS_indices(self, objects) : 
+        return [np.where(object == self.df_metadata.uniqueID)[0][0] for object in objects]
+
+
+
 def load_matlab_file(file) :  
     try : 
         return sio.loadmat(file)
     except : 
         return mat73.loadmat(file)
 
-
-def get_THINGS_indices(df_metadata, objects) : 
-    return [np.where(object == df_metadata.uniqueID)[0][0] for object in objects]
 
 def get_dict_cat2object(objectnames, df_metadata, concept_source):
     dict_cat2object = {}

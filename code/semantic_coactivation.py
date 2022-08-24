@@ -8,6 +8,7 @@
 import os
 import math
 import numpy as np
+import pandas as pd
 import time
 import argparse
 import itertools
@@ -33,13 +34,13 @@ from dash.dependencies import Input, Output
 
 # utilility modules
 from data_manip import DataHandler
-from data_manip import get_THINGS_indices
+#from data_manip import get_THINGS_indices
 from data_manip import get_mean_firing_rate_normalized
 
 parser = argparse.ArgumentParser()
 
 # SESSION/UNIT
-parser.add_argument('--session', default=None, type=str, #90_1_aos / None ; 90_3_aos, channel 68 cluster 1
+parser.add_argument('--session', default=None, type=str, #"90_1_aos" / None ; 90_3_aos, channel 68 cluster 1
                     help="If None, all sessions in folder are processed. \
                         Otherwise, format should be '{subject}_{session}, \
                             e.g., '90_1'.")
@@ -51,7 +52,7 @@ parser.add_argument('--similarity_matrix_delimiter', default=',', type=str,
                     help='Similarity metric delimiter')
 
 # FLAGS
-parser.add_argument('--dont_plot', action='store_true', default=True, 
+parser.add_argument('--dont_plot', action='store_true', default=False, 
                     help='If True, plotting to figures folder is supressed')
 parser.add_argument('--only_SU', default=True, 
                     help='If True, only single units are considered')
@@ -135,17 +136,24 @@ class NormArray:
 class Region:
     sitename: str
     coactivationNorm : NormArray = field(default_factory=lambda: NormArray())
+    numResponsesPerConcept : List = field (default_factory=lambda: np.zeros(len(data.df_metadata['uniqueID'])))
     zScoresNorm : NormArray = field(default_factory=lambda: NormArray())
     cohensD : NormArray = field(default_factory=lambda: NormArray())
     responseStrength : NormArray = field(default_factory=lambda: NormArray())
     firingRatesNorm : NormArray = field(default_factory=lambda: NormArray())
     numResponsesHist : List = field (default_factory=lambda: [])
     similaritiesArray : List = field (default_factory=lambda: [])
+    firingRatesScatterSimilarities : List = field (default_factory=lambda: [])
+    firingRatesScatter : List = field (default_factory=lambda: [])
+    responseStrengthHistResp : List = field (default_factory=lambda: [])
+    responseStrengthHistNoResp : List = field (default_factory=lambda: [])
+    #coactivationFull : List = field(default_factory=lambda: [[] for i in range(nSimilarities)])
     spearmanCor : List = field (default_factory=lambda: [])
     spearmanP : List = field (default_factory=lambda: [])
     spearmanCorSteps : List = field(default_factory=lambda: [[] for i in range(numSpearmanCorSteps)])
-    firingRatesScatterSimilarities : List = field (default_factory=lambda: [])
-    firingRatesScatter : List = field (default_factory=lambda: [])
+    pearsonCor : List = field (default_factory=lambda: [])
+    pearsonP : List = field (default_factory=lambda: [])
+    pearsonCorSteps : List = field(default_factory=lambda: [[] for i in range(numSpearmanCorSteps)])
 
 
 def createTableDiv(title, figureId, tableId, columnName, columnId, columnData) : 
@@ -254,6 +262,13 @@ def saveImg(fig, filename) :
         os.makedirs(os.path.dirname(file), exist_ok=True)
         fig.write_image(file)
 
+def createCorrelationPlot(sitename, correlation) : 
+    return go.Box(
+        y=correlation, 
+        name=sitename + " (" + str(len(correlation)) + ")",
+        boxpoints='all',
+    )
+
 def createBoxPlot(x, values, title, yLabel, filename, boxpoints=False) :   
     
     fig = go.Figure()
@@ -290,14 +305,19 @@ def createBoxPlot(x, values, title, yLabel, filename, boxpoints=False) :
 
     return fig
 
-def createPlot(x, y, yLabel, filename, plotHalfGaussian) :
+def createPlot(x, y, yLabel, filename, plotHalfGaussian, ticktext=[]) :
     
-    relevantIndices = np.where(y != 0)
-    x = x[relevantIndices]
-    y = y[relevantIndices]
-    relevantIndices = np.where(np.isfinite(y))
-    x = x[relevantIndices]
-    y = y[relevantIndices]
+    # relevantIndices = np.where(y != 0)
+    # x = x[relevantIndices]
+    # y = y[relevantIndices]
+    # if len(ticktext) > 0 : 
+    #     ticktext = ticktext[relevantIndices]
+
+    # relevantIndices = np.where(np.isfinite(y))
+    # x = x[relevantIndices]
+    # y = y[relevantIndices]
+    # if len(ticktext) > 0 : 
+    #     ticktext = ticktext[relevantIndices]
 
     if len(y) == 0 : 
         meanY = 0
@@ -308,9 +328,9 @@ def createPlot(x, y, yLabel, filename, plotHalfGaussian) :
     else : 
         meanY = statistics.mean(y)
         stdevY = statistics.stdev(y)
-    relevantIndices = np.where(abs(y - meanY) <= args.max_stdev_outliers * stdevY)
-    xWithoutOutliers = x[relevantIndices]
-    yWithoutOutliers = y[relevantIndices]
+    # relevantIndices = np.where(abs(y - meanY) <= args.max_stdev_outliers * stdevY)
+    xWithoutOutliers = x#[relevantIndices]
+    yWithoutOutliers = y#[relevantIndices]
 
     if len(x) - len(xWithoutOutliers) > 0 : 
         print("-Excluded " + str(len(x) - len(xWithoutOutliers)) + " outliers-")
@@ -341,8 +361,17 @@ def createPlot(x, y, yLabel, filename, plotHalfGaussian) :
     fig.update_layout(
         title_text=' '.join(filename.replace(os.sep, '_').split('_')),
         xaxis_title='Semantic similarity',
-        yaxis_title=yLabel,
+        yaxis_title=yLabel
     )
+
+    if len(ticktext) > 0 : 
+        fig.update_layout(
+            xaxis = dict(
+                tickmode = 'array',
+                tickvals = xWithoutOutliers,
+                ticktext = ticktext#[relevantIndices] 
+            )
+        )
 
     saveImg(fig, filename)
 
@@ -394,9 +423,9 @@ allRegionsName = 'All'
 allSiteNames = [allRegionsName]
 regions = {}
 
-regions_df = {
-    allRegionsName : {"spearmanCor" : [], "spearmanP" : []}
-}
+#regions_df = {
+#    allRegionsName : {"spearmanCor" : [], "spearmanP" : []}
+#}
 
 regions[allRegionsName] = Region(allRegionsName)
 
@@ -420,7 +449,7 @@ for session in sessions:
     stimlookup = data.neural_data[session]['stimlookup']
     objectNames = data.neural_data[session]['objectnames']
     stimuliIndices = data.neural_data[session]['objectindices_session']
-    thingsIndices = get_THINGS_indices(data.df_metadata, data.neural_data[session]['stimlookup'])
+    thingsIndices = data.get_THINGS_indices(data.neural_data[session]['stimlookup'])
     numStimuli = len(stimlookup)
 
     # for o1 in range(len(objectNames)) : 
@@ -453,12 +482,12 @@ for session in sessions:
         if site not in allSiteNames : 
             allSiteNames.append(site)
             regions[site] = Region(site)
-            regions_df[site] = {"spearmanCor" : [], "spearmanP" : []}
+            #regions_df[site] = {"spearmanCor" : [], "spearmanP" : []}
 
 
-    for site in allSitesSession : 
+    for site in allSitesSession :  
         for i1, i2 in itertools.product(thingsIndices, thingsIndices) : 
-            if i1 == i2 and not includeSelfSimilarity :
+            if i2 > i1 or (i1 == i2 and not includeSelfSimilarity) :
                 continue
             regions[allRegionsName].coactivationNorm.normalizer[similarityMatrixToIndex[i1, i2]] += len(units) # copresentation
             regions[site].coactivationNorm.normalizer[similarityMatrixToIndex[i1, i2]] += len(units)
@@ -485,11 +514,15 @@ for session in sessions:
         if not len(firingRates) == numStimuli or not len(zscores) == numStimuli : 
             print("ERROR: array length does not fit for zscores or firing rates!")
 
-        for i1, i2 in itertools.product(responses, responses) :  
-            if i1 == i2 and not includeSelfSimilarity :
-                continue
-            regions[allRegionsName].coactivationNorm.y[similarityMatrixToIndex[i1, i2]] += 1
-            regions[site].coactivationNorm.y[similarityMatrixToIndex[i1, i2]] += 1
+        for i1 in responses :  
+            regions[allRegionsName].numResponsesPerConcept[i1] += 1
+            regions[site].numResponsesPerConcept[i1] += 1
+            
+            for i2 in responses : 
+                if i2 > i1 or (i1 == i2 and not includeSelfSimilarity) :
+                    continue
+                regions[allRegionsName].coactivationNorm.y[similarityMatrixToIndex[i1, i2]] += 1
+                regions[site].coactivationNorm.y[similarityMatrixToIndex[i1, i2]] += 1
 
         if len(responses) > 0 :
             regions[allRegionsName].numResponsesHist.append(len(responses))
@@ -498,7 +531,7 @@ for session in sessions:
             # zscores
             bestResponse = np.argmax(firingRates) # best Response = highest z? highest response strength?
             indexBest = thingsIndices[bestResponse]
-
+            
             for i in range(numStimuli) : # responseIndices
                 if i == bestResponse and not includeSelfSimilarity : 
                     continue
@@ -522,9 +555,15 @@ for session in sessions:
                 similaritiesSpearmanSteps[spearmanStep].append(similarity)
                 valuesSpearmanSteps[spearmanStep].append(firingRates[i])
 
-                #if similarity > 0.7 : 
                 similaritiesSpearman.append(similarity)
                 valuesSpearman.append(firingRates[i])
+
+                if index in responses : 
+                    regions[allRegionsName].responseStrengthHistResp.append(firingRates[i])
+                    regions[site].responseStrengthHistResp.append(firingRates[i])
+                else : 
+                    regions[allRegionsName].responseStrengthHistNoResp.append(firingRates[i])
+                    regions[site].responseStrengthHistNoResp.append(firingRates[i])
 
             # Baselines (for response strength)
             baselineFrequencies = np.zeros((len(trials)))
@@ -584,27 +623,44 @@ for session in sessions:
                 responseStrengthUnit = (medianFiringRatesStimuli[stimNum] - meanBaseline) / maxMedianFiringRate
                 regions[allRegionsName].responseStrength.addValue(similarityIndex, responseStrengthUnit)
                 regions[site].responseStrength.addValue(similarityIndex, responseStrengthUnit)
+        #else : 
+        #    regions[allRegionsName].responseStrengthHistNoResp = np.concatenate((regions[allRegionsName].responseStrengthHistNoResp, firingRates))
+        #    regions[site].responseStrengthHistNoResp = np.concatenate((regions[site].responseStrengthHistNoResp, firingRates))
+            
 
         if len(valuesSpearman) > 0 : 
             spearman = stats.spearmanr(valuesSpearman, similaritiesSpearman)
+
             regions[site].spearmanCor.append(spearman.correlation)
             regions[site].spearmanP.append(spearman.pvalue)
             regions[allRegionsName].spearmanCor.append(spearman.correlation)
             regions[allRegionsName].spearmanP.append(spearman.pvalue)
+            
+            if len(valuesSpearman) >= 2 : 
+                pearson = stats.pearsonr(valuesSpearman, similaritiesSpearman)
+                regions[site].pearsonCor.append(pearson[0])
+                regions[site].pearsonP.append(pearson[1])
+                regions[allRegionsName].pearsonCor.append(pearson[0])
+                regions[allRegionsName].pearsonP.append(pearson[1])
 
-            regions_df[site]["spearmanCor"].append(spearman.correlation)
-            regions_df[site]["spearmanP"].append(spearman.pvalue)
-            regions_df[allRegionsName]["spearmanCor"].append(spearman.correlation)
-            regions_df[allRegionsName]["spearmanP"].append(spearman.pvalue)
+            #regions_df[site]["spearmanCor"].append(spearman.correlation)
+            #regions_df[site]["spearmanP"].append(spearman.pvalue)
+            #regions_df[allRegionsName]["spearmanCor"].append(spearman.correlation)
+            #regions_df[allRegionsName]["spearmanP"].append(spearman.pvalue)
 
             for i in range(numSpearmanCorSteps) : 
                 if len(valuesSpearmanSteps[i]) > 0 : 
                     spearman = stats.spearmanr(valuesSpearmanSteps[i], similaritiesSpearmanSteps[i]) 
-                    if math.isnan(spearman.correlation) : 
-                        #print("warning: spearman correlation is nan")
-                        continue
-                    regions[site].spearmanCorSteps[i].append(spearman.correlation)
-                    regions[allRegionsName].spearmanCorSteps[i].append(spearman.correlation)
+                    if not math.isnan(spearman.correlation) : 
+                        regions[site].spearmanCorSteps[i].append(spearman.correlation)
+                        regions[allRegionsName].spearmanCorSteps[i].append(spearman.correlation)
+                    
+                if len(valuesSpearmanSteps[i]) >= 2 : 
+                    pearson = stats.pearsonr(valuesSpearmanSteps[i], similaritiesSpearmanSteps[i]) 
+                    if not math.isnan(pearson[0]) and not math.isnan(pearson[1]) : 
+                        regions[site].pearsonCorSteps[i].append(pearson[0])
+                        regions[allRegionsName].pearsonCorSteps[i].append(pearson[0])
+
 
     print("Prepared data of session " + session + ". Time: " + str(time.time() - startPrepareSessionData) + " s" )
 
@@ -625,11 +681,19 @@ allRegionCohensDPlots = []
 allRegionResponseStrengthPlots = []
 allRegionNumResponsesPlots = []
 allRegionSpearmanPlots = []
+allRegionSpearmanPPlots = []
+allRegionPearsonPlots = []
+allRegionPearsonPPlots = []
 allRegionFiringRateScatterPlots = []
+allRegionRespStrengthHistPlots = []
+allRegionRespStrengthHistPlotsNo = []
 
 figurePrepareTime = time.time()
+spearmanPPlot = go.Figure()
 spearmanPlot = go.Figure()
-spearmanBarPlot = go.Figure()
+pearsonPPlot = go.Figure()
+pearsonPlot = go.Figure()
+
 
 for site in allSiteNames : 
 
@@ -645,32 +709,52 @@ for site in allSiteNames :
             )
         ))
     
-    spearmanPlot.add_trace(
-        go.Box(
-            y=siteData.spearmanCor, #siteData.spearmanCor, #regions_df[site]["spearmanCor"]
-            name=siteData.sitename + " (" + str(len(siteData.spearmanCor)) + ")",
-            boxpoints='all',
-        )
-    )
+    spearmanPlot.add_trace(createCorrelationPlot(siteData.sitename, siteData.spearmanCor))
+    spearmanPPlot.add_trace(createCorrelationPlot(siteData.sitename, siteData.spearmanP))
+    pearsonPlot.add_trace(createCorrelationPlot(siteData.sitename, siteData.pearsonCor))
+    pearsonPPlot.add_trace(createCorrelationPlot(siteData.sitename, siteData.pearsonP))
 
-    #spearmanBarPlot.add_trace(
-    #    go.Bar(# name=siteData.sitename, 
-    #        x=siteData.sitename, 
-    #        y=siteData.spearmanCor.sort(),
-    #    ),
-    #)
-
-    coactivationBeforeNormalization = siteData.coactivationNorm.y
+    coactivationBeforeNormalization = siteData.coactivationNorm.y.copy()
     siteData.coactivationNorm.normalize("coactivation normalized")
     #siteData.zScoresNorm.normalize("zScores")
     #siteData.cohensD.normalize("cohensD")
 
-    coactivationBeforeNormalization = coactivationBeforeNormalization[siteData.coactivationNorm.relevantIndices]
+    #coactivationBeforeNormalization = coactivationBeforeNormalization[siteData.coactivationNorm.relevantIndices]
+    ticktextCoactivation = np.asarray([str(round(siteData.coactivationNorm.similarity[i], 2))
+        #+ ": " + str(siteData.coactivationNorm.y[i] * 100) 
+        #+ ("%.2f" % coactivationBeforeNormalization[i])
+        + " (" + str(round(siteData.coactivationNorm.y[i] * 100, 5)) 
+        + " = " + str(coactivationBeforeNormalization[i])
+        + "/" + str(siteData.coactivationNorm.normalizer[i]) + ")" for i in range(len(coactivationBeforeNormalization))])
 
     fileDescription = paradigm + '_' + args.metric + '_' + site 
     
+
+    responseStrenthHistDf = pd.DataFrame({
+        'firing rate': siteData.responseStrengthHistResp,
+        #np.concatenate((
+            #siteData.responseStrengthHistResp
+            #siteData.responseStrengthHistNoResp
+        #)),
+        'responsiveness': ['Responses' for _ in range(len(siteData.responseStrengthHistResp))]
+        #np.concatenate((
+        #    np.array(['Responses' for _ in range(len(siteData.responseStrengthHistResp))])
+            #np.array(['Non-Responses' for _ in range(len(siteData.responseStrengthHistNoResp))]) 
+        #))
+    })
+    noResponseStrenthHistDf = pd.DataFrame({
+        'firing rate': siteData.responseStrengthHistNoResp,
+        'responsiveness': ['No responses' for _ in range(len(siteData.responseStrengthHistNoResp))]
+    })
+    responseStrenthHistFig = px.histogram(responseStrenthHistDf, x='firing rate', color="responsiveness")
+    noResponseStrenthHistFig = px.histogram(noResponseStrenthHistDf, x='firing rate', color="responsiveness")
+    saveImg(responseStrenthHistFig, "response_strength_hist" + os.sep + paradigm + '_' + site)
+    saveImg(noResponseStrenthHistFig, "response_strength_hist_no" + os.sep + paradigm + '_' + site)
+    allRegionRespStrengthHistPlots.append(responseStrenthHistFig)
+    allRegionRespStrengthHistPlotsNo.append(noResponseStrenthHistFig)
+
     allRegionCoactivationNormalizedPlots.append(
-        createPlot(siteData.coactivationNorm.similarity, siteData.coactivationNorm.y * 100, "Normalized coactivation probability in %", "coactivation_normalized" + os.sep + fileDescription, True))
+        createPlot(siteData.coactivationNorm.similarity, siteData.coactivationNorm.y * 100, "Normalized coactivation probability in %", "coactivation_normalized" + os.sep + fileDescription, True, ticktextCoactivation))
     allRegionZScoresPlots.append(
         createBoxPlot(uniqueSimilarities, siteData.zScoresNorm.values, "Mean zscores", "zscores", "zscores" + os.sep + fileDescription))
     allRegionFiringRatesPlots.append(
@@ -681,6 +765,8 @@ for site in allSiteNames :
         createBoxPlot(uniqueSimilarities, siteData.responseStrength.values, "Mean response strength (median - meanBaseline) / maxMedian", "responseStrength", "responseStrength" + os.sep + fileDescription))
     allRegionSpearmanPlots.append(
         createBoxPlot(np.arange(0.0, 1.0 + spearmanCorStepSize, spearmanCorStepSize), siteData.spearmanCorSteps, "Spearman correlation dependent on semantic similarity", "spearmanCorSteps", "spearmanCorSteps" + os.sep + fileDescription, 'all')) 
+    allRegionPearsonPlots.append(
+        createBoxPlot(np.arange(0.0, 1.0 + spearmanCorStepSize, spearmanCorStepSize), siteData.pearsonCorSteps, "Pearson correlation dependent on semantic similarity", "spearmanCorSteps", "spearmanCorSteps" + os.sep + fileDescription, 'all')) 
 
     counts, bins = np.histogram(siteData.numResponsesHist, bins=range(args.max_responses_unit + 1))
     numResponsesFig = px.bar(x=bins[:-1], y=counts, labels={'x':'Number of units', 'y':'Number of responses'})
@@ -688,12 +774,17 @@ for site in allSiteNames :
     saveImg(numResponsesFig, "num_responses" + os.sep + paradigm + '_' + site)
 
 
-spearmanPlot.update_layout(
-    title="Spearman correlation for responding units",
-    #xaxis_title="X Axis Title",
-    #yaxis_title="Y Axis Title",
-)
+spearmanPlot.update_layout(title="Spearman correlation for responding units",)
 saveImg(spearmanPlot, paradigm + "_" + args.metric + "_spearmanPlot")
+
+spearmanPPlot.update_layout(title="Spearman p-value for responding units",)
+saveImg(spearmanPPlot, paradigm + "_" + args.metric + "_spearmanPPlot")
+
+pearsonPlot.update_layout(title="Pearson correlation for responding units",)
+saveImg(pearsonPlot, paradigm + "_" + args.metric + "_pearsonPlot")
+
+pearsonPPlot.update_layout(title="Pearson p-value for responding units",)
+saveImg(pearsonPPlot, paradigm + "_" + args.metric + "_pearsonPPlot")
 
 print("\nTime creating figures: " + str(time.time() - figurePrepareTime) + " s\n")
 
@@ -706,26 +797,33 @@ firingRatesBarsDiv, firingRatesBarsFigId, firingRatesBarsTableId = createRegions
 cohensDDiv, cohensDFigId, cohensDTableId = createRegionsDiv("Mean cohens d dependent on semantic similarity to best response")
 responseStrengthDiv, responseStrengthFigId, responseStrengthTableId = createRegionsDiv("Mean response strength dependent on semantic similarity to best response")
 spearmanCorStepsDiv, spearmanCorStepsFigId, spearmanCorStepsTableId = createRegionsDiv("Spearman correlation dependent on semantic similarity to best response")
+pearsonCorStepsDiv, pearsonCorStepsFigId, pearsonCorStepsTableId = createRegionsDiv("Pearson correlation dependent on semantic similarity to best response")
 firingRatesScatterDiv, firingRatesScatterFigId, firingRatesScatterTableId = createRegionsDiv("Firing rates of concepts dependent on semantic similarity to best response")
 numRespDiv, numRespFigId, numRespTableId = createRegionsDiv("Number of units with respective response counts")
+responseStrengthHistDiv, responseStrengthHistFigId, responseStrengthHistTableId = createRegionsDiv("Response strength histogram for responsive units")
+responseStrengthHistDivNo, responseStrengthHistFigIdNo, responseStrengthHistTableIdNo = createRegionsDiv("Response strength histogram for non responsive units")
+
 #tunersDiv = createTableDiv("Tuners", tunersFigId, tunersTableId, "Tuners", tunersColumnId, tableOptionsTuners)
 
 external_stylesheets = ['https://codepen.io/chriddyp/pen/bWLwgP.css']
 app = dash.Dash(__name__, external_stylesheets=external_stylesheets)
 
 app.layout = html.Div(children=[
-    html.H1(children='Tuners'),
+    html.H1(children='Semantic Tuning'),
+    html.H3('Spearman correlation'),
     dcc.Graph(id='spearman-plot', figure=spearmanPlot),
+    dcc.Graph(id='spearman-p-plot', figure=spearmanPPlot),
     spearmanCorStepsDiv,
-    
-    #dcc.Graph(
-    #    id='spearman-bar-plot',
-    #    figure=spearmanBarPlot
-    #),
+    html.H3('Pearson correlation'),
+    dcc.Graph(id='pearson-plot', figure=pearsonPlot),
+    dcc.Graph(id='pearson-p-plot', figure=pearsonPPlot),
+    pearsonCorStepsDiv,
     #coactivationDiv, 
     #copresentationDiv, 
     coactivationNormalizedDiv, 
     firingRatesDiv, 
+    responseStrengthHistDiv, 
+    responseStrengthHistDivNo, 
     #firingRatesScatterDiv,
     #firingRatesBarsDiv,
     responseStrengthDiv, 
@@ -751,6 +849,13 @@ def getActivePlot(data, activeCell) :
 )
 def update_output_div(active_cell):
     return getActivePlot(allRegionSpearmanPlots, active_cell)
+
+@app.callback(
+    Output(component_id=pearsonCorStepsFigId, component_property='figure'), 
+    Input(pearsonCorStepsTableId, 'active_cell')
+)
+def update_output_div(active_cell):
+    return getActivePlot(allRegionPearsonPlots, active_cell)
 
 @app.callback(
     Output(component_id=coactivationFigId, component_property='figure'), 
@@ -779,6 +884,20 @@ def update_output_div(active_cell):
 )
 def update_output_div(active_cell):
     return getActivePlot(allRegionFiringRateScatterPlots, active_cell)
+
+@app.callback(
+    Output(component_id=responseStrengthHistFigId, component_property='figure'), 
+    Input(responseStrengthHistTableId, 'active_cell')
+)
+def update_output_div(active_cell):
+    return getActivePlot(allRegionRespStrengthHistPlots, active_cell)
+
+@app.callback(
+    Output(component_id=responseStrengthHistFigIdNo, component_property='figure'), 
+    Input(responseStrengthHistTableIdNo, 'active_cell')
+)
+def update_output_div(active_cell):
+    return getActivePlot(allRegionRespStrengthHistPlotsNo, active_cell)
 
 
 @app.callback(
