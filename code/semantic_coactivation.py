@@ -102,14 +102,7 @@ class NormArray:
     stddev : List = field(default_factory=lambda: [])
 
     def normalize(self, name) : 
-        #self.relevantIndices = np.where(self.normalizer != 0)
-        #self.normalizer = self.normalizer[self.relevantIndices]
-        #self.similarity = uniqueSimilarities[self.relevantIndices]
-        #self.values = self.values[self.relevantIndices]
-        #self.y = self.y[self.relevantIndices] / self.normalizer
-
         self.similarity = uniqueSimilarities
-        #self.normalizer[np.where(self.normalizer) == 0] = 1.0
         for i in range(len(self.normalizer)) :
             if self.normalizer[i] > 0 : 
                 self.values[i] /= self.normalizer[i] 
@@ -124,8 +117,6 @@ class NormArray:
         #        print(name + ': p_value=%.8f' % p_value,
         #            'for similarity=%.2f ' % self.similarity[i])
         
-        #return y, uniqueSimilarities[relevantIndices], relevantIndices
-
     def addValue(self, index, value) : 
         self.y[index] += value
         self.normalizer[index] += 1
@@ -306,18 +297,6 @@ def createBoxPlot(x, values, title, yLabel, filename, boxpoints=False) :
     return fig
 
 def createPlot(x, y, yLabel, filename, plotHalfGaussian, ticktext=[]) :
-    
-    # relevantIndices = np.where(y != 0)
-    # x = x[relevantIndices]
-    # y = y[relevantIndices]
-    # if len(ticktext) > 0 : 
-    #     ticktext = ticktext[relevantIndices]
-
-    # relevantIndices = np.where(np.isfinite(y))
-    # x = x[relevantIndices]
-    # y = y[relevantIndices]
-    # if len(ticktext) > 0 : 
-    #     ticktext = ticktext[relevantIndices]
 
     if len(y) == 0 : 
         meanY = 0
@@ -409,7 +388,6 @@ firingRateFactorBaselines = (1000 / (0 - startBaseline))
 
 paradigm = args.path2data.split(os.sep)[-1].split('/')[-2].split('_')[0]
 includeSelfSimilarity = False
-#minResponses = 3
 startPrepareDataTime = time.time()
 nTHINGS = len(data.df_metadata.uniqueID)
 
@@ -423,14 +401,7 @@ allRegionsName = 'All'
 allSiteNames = [allRegionsName]
 regions = {}
 
-#regions_df = {
-#    allRegionsName : {"spearmanCor" : [], "spearmanP" : []}
-#}
-
 regions[allRegionsName] = Region(allRegionsName)
-
-#conceptsToPrint1 = []
-#conceptsToPrint2 = []
 
 sessionCounter = 0
 for session in sessions:
@@ -452,25 +423,6 @@ for session in sessions:
     thingsIndices = data.get_THINGS_indices(data.neural_data[session]['stimlookup'])
     numStimuli = len(stimlookup)
 
-    # for o1 in range(len(objectNames)) : 
-    #     index1 = thingsIndices[stimuliIndices[o1]]
-    #     for o2 in range(len(objectNames)) : 
-    #         index2 = thingsIndices[stimuliIndices[o2]]
-    #         alreadyPrinted = False
-    #         for o3 in range(len(conceptsToPrint1)) : 
-    #             if conceptsToPrint1[o3] == index1 and conceptsToPrint2[o3] == index2 or conceptsToPrint1[o3] == index2 and conceptsToPrint2[o3] == index1 : 
-    #                 alreadyPrinted = True
-    #                 break
-    #         if alreadyPrinted : 
-    #             continue
-
-    #         similarity = data.similarity_matrix[index1][index2]
-    #         if similarity >= 0.8 and not objectNames[o1] == objectNames[o2] : 
-    #             print("concept1: " + objectNames[o1] + ", concept2: " + objectNames[o2] + ", similarity: " + str(similarity))
-    #             conceptsToPrint1.append(index1)
-    #             conceptsToPrint2.append(index2)
-
-
     # do it before to make it faster
     allSitesSession = []
     for unit in units:
@@ -482,7 +434,6 @@ for session in sessions:
         if site not in allSiteNames : 
             allSiteNames.append(site)
             regions[site] = Region(site)
-            #regions_df[site] = {"spearmanCor" : [], "spearmanP" : []}
 
 
     for site in allSitesSession :  
@@ -623,11 +574,7 @@ for session in sessions:
                 responseStrengthUnit = (medianFiringRatesStimuli[stimNum] - meanBaseline) / maxMedianFiringRate
                 regions[allRegionsName].responseStrength.addValue(similarityIndex, responseStrengthUnit)
                 regions[site].responseStrength.addValue(similarityIndex, responseStrengthUnit)
-        #else : 
-        #    regions[allRegionsName].responseStrengthHistNoResp = np.concatenate((regions[allRegionsName].responseStrengthHistNoResp, firingRates))
-        #    regions[site].responseStrengthHistNoResp = np.concatenate((regions[site].responseStrengthHistNoResp, firingRates))
-            
-
+  
         if len(valuesSpearman) > 0 : 
             spearman = stats.spearmanr(valuesSpearman, similaritiesSpearman)
 
@@ -642,11 +589,6 @@ for session in sessions:
                 regions[site].pearsonP.append(pearson[1])
                 regions[allRegionsName].pearsonCor.append(pearson[0])
                 regions[allRegionsName].pearsonP.append(pearson[1])
-
-            #regions_df[site]["spearmanCor"].append(spearman.correlation)
-            #regions_df[site]["spearmanP"].append(spearman.pvalue)
-            #regions_df[allRegionsName]["spearmanCor"].append(spearman.correlation)
-            #regions_df[allRegionsName]["spearmanP"].append(spearman.pvalue)
 
             for i in range(numSpearmanCorSteps) : 
                 if len(valuesSpearmanSteps[i]) > 0 : 
@@ -716,10 +658,7 @@ for site in allSiteNames :
 
     coactivationBeforeNormalization = siteData.coactivationNorm.y.copy()
     siteData.coactivationNorm.normalize("coactivation normalized")
-    #siteData.zScoresNorm.normalize("zScores")
-    #siteData.cohensD.normalize("cohensD")
 
-    #coactivationBeforeNormalization = coactivationBeforeNormalization[siteData.coactivationNorm.relevantIndices]
     ticktextCoactivation = np.asarray([str(round(siteData.coactivationNorm.similarity[i], 2))
         #+ ": " + str(siteData.coactivationNorm.y[i] * 100) 
         #+ ("%.2f" % coactivationBeforeNormalization[i])
@@ -803,8 +742,6 @@ numRespDiv, numRespFigId, numRespTableId = createRegionsDiv("Number of units wit
 responseStrengthHistDiv, responseStrengthHistFigId, responseStrengthHistTableId = createRegionsDiv("Response strength histogram for responsive units")
 responseStrengthHistDivNo, responseStrengthHistFigIdNo, responseStrengthHistTableIdNo = createRegionsDiv("Response strength histogram for non responsive units")
 
-#tunersDiv = createTableDiv("Tuners", tunersFigId, tunersTableId, "Tuners", tunersColumnId, tableOptionsTuners)
-
 external_stylesheets = ['https://codepen.io/chriddyp/pen/bWLwgP.css']
 app = dash.Dash(__name__, external_stylesheets=external_stylesheets)
 
@@ -829,7 +766,6 @@ app.layout = html.Div(children=[
     responseStrengthDiv, 
     zscoresDiv, 
     cohensDDiv,
-    #tunersDiv,
     numRespDiv, 
     
 ])
