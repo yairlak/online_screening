@@ -9,6 +9,7 @@ import os
 import math
 import numpy as np
 import pandas as pd
+import scipy
 import time
 import argparse
 import itertools
@@ -61,7 +62,7 @@ parser.add_argument('--load_cat2object', default=False,
 
 # STATS
 parser.add_argument('--alpha', type=float, default=0.001,
-                    help='Alpha for responses')
+                    help='Alpha for responses') 
 parser.add_argument('--alpha_box', type=float, default=0.001,
                     help='Alpha for box significance')
 
@@ -84,7 +85,7 @@ parser.add_argument('--path2wordembeddings',
 parser.add_argument('--path2semanticdata',
                     default='../data/semantic_data/')
 parser.add_argument('--path2data', 
-                    default='../data/aos_after_manual_clustering/') 
+                    default='../data/aosnos_after_manual_clustering/') 
 parser.add_argument('--path2images', 
                     default='../figures/semantic_coactivation/') 
 
@@ -139,12 +140,16 @@ class Region:
     responseStrengthHistResp : List = field (default_factory=lambda: [])
     responseStrengthHistNoResp : List = field (default_factory=lambda: [])
     #coactivationFull : List = field(default_factory=lambda: [[] for i in range(nSimilarities)])
+
     spearmanCor : List = field (default_factory=lambda: [])
     spearmanP : List = field (default_factory=lambda: [])
     spearmanCorSteps : List = field(default_factory=lambda: [[] for i in range(numCorSteps)])
     pearsonCor : List = field (default_factory=lambda: [])
     pearsonP : List = field (default_factory=lambda: [])
     pearsonCorSteps : List = field(default_factory=lambda: [[] for i in range(numCorSteps)])
+
+    logisticFitK : List = field (default_factory=lambda: [])
+    logisticFitX0 : List = field (default_factory=lambda: [])
 
 
 def createTableDiv(title, figureId, tableId, columnName, columnId, columnData) : 
@@ -236,6 +241,9 @@ def fitGauss(x, y) :
 
     return x, yGauss
 
+def fitStep(x, x0, b) : 
+    return scipy.special.expit((x-x0)*b)
+    
 def addPlot(fig, x, y, mode, name) : 
     fig.add_trace(
         go.Scatter(
@@ -252,6 +260,10 @@ def saveImg(fig, filename) :
     if not args.dont_plot : 
         os.makedirs(os.path.dirname(file), exist_ok=True)
         fig.write_image(file)
+
+def createHist(x, inputBins, factorY, labelX, labelY) : 
+    counts, bins = np.histogram(x, bins=inputBins)
+    return px.bar(x=bins[:-1], y=counts.astype(float)*float(factorY), labels={'x':labelX, 'y':labelY})
 
 def createCorrelationPlot(sitename, correlation) : 
     return go.Box(
@@ -378,24 +390,26 @@ else:
 
 print("\nTime loading data: " + str(time.time() - startLoadData) + " s\n")
 
+startPrepareDataTime = time.time()
 onlyTwoSessions = False  # for testing purposes (first session has no responses)
-figureHeight = 900
-startBaseline = -500
-startTimeAvgFiringRate = 100
-stopTimeAvgFiringRate = 800 # 800 for rodrigo
-firingRateFactor = (1000 / (stopTimeAvgFiringRate - startTimeAvgFiringRate))
-firingRateFactorBaselines = (1000 / (0 - startBaseline))
-
 paradigm = args.path2data.split(os.sep)[-1].split('/')[-2].split('_')[0]
 includeSelfSimilarity = False
-startPrepareDataTime = time.time()
 nTHINGS = len(data.df_metadata.uniqueID)
+figureHeight = 900
 
 uniqueSimilarities = np.arange(0.0, 1.0 + (1.0 % args.step), args.step)
 nSimilarities = len(uniqueSimilarities)
 similarityMatrixToIndex = (data.similarity_matrix.to_numpy().round(decimals=4) / args.step).astype(int)
 corStepSize = 0.1
 numCorSteps = math.ceil(1.0 / corStepSize) + 1
+numRespUnitStimuli = 0
+numNoRespUnitStimuli = 0
+
+startBaseline = -500
+startTimeAvgFiringRate = 0 #100 #should fit response interval, otherwise spikes of best response can be outside of this interval and normalization fails
+stopTimeAvgFiringRate = 1000 #800 # 800 for rodrigo
+firingRateFactor = (1000 / (stopTimeAvgFiringRate - startTimeAvgFiringRate))
+firingRateFactorBaselines = (1000 / (0 - startBaseline))
 
 allRegionsName = 'All'
 allSiteNames = [allRegionsName]
@@ -443,6 +457,9 @@ for session in sessions:
             regions[allRegionsName].coactivationNorm.normalizer[similarityMatrixToIndex[i1, i2]] += len(units) # copresentation
             regions[site].coactivationNorm.normalizer[similarityMatrixToIndex[i1, i2]] += len(units)
 
+    countBestResponseIsResponse = 0
+    countBestResponseIsNoResponse = 0
+
     for unit in units:
         unitData = data.neural_data[session]['units'][unit]
         if not unitData['kind'] == 'SU' :
@@ -453,7 +470,8 @@ for session in sessions:
         trials = unitData['trial']
         channel = unitData['channel_num']
         cluster = unitData['class_num']
-        responses = [thingsIndices[i] for i in np.where(pvals < args.alpha)[0]]
+        responseStimuliIndices = np.where(pvals < args.alpha)[0]
+        responses = [thingsIndices[i] for i in responseStimuliIndices]
         firingRates = get_mean_firing_rate_normalized(trials, stimuliIndices, startTimeAvgFiringRate, stopTimeAvgFiringRate)
         similaritiesCor = []
         valuesCor = []
@@ -481,16 +499,25 @@ for session in sessions:
 
             # zscores
             bestResponse = np.argmax(firingRates) # best Response = highest z? highest response strength?
+            #bestResponse = responseStimuliIndices[np.argmax(firingRates[responseStimuliIndices])] # best Response = highest z? highest response strength?
+            #firingRates /= firingRates[bestResponse]
             indexBest = thingsIndices[bestResponse]
-            
+
+            if indexBest not in responses : 
+                countBestResponseIsNoResponse += 1
+                #print("WARNING: best response is not a response! Subj " + str(subjectNum) + ", sess " + str(sessionNum) 
+                #    + " (" + str(sessionParadigm) + "), chan " + str(channel) + ", clus " + str(cluster))
+            else : 
+                countBestResponseIsResponse += 1
+
             for i in range(numStimuli) : # responseIndices
                 #if i == bestResponse and not includeSelfSimilarity : 
                 #    continue
                 index = thingsIndices[i]
                 similarity = data.similarity_matrix[index][indexBest]
                 similarityIndex = similarityMatrixToIndex[index, indexBest]
-                regions[allRegionsName].zScoresNorm.addValue(similarityIndex, zscores[i])
-                regions[site].zScoresNorm.addValue(similarityIndex, zscores[i])
+                #regions[allRegionsName].zScoresNorm.addValue(similarityIndex, zscores[i])
+                #regions[site].zScoresNorm.addValue(similarityIndex, zscores[i])
                 regions[allRegionsName].firingRatesNorm.addValue(similarityIndex, firingRates[i])
                 regions[site].firingRatesNorm.addValue(similarityIndex, firingRates[i])
 
@@ -500,16 +527,19 @@ for session in sessions:
                 regions[site].firingRatesScatter.append(firingRates[i])
 
                 regions[allRegionsName].similaritiesArray.append(similarity)
-                regions[site].similaritiesArray.append(similarity)
+                regions[site].similaritiesArray.append(similarity) # 89 3 aos, channel 74 cluster 2, 1913, 1690
 
+                #88 3 aos, channel 18, cluster 2
                 if index in responses : 
                     regions[allRegionsName].responseStrengthHistResp.append(firingRates[i])
                     regions[site].responseStrengthHistResp.append(firingRates[i])
+                    numRespUnitStimuli += 1
                 else : 
                     regions[allRegionsName].responseStrengthHistNoResp.append(firingRates[i])
                     regions[site].responseStrengthHistNoResp.append(firingRates[i])
+                    numNoRespUnitStimuli += 1
 
-                if not i == bestResponse :
+                if not i == bestResponse and index in responses: ###
                     corStep = int(similarity / corStepSize)
                     similaritiesCorSteps[corStep].append(similarity)
                     valuesCorSteps[corStep].append(firingRates[i])
@@ -517,7 +547,7 @@ for session in sessions:
                     similaritiesCor.append(similarity)
                     valuesCor.append(firingRates[i])
 
-
+            
             # Baselines (for response strength)
             baselineFrequencies = np.zeros((len(trials)))
             for t in range(len(trials)): 
@@ -535,6 +565,7 @@ for session in sessions:
             allFiringRates = np.zeros((numAllTrials))
         
             for stimNum in range(numStimuliSession) :
+
                 relevantTrials = np.where(np.asarray(objectNames) == stimlookup[stimNum])[0]
                 responseFiringRates = []
                 
@@ -576,7 +607,11 @@ for session in sessions:
                 responseStrengthUnit = (medianFiringRatesStimuli[stimNum] - meanBaseline) / maxMedianFiringRate
                 regions[allRegionsName].responseStrength.addValue(similarityIndex, responseStrengthUnit)
                 regions[site].responseStrength.addValue(similarityIndex, responseStrengthUnit)
-  
+
+                zscore = (mean1 - meanAll) / stddevAll # meanBaseline ?, firingRates[stimNum]
+                regions[allRegionsName].zScoresNorm.addValue(similarityIndex, zscore)
+                regions[site].zScoresNorm.addValue(similarityIndex, zscore)
+
         if len(valuesCor) > 0 : 
             spearman = stats.spearmanr(valuesCor, similaritiesCor)
 
@@ -605,6 +640,29 @@ for session in sessions:
                         regions[site].pearsonCorSteps[i].append(pearson[0])
                         regions[allRegionsName].pearsonCorSteps[i].append(pearson[0])
 
+            
+            ## fit step function
+            if len(valuesCor) >= 2 : 
+                try : 
+                    popt, pcov = curve_fit(fitStep, similaritiesCor, valuesCor, p0=[0.5, 1])
+                except Exception : 
+                    print("WARNING: No logistic curve fitting found!")
+                    continue
+                x0 = popt[0]
+                k = max(min(popt[1], 50), -50)
+                if x0 > 1 or x0 < 0 : 
+                    print("WARNING: Logistic curve fitting error: x0 = " + str(x0))
+                    continue
+                regions[site].logisticFitX0.append(x0)
+                regions[site].logisticFitK.append(k)
+                regions[allRegionsName].logisticFitX0.append(x0)
+                regions[allRegionsName].logisticFitK.append(k)
+
+        
+    
+    print("Best response is response in " + str(countBestResponseIsResponse) + " cases and no response in " + str(countBestResponseIsNoResponse) + " cases.")
+        #+ "Subj " + str(subjectNum) + ", sess " + str(sessionNum) 
+        #+ " (" + str(sessionParadigm) + "), chan " + str(channel) + ", clus " + str(cluster))
 
     print("Prepared data of session " + session + ". Time: " + str(time.time() - startPrepareSessionData) + " s" )
 
@@ -631,6 +689,9 @@ allRegionPearsonPPlots = []
 allRegionFiringRateScatterPlots = []
 allRegionRespStrengthHistPlots = []
 allRegionRespStrengthHistPlotsNo = []
+allRegionLogisticFitBoxX0 = []
+allRegionLogisticFitBoxK = []
+allRegionLogisticFitPlots = []
 
 figurePrepareTime = time.time()
 spearmanPPlot = go.Figure()
@@ -669,30 +730,62 @@ for site in allSiteNames :
         + "/" + str(siteData.coactivationNorm.normalizer[i]) + ")" for i in range(len(coactivationBeforeNormalization))])
 
     fileDescription = paradigm + '_' + args.metric + '_' + site 
-    
 
-    responseStrenthHistDf = pd.DataFrame({
-        'firing rate': siteData.responseStrengthHistResp,
-        #np.concatenate((
-            #siteData.responseStrengthHistResp
-            #siteData.responseStrengthHistNoResp
-        #)),
-        'responsiveness': ['Responses' for _ in range(len(siteData.responseStrengthHistResp))]
-        #np.concatenate((
-        #    np.array(['Responses' for _ in range(len(siteData.responseStrengthHistResp))])
-            #np.array(['Non-Responses' for _ in range(len(siteData.responseStrengthHistNoResp))]) 
-        #))
-    })
-    noResponseStrenthHistDf = pd.DataFrame({
-        'firing rate': siteData.responseStrengthHistNoResp,
-        'responsiveness': ['No responses' for _ in range(len(siteData.responseStrengthHistNoResp))]
-    })
-    responseStrenthHistFig = px.histogram(responseStrenthHistDf, x='firing rate', color="responsiveness")
-    noResponseStrenthHistFig = px.histogram(noResponseStrenthHistDf, x='firing rate', color="responsiveness")
-    saveImg(responseStrenthHistFig, "response_strength_hist" + os.sep + paradigm + '_' + site)
-    saveImg(noResponseStrenthHistFig, "response_strength_hist_no" + os.sep + paradigm + '_' + site)
-    allRegionRespStrengthHistPlots.append(responseStrenthHistFig)
-    allRegionRespStrengthHistPlotsNo.append(noResponseStrenthHistFig)
+    totalNumResponseStrengthHist = max(1.0, np.sum(siteData.responseStrengthHistResp) + np.sum(siteData.responseStrengthHistNoResp)) #numRespUnitStimuli
+    responseStrengthHistFig = createHist(siteData.responseStrengthHistResp, np.arange(0,1,0.01), 100.0 / float(totalNumResponseStrengthHist), 'Firing rate', 'Stimuli in %')
+    allRegionRespStrengthHistPlots.append(responseStrengthHistFig)
+    saveImg(responseStrengthHistFig, "response_strength_hist" + os.sep + fileDescription)
+
+    noResponseStrengthHistFig = createHist(siteData.responseStrengthHistNoResp, np.arange(0,1,0.01), 100.0 / float(totalNumResponseStrengthHist), 'Firing rate', 'Stimuli in %')
+    allRegionRespStrengthHistPlotsNo.append(noResponseStrengthHistFig)
+    saveImg(noResponseStrengthHistFig, "response_strength_hist_no" + os.sep + fileDescription)
+
+    numResponsesFig = createHist(siteData.numResponsesHist, range(args.max_responses_unit + 1), 1, 'Number of units', 'Number of responses')
+    allRegionNumResponsesPlots.append(numResponsesFig)
+    saveImg(numResponsesFig, "num_responses" + os.sep + fileDescription)
+
+    logisticFitBoxFigX0 = go.Figure()
+    logisticFitBoxFigK = go.Figure()
+    logisticFitBoxFigX0.add_trace(go.Box(
+        y=regions[site].logisticFitX0,
+        name="x0",
+        boxpoints='all',
+    ))
+    logisticFitBoxFigK.add_trace(go.Box(
+        y=regions[site].logisticFitK,
+        name="K",
+        boxpoints='all',
+    ))
+    logisticFitBoxFigX0.update_layout(
+        title_text="Logistic fit X0",
+        showlegend=False
+    )
+    logisticFitBoxFigK.update_layout(
+        title_text="Logistic fit K",
+        showlegend=False 
+    )
+
+    allRegionLogisticFitBoxX0.append(logisticFitBoxFigX0)
+    allRegionLogisticFitBoxK.append(logisticFitBoxFigK)
+    saveImg(logisticFitBoxFigX0, "logistic_fit_box_x0" + os.sep + fileDescription)
+    saveImg(logisticFitBoxFigK, "logistic_fit_box_k" + os.sep + fileDescription)
+
+    logisticFitFig = go.Figure()
+    for i in range(len(regions[site].logisticFitK)) : 
+        x = np.arange(0, 1, 0.01)
+        logisticFitFig.add_trace(go.Scatter(
+            x=x,
+            y=fitStep(x, regions[site].logisticFitX0[i], regions[site].logisticFitK[i]),
+        ))
+        
+    logisticFitFig.update_layout(
+        title_text="Logistic fit",
+        xaxis_title='Semantic similarity',
+        yaxis_title='Firing rate',
+        showlegend=False 
+    )
+    allRegionLogisticFitPlots.append(logisticFitFig)
+    saveImg(logisticFitFig, "logistic_fit" + os.sep + fileDescription)
 
     allRegionCoactivationNormalizedPlots.append(
         createPlot(siteData.coactivationNorm.similarity, siteData.coactivationNorm.y * 100, "Normalized coactivation probability in %", "coactivation_normalized" + os.sep + fileDescription, True, ticktextCoactivation))
@@ -709,10 +802,6 @@ for site in allSiteNames :
     allRegionPearsonPlots.append(
         createBoxPlot(np.arange(0.0, 1.0 + corStepSize, corStepSize), siteData.pearsonCorSteps, "Pearson correlation dependent on semantic similarity", "spearmanCorSteps", "spearmanCorSteps" + os.sep + fileDescription, 'all')) 
 
-    counts, bins = np.histogram(siteData.numResponsesHist, bins=range(args.max_responses_unit + 1))
-    numResponsesFig = px.bar(x=bins[:-1], y=counts, labels={'x':'Number of units', 'y':'Number of responses'})
-    allRegionNumResponsesPlots.append(numResponsesFig)
-    saveImg(numResponsesFig, "num_responses" + os.sep + paradigm + '_' + site)
 
 
 spearmanPlot.update_layout(title="Spearman correlation for responding units",)
@@ -743,6 +832,9 @@ firingRatesScatterDiv, firingRatesScatterFigId, firingRatesScatterTableId = crea
 numRespDiv, numRespFigId, numRespTableId = createRegionsDiv("Number of units with respective response counts")
 responseStrengthHistDiv, responseStrengthHistFigId, responseStrengthHistTableId = createRegionsDiv("Response strength histogram for responsive units")
 responseStrengthHistDivNo, responseStrengthHistFigIdNo, responseStrengthHistTableIdNo = createRegionsDiv("Response strength histogram for non responsive units")
+logisticFitDiv, logisticFitFigId, logisticFitTableId = createRegionsDiv("Logistic fit for all responsive units")
+logisticFitX0Div, logisticFitX0FigId, logisticFitX0TableId = createRegionsDiv("Logistic fit for all responsive units: X0")
+logisticFitKDiv, logisticFitKFigId, logisticFitKTableId = createRegionsDiv("Logistic fit for all responsive units: K")
 
 external_stylesheets = ['https://codepen.io/chriddyp/pen/bWLwgP.css']
 app = dash.Dash(__name__, external_stylesheets=external_stylesheets)
@@ -763,11 +855,14 @@ app.layout = html.Div(children=[
     firingRatesDiv, 
     responseStrengthHistDiv, 
     responseStrengthHistDivNo, 
+    logisticFitDiv,
+    logisticFitX0Div,
+    logisticFitKDiv,
     #firingRatesScatterDiv,
     #firingRatesBarsDiv,
-    responseStrengthDiv, 
     zscoresDiv, 
     cohensDDiv,
+    responseStrengthDiv, 
     numRespDiv, 
     
 ])
@@ -836,6 +931,27 @@ def update_output_div(active_cell):
 )
 def update_output_div(active_cell):
     return getActivePlot(allRegionRespStrengthHistPlotsNo, active_cell)
+
+@app.callback(
+    Output(component_id=logisticFitFigId, component_property='figure'), 
+    Input(logisticFitTableId, 'active_cell')
+)
+def update_output_div(active_cell):
+    return getActivePlot(allRegionLogisticFitPlots, active_cell)
+
+@app.callback(
+    Output(component_id=logisticFitX0FigId, component_property='figure'), 
+    Input(logisticFitX0TableId, 'active_cell')
+)
+def update_output_div(active_cell):
+    return getActivePlot(allRegionLogisticFitBoxX0, active_cell)
+
+@app.callback(
+    Output(component_id=logisticFitKFigId, component_property='figure'), 
+    Input(logisticFitKTableId, 'active_cell')
+)
+def update_output_div(active_cell):
+    return getActivePlot(allRegionLogisticFitBoxK, active_cell)
 
 
 @app.callback(
