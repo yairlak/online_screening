@@ -76,43 +76,34 @@ parser.add_argument('--path2wordembeddings',
 parser.add_argument('--path2semanticdata',
                     default='../data/semantic_data/')
 parser.add_argument('--path2data', 
-                    default='../data/aosnos_after_manual_clustering/') 
+                    default='../data/aos_after_manual_clustering/') 
 parser.add_argument('--path2images', 
                     default='../figures/semantic_coactivation/') 
 
 args=parser.parse_args()
 
+@dataclass 
+class SimilaritiesArray:
+    values : List = field(default_factory=lambda: [[] for i in range(nSimilarities)])
+
+    def addValue(self, index, value) : 
+        self.values[index].append(value)
 
 @dataclass
 class NormArray:
     y : List = field(default_factory=lambda: np.zeros((nSimilarities)))
     normalizer : List = field(default_factory=lambda: np.zeros((nSimilarities)))
     similarity : List = field(default_factory=lambda: [])
-    relevantIndices : List = field(default_factory=lambda: [])
-    values : List = field(default_factory=lambda: [[] for i in range(nSimilarities)])
-    mean : List = field(default_factory=lambda: [])
-    stddev : List = field(default_factory=lambda: [])
 
-    def normalize(self, name) : 
+    def normalize(self) : 
         self.similarity = uniqueSimilarities
         for i in range(len(self.normalizer)) :
             if self.normalizer[i] > 0 : 
-                self.values[i] /= self.normalizer[i] 
                 self.y[i] = self.y[i] / self.normalizer[i]
-        self.mean = [np.mean(self.values[i]) for i in range(len(self.values))]
-        self.stddev = [np.std(self.values[i]) for i in range(len(self.values))]
-
-        #for i in range(nSimilarities - 1) : 
-        #    t_value, p_value = stats.ttest_ind(self.values[i], self.values[i+1]) #
-
-        #    if p_value <= args.alpha_box : 
-        #        print(name + ': p_value=%.8f' % p_value,
-        #            'for similarity=%.2f ' % self.similarity[i])
         
     def addValue(self, index, value) : 
         self.y[index] += value
         self.normalizer[index] += 1
-        self.values[index].append(value)
 
 
 @dataclass
@@ -120,17 +111,16 @@ class Region:
     sitename: str
     coactivationNorm : NormArray = field(default_factory=lambda: NormArray())
     numResponsesPerConcept : List = field (default_factory=lambda: np.zeros(len(data.df_metadata['uniqueID'])))
-    zScoresNorm : NormArray = field(default_factory=lambda: NormArray())
-    cohensD : NormArray = field(default_factory=lambda: NormArray())
-    responseStrength : NormArray = field(default_factory=lambda: NormArray())
-    firingRatesNorm : NormArray = field(default_factory=lambda: NormArray())
+    zScoresNorm : SimilaritiesArray = field(default_factory=lambda: SimilaritiesArray())
+    cohensD : SimilaritiesArray = field(default_factory=lambda: SimilaritiesArray())
+    responseStrength : SimilaritiesArray = field(default_factory=lambda: SimilaritiesArray())
+    firingRatesNorm : SimilaritiesArray = field(default_factory=lambda: SimilaritiesArray())
     numResponsesHist : List = field (default_factory=lambda: [])
     similaritiesArray : List = field (default_factory=lambda: [])
     firingRatesScatterSimilarities : List = field (default_factory=lambda: [])
     firingRatesScatter : List = field (default_factory=lambda: [])
     responseStrengthHistResp : List = field (default_factory=lambda: [])
     responseStrengthHistNoResp : List = field (default_factory=lambda: [])
-    #coactivationFull : List = field(default_factory=lambda: [[] for i in range(nSimilarities)])
 
     spearmanCor : List = field (default_factory=lambda: [])
     spearmanP : List = field (default_factory=lambda: [])
@@ -144,15 +134,11 @@ class Region:
     logisticFitA : List = field (default_factory=lambda: [])
     logisticFitC : List = field (default_factory=lambda: [])
 
-def createAndSaveBoxPlot(x, values, alpha, title, yLabel, filename, boxpoints=False) : 
-    fig = createBoxPlot(x, values, alpha, title, yLabel, filename, boxpoints)
+def createAndSave(func, filename) : 
+    fig = func 
     saveImg(fig, filename)
     return fig
 
-def createAndSavePlot(x, y, yLabel, filename, plotHalfGaussian, ticktext=[]) :
-    fig = createPlot(x, y, yLabel, filename, plotHalfGaussian, ticktext)
-    saveImg(fig, filename)
-    return fig
 
 def saveImg(fig, filename) : 
 
@@ -185,7 +171,7 @@ else:
 print("\nTime loading data: " + str(time.time() - startLoadData) + " s\n")
 
 startPrepareDataTime = time.time()
-onlyTwoSessions = False  # for testing purposes (first session has no responses)
+onlyTwoSessions = True  # for testing purposes (first session has no responses)
 paradigm = args.path2data.split(os.sep)[-1].split('/')[-2].split('_')[0]
 includeSelfSimilarity = False
 nTHINGS = len(data.df_metadata.uniqueID)
@@ -517,7 +503,7 @@ for site in allSiteNames :
     pearsonPPlot.add_trace(createCorrelationPlot(siteData.sitename, siteData.pearsonP))
 
     coactivationBeforeNormalization = siteData.coactivationNorm.y.copy()
-    siteData.coactivationNorm.normalize("coactivation normalized")
+    siteData.coactivationNorm.normalize()
 
     ticktextCoactivation = np.asarray([str(round(siteData.coactivationNorm.similarity[i], 2))
         #+ ": " + str(siteData.coactivationNorm.y[i] * 100) 
@@ -529,17 +515,8 @@ for site in allSiteNames :
     fileDescription = paradigm + '_' + args.metric + '_' + site 
 
     totalNumResponseStrengthHist = max(1.0, np.sum(siteData.responseStrengthHistResp) + np.sum(siteData.responseStrengthHistNoResp)) #numRespUnitStimuli
-    responseStrengthHistFig = createHist(siteData.responseStrengthHistResp, np.arange(0,1,0.01), 100.0 / float(totalNumResponseStrengthHist), 'Firing rate', 'Stimuli in %')
-    allRegionRespStrengthHistPlots.append(responseStrengthHistFig)
-    saveImg(responseStrengthHistFig, "response_strength_hist" + os.sep + fileDescription)
-
-    noResponseStrengthHistFig = createHist(siteData.responseStrengthHistNoResp, np.arange(0,1,0.01), 100.0 / float(totalNumResponseStrengthHist), 'Firing rate', 'Stimuli in %')
-    allRegionRespStrengthHistPlotsNo.append(noResponseStrengthHistFig)
-    saveImg(noResponseStrengthHistFig, "response_strength_hist_no" + os.sep + fileDescription)
-
-    numResponsesFig = createHist(siteData.numResponsesHist, range(args.max_responses_unit + 1), 1, 'Number of units', 'Number of responses')
-    allRegionNumResponsesPlots.append(numResponsesFig)
-    saveImg(numResponsesFig, "num_responses" + os.sep + fileDescription)
+    
+        
 
     logisticFitBoxFigX0 = go.Figure()
     logisticFitBoxFigK = go.Figure()
@@ -562,10 +539,17 @@ for site in allSiteNames :
         showlegend=False 
     )
 
-    allRegionLogisticFitBoxX0.append(logisticFitBoxFigX0)
-    allRegionLogisticFitBoxK.append(logisticFitBoxFigK)
-    saveImg(logisticFitBoxFigX0, "logistic_fit_box_x0" + os.sep + fileDescription)
-    saveImg(logisticFitBoxFigK, "logistic_fit_box_k" + os.sep + fileDescription)
+    #allRegionLogisticFitBoxX0.append(logisticFitBoxFigX0)
+    #allRegionLogisticFitBoxK.append(logisticFitBoxFigK)
+    #saveImg(logisticFitBoxFigX0, "logistic_fit_box_x0" + os.sep + fileDescription)
+    #saveImg(logisticFitBoxFigK, "logistic_fit_box_k" + os.sep + fileDescription)
+
+    allRegionLogisticFitBoxK.append(createAndSave(
+        createSingleBoxPlot(regions[site].logisticFitK, "K", "Logistic fit K"), 
+        "logistic_fit_box_k" + os.sep + fileDescription))
+    allRegionLogisticFitBoxK.append(createAndSave(
+        createSingleBoxPlot(regions[site].logisticFitX0, "X0", "Logistic fit X0"), 
+        "logistic_fit_box_x0" + os.sep + fileDescription))
 
     logisticFitFig = go.Figure()
     for i in range(len(regions[site].logisticFitK)) : 
@@ -584,20 +568,36 @@ for site in allSiteNames :
     allRegionLogisticFitPlots.append(logisticFitFig)
     saveImg(logisticFitFig, "logistic_fit" + os.sep + fileDescription)
 
-    allRegionCoactivationNormalizedPlots.append(
-        createPlot(siteData.coactivationNorm.similarity, siteData.coactivationNorm.y * 100, "Normalized coactivation probability in %", "coactivation_normalized" + os.sep + fileDescription, True, ticktextCoactivation))
-    allRegionZScoresPlots.append(
-        createAndSaveBoxPlot(uniqueSimilarities, siteData.zScoresNorm.values, args.alpha_box, "Mean zscores", "zscores", "zscores" + os.sep + fileDescription))
-    allRegionFiringRatesPlots.append(
-        createAndSaveBoxPlot(uniqueSimilarities, siteData.firingRatesNorm.values, args.alpha_box, "Normalized firing rates", "firing_rates", "firing_rates" + os.sep + fileDescription))
-    allRegionCohensDPlots.append(
-        createAndSaveBoxPlot(uniqueSimilarities, siteData.cohensD.values, args.alpha_box, "Mean cohens d", "cohensd", "cohensd" + os.sep + fileDescription))
-    allRegionResponseStrengthPlots.append(
-        createAndSaveBoxPlot(uniqueSimilarities, siteData.responseStrength.values, args.alpha_box, "Mean response strength (median - meanBaseline) / maxMedian", "responseStrength", "responseStrength" + os.sep + fileDescription))
-    allRegionSpearmanPlots.append(
-        createAndSaveBoxPlot(np.arange(0.0, 1.0 + corStepSize, corStepSize), siteData.spearmanCorSteps, args.alpha_box, "Spearman correlation dependent on semantic similarity", "spearmanCorSteps", "spearmanCorSteps" + os.sep + fileDescription, 'all')) 
-    allRegionPearsonPlots.append(
-        createAndSaveBoxPlot(np.arange(0.0, 1.0 + corStepSize, corStepSize), siteData.pearsonCorSteps, args.alpha_box, "Pearson correlation dependent on semantic similarity", "spearmanCorSteps", "spearmanCorSteps" + os.sep + fileDescription, 'all')) 
+    allRegionRespStrengthHistPlots.append(createAndSave(
+        createHist(siteData.responseStrengthHistResp, np.arange(0,1,0.01), 100.0 / float(totalNumResponseStrengthHist), 'Firing rate', 'Stimuli in %'),
+        "response_strength_hist" + os.sep + fileDescription)) 
+    allRegionRespStrengthHistPlotsNo.append(createAndSave(
+        createHist(siteData.responseStrengthHistNoResp, np.arange(0,1,0.01), 100.0 / float(totalNumResponseStrengthHist), 'Firing rate', 'Stimuli in %'),
+        "response_strength_hist_no" + os.sep + fileDescription))
+    allRegionNumResponsesPlots.append(createAndSave(
+        createHist(siteData.numResponsesHist, range(args.max_responses_unit + 1), 1, 'Number of units', 'Number of responses'),
+        "num_responses" + os.sep + fileDescription))
+    allRegionCoactivationNormalizedPlots.append(createAndSave(
+        createPlot(siteData.coactivationNorm.similarity, siteData.coactivationNorm.y * 100, "Normalized coactivation probability in %", "coactivation normalized", True, ticktextCoactivation), 
+        "coactivation_normalized" + os.sep + fileDescription))
+    allRegionZScoresPlots.append(createAndSave(
+        createBoxPlot(uniqueSimilarities, siteData.zScoresNorm.values, "Mean zscores", "zscores", args.alpha_box), 
+        "zscores" + os.sep + fileDescription))
+    allRegionFiringRatesPlots.append(createAndSave(
+        createBoxPlot(uniqueSimilarities, siteData.firingRatesNorm.values, "Normalized firing rates", "firing_rates", args.alpha_box), 
+        "firing_rates" + os.sep + fileDescription))
+    allRegionCohensDPlots.append(createAndSave(
+        createBoxPlot(uniqueSimilarities, siteData.cohensD.values, "Mean cohens d", "cohensd", args.alpha_box), 
+        "cohensd" + os.sep + fileDescription))
+    allRegionResponseStrengthPlots.append(createAndSave(
+        createBoxPlot(uniqueSimilarities, siteData.responseStrength.values, "Mean response strength (median - meanBaseline) / maxMedian", "responseStrength", args.alpha_box), 
+        "responseStrength" + os.sep + fileDescription))
+    allRegionSpearmanPlots.append(createAndSave(
+        createBoxPlot(np.arange(0.0, 1.0 + corStepSize, corStepSize), siteData.spearmanCorSteps, "Spearman correlation dependent on semantic similarity", "spearmanCorSteps", args.alpha_box, 'all'), 
+        "spearmanCorSteps" + os.sep + fileDescription)) 
+    allRegionPearsonPlots.append(createAndSave(
+        createBoxPlot(np.arange(0.0, 1.0 + corStepSize, corStepSize), siteData.pearsonCorSteps, "Pearson correlation dependent on semantic similarity", "spearmanCorSteps", args.alpha_box, 'all'), 
+        "spearmanCorSteps" + os.sep + fileDescription)) 
 
 
 

@@ -135,7 +135,21 @@ def createCorrelationPlot(sitename, correlation) :
         boxpoints='all',
     )
 
-def createBoxPlot(x, values, alpha, title, yLabel, filename, boxpoints=False) :   
+def createSingleBoxPlot(values, xName, title, boxpoints='all') :
+    fig = go.Figure()
+    fig.add_trace(go.Box(
+        y=values,
+        name=xName,
+        boxpoints=boxpoints,
+    ))
+    fig.update_layout(
+        title_text=title,
+        showlegend=False
+    )
+    return fig
+
+
+def createBoxPlot(x, values, title, yLabel="", alpha=0.001, boxpoints=False) :   
     
     fig = go.Figure()
     for i in range(len(values)) : 
@@ -169,7 +183,7 @@ def createBoxPlot(x, values, alpha, title, yLabel, filename, boxpoints=False) :
 
     return fig
 
-def createPlot(x, y, yLabel, filename, plotHalfGaussian, ticktext=[]) :
+def createPlot(x, y, yLabel, title, plotHalfGaussian, ticktext=[]) :
 
     if len(y) == 0 : 
         meanY = 0
@@ -211,7 +225,7 @@ def createPlot(x, y, yLabel, filename, plotHalfGaussian, ticktext=[]) :
         addPlot(fig, xPartialGauss, yPartialGauss, 'lines', 'Half gaussian fit')
 
     fig.update_layout(
-        title_text=' '.join(filename.replace(os.sep, '_').split('_')),
+        title_text=title,
         xaxis_title='Semantic similarity',
         yaxis_title=yLabel
     )
