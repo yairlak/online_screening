@@ -9,7 +9,6 @@ import os
 import math
 import numpy as np
 import pandas as pd
-import scipy
 import time
 import argparse
 import itertools
@@ -19,21 +18,15 @@ from typing import List
 from dataclasses import dataclass, field
 from scipy import stats
 from scipy.optimize import curve_fit
-from scipy.signal import savgol_filter
-import matplotlib.pyplot as plt
 import plotly.graph_objects as go
-import plotly.express as px
 
 import dash
-#import dash_table
-#import dash_core_components as dcc
-#import dash_html_components as html
-from dash import dash_table
 from dash import dcc
 from dash import html
 from dash.dependencies import Input, Output
 
 # utilility modules
+from plot_helper import *
 from data_manip import DataHandler
 #from data_manip import get_THINGS_indices
 from data_manip import get_mean_firing_rate_normalized
@@ -72,9 +65,7 @@ parser.add_argument('--step', type=float, default=0.05,
 parser.add_argument('--max_stdev_outliers', type=float, default=5,
                     help='Limit for excluding outliers')   
 parser.add_argument('--max_responses_unit', type=float, default=20,
-                    help='Limit for counting responses per unit for histogram')       
-parser.add_argument('--minValuesBox', type=int, default=1,
-                    help='min num values for box plot') 
+                    help='Limit for counting responses per unit for histogram')      
 
 # PATHS
 parser.add_argument('--path2metadata',
@@ -150,108 +141,18 @@ class Region:
 
     logisticFitK : List = field (default_factory=lambda: [])
     logisticFitX0 : List = field (default_factory=lambda: [])
+    logisticFitA : List = field (default_factory=lambda: [])
+    logisticFitC : List = field (default_factory=lambda: [])
 
+def createAndSaveBoxPlot(x, values, alpha, title, yLabel, filename, boxpoints=False) : 
+    fig = createBoxPlot(x, values, alpha, title, yLabel, filename, boxpoints)
+    saveImg(fig, filename)
+    return fig
 
-def createTableDiv(title, figureId, tableId, columnName, columnId, columnData) : 
-    
-    return html.Div(children=[
-
-        html.Div([
-            html.Div([
-                html.H3(title),
-                dcc.Graph(id=figureId, style={'height': 500})
-            ], 
-            style={'width': '70%', 'display': 'inline-block'},
-            #className="one columns"
-            ),
-
-            html.Div([
-                dash_table.DataTable(
-                    id=tableId,
-                    style_cell={'textAlign': 'left'},
-                    columns=[{"name": columnName, "id": columnId, "deletable": False, "selectable": True}],
-                    data=columnData, 
-                    editable=False,
-                    page_action='none',
-                    style_table={
-                        'margin-top': 100,
-                        #'height': 500,# figureHeight - 180,
-                        'overflowY': 'scroll'
-                    }
-                ), 
-            ], 
-            style={'width': '15%', 'display': 'inline-block', 'margin-left': '5%'},
-            #className="one columns"
-            ),
-        ]#, className="row"
-        )
-
-    ])
-
-def createRegionsDiv(name) : 
-    figureId = name + "-overview"
-    tableId = name + "-regions-table"
-    columnId = name + "-regions-column"
-    columnData = [{columnId: site, 'id': site} for site in allSiteNames]
-
-    return createTableDiv(
-        name, figureId, tableId, "Regions", columnId, columnData), figureId, tableId
-
-def smooth(y, numPoints):
-    if len(y) == 0 : 
-        return y 
-    else : 
-        return np.convolve(y, np.ones(numPoints)/numPoints, mode='same')
-
-def Gauss(x, a, x0, sigma):
-    return a * np.exp(-(x - x0)**2 / (2 * sigma**2))
-
-def fitPartialGaussian(x, y) : 
-    if len(y) <= 2 or not np.any(y > 0): 
-        return x, y
-
-    maxIndex = np.amax(np.where(y > 0)) + 1
-
-    xGauss = x[:maxIndex]
-    xGauss = np.append(xGauss, xGauss[-1]-xGauss[-2] + xGauss[-1])
-    for i in range(1,maxIndex) : 
-        xGauss = np.append(xGauss, x[maxIndex-i]-x[maxIndex-i-1] + xGauss[-1])
-
-    yPart = y[:maxIndex]
-    yGaussInput = np.concatenate((yPart, yPart[::-1]))
-
-    xGauss, yGauss = fitGauss(xGauss, yGaussInput)
-
-    xGaussPart = xGauss[:maxIndex]
-    yGaussPart = yGauss[:maxIndex]
-
-    return xGaussPart, yGaussPart 
-
-def fitGauss(x, y) : 
-    mean = sum(x * y) / sum(y)
-    sigma = np.sqrt(sum(y * (x - mean)**2) / sum(y))
-
-    try : 
-        popt,pcov = curve_fit(Gauss, x, y, p0=[max(y), mean, sigma])
-    except Exception: 
-        print("WARNING: Error fitting gauss")
-        return [], []
-
-    yGauss = Gauss(x, *popt)
-
-    return x, yGauss
-
-def fitStep(x, x0, b) : 
-    return scipy.special.expit((x-x0)*b)
-    
-def addPlot(fig, x, y, mode, name) : 
-    fig.add_trace(
-        go.Scatter(
-            x=x,
-            y=y,
-            mode=mode,
-            name=name
-        ))
+def createAndSavePlot(x, y, yLabel, filename, plotHalfGaussian, ticktext=[]) :
+    fig = createPlot(x, y, yLabel, filename, plotHalfGaussian, ticktext)
+    saveImg(fig, filename)
+    return fig
 
 def saveImg(fig, filename) : 
 
@@ -260,113 +161,6 @@ def saveImg(fig, filename) :
     if not args.dont_plot : 
         os.makedirs(os.path.dirname(file), exist_ok=True)
         fig.write_image(file)
-
-def createHist(x, inputBins, factorY, labelX, labelY) : 
-    counts, bins = np.histogram(x, bins=inputBins)
-    return px.bar(x=bins[:-1], y=counts.astype(float)*float(factorY), labels={'x':labelX, 'y':labelY})
-
-def createCorrelationPlot(sitename, correlation) : 
-    return go.Box(
-        y=correlation, 
-        name=sitename + " (" + str(len(correlation)) + ")",
-        boxpoints='all',
-    )
-
-def createBoxPlot(x, values, title, yLabel, filename, boxpoints=False) :   
-    
-    fig = go.Figure()
-    for i in range(len(values)) : 
-        if(len(values[i]) >= args.minValuesBox) : 
-            fig.add_trace(go.Box(
-                y=values[i],
-                name="{:.2f} ({})".format(x[i], len(values[i])),
-                boxpoints=boxpoints,
-                #boxpoints='all',
-            ))
-        else : 
-            fig.add_trace(go.Box(
-                y=[0.0],
-                name="{:.2f} ({})".format(x[i], len(values[i])),
-                boxpoints=boxpoints,
-            ))
-
-        if i < len(values)-1 : 
-            t_value, p_value = stats.ttest_ind(values[i], values[i+1]) 
-
-            if p_value <= args.alpha_box : 
-                print(title + ': p_value=%.8f' % p_value,
-                    'for value=%i ' % i)
-
-    fig.update_layout(
-        title_text=title,
-        xaxis_title='Semantic similarity',
-        yaxis_title=yLabel,
-        showlegend=False
-    )
-
-    saveImg(fig, filename)
-
-    return fig
-
-def createPlot(x, y, yLabel, filename, plotHalfGaussian, ticktext=[]) :
-
-    if len(y) == 0 : 
-        meanY = 0
-        stdevY = 1
-    elif len(y) == 1 : 
-        meanY = y[0]
-        stdevY = 1
-    else : 
-        meanY = statistics.mean(y)
-        stdevY = statistics.stdev(y)
-    # relevantIndices = np.where(abs(y - meanY) <= args.max_stdev_outliers * stdevY)
-    xWithoutOutliers = x#[relevantIndices]
-    yWithoutOutliers = y#[relevantIndices]
-
-    if len(x) - len(xWithoutOutliers) > 0 : 
-        print("-Excluded " + str(len(x) - len(xWithoutOutliers)) + " outliers-")
-
-    if meanY == 0 : 
-        xGauss = xWithoutOutliers
-        yGauss = yWithoutOutliers
-    else : 
-        xGauss, yGauss = fitGauss(xWithoutOutliers, yWithoutOutliers)
-
-    try : 
-        yFitted = savgol_filter(yWithoutOutliers, 15, 3) # window size 51, polynomial order 3
-    except Exception : 
-        print("WARNING: Error applying filter")
-        yFitted = yWithoutOutliers
-
-    fig = go.Figure()
-
-    addPlot(fig, xWithoutOutliers, yWithoutOutliers, 'markers', 'Data')
-    #addPlot(fig, xWithoutOutliers, smooth(yWithoutOutliers, 5), 'lines', 'Smoothed 5 point avg')
-    addPlot(fig, xGauss, yGauss, 'lines', 'Gaussian fit')
-    addPlot(fig, xWithoutOutliers, yFitted, 'lines', 'Savgol filter')
-    
-    if plotHalfGaussian : 
-        xPartialGauss, yPartialGauss = fitPartialGaussian(xWithoutOutliers, yWithoutOutliers)
-        addPlot(fig, xPartialGauss, yPartialGauss, 'lines', 'Half gaussian fit')
-
-    fig.update_layout(
-        title_text=' '.join(filename.replace(os.sep, '_').split('_')),
-        xaxis_title='Semantic similarity',
-        yaxis_title=yLabel
-    )
-
-    if len(ticktext) > 0 : 
-        fig.update_layout(
-            xaxis = dict(
-                tickmode = 'array',
-                tickvals = xWithoutOutliers,
-                ticktext = ticktext#[relevantIndices] 
-            )
-        )
-
-    saveImg(fig, filename)
-
-    return fig
 
 
 #############
@@ -395,7 +189,6 @@ onlyTwoSessions = False  # for testing purposes (first session has no responses)
 paradigm = args.path2data.split(os.sep)[-1].split('/')[-2].split('_')[0]
 includeSelfSimilarity = False
 nTHINGS = len(data.df_metadata.uniqueID)
-figureHeight = 900
 
 uniqueSimilarities = np.arange(0.0, 1.0 + (1.0 % args.step), args.step)
 nSimilarities = len(uniqueSimilarities)
@@ -644,19 +437,23 @@ for session in sessions:
             ## fit step function
             if len(valuesCor) >= 2 : 
                 try : 
-                    popt, pcov = curve_fit(fitStep, similaritiesCor, valuesCor, p0=[0.5, 1])
+                    popt, pcov = curve_fit(fitStep, similaritiesCor, valuesCor, p0=[0.5, 1, 1, 1])
                 except Exception : 
                     print("WARNING: No logistic curve fitting found!")
                     continue
                 x0 = popt[0]
-                k = max(min(popt[1], 50), -50)
+                k = popt[1] # max(min(popt[1], 50), -50)
                 if x0 > 1 or x0 < 0 : 
                     print("WARNING: Logistic curve fitting error: x0 = " + str(x0))
                     continue
                 regions[site].logisticFitX0.append(x0)
                 regions[site].logisticFitK.append(k)
+                regions[site].logisticFitA.append(popt[2])
+                regions[site].logisticFitC.append(popt[3])
                 regions[allRegionsName].logisticFitX0.append(x0)
                 regions[allRegionsName].logisticFitK.append(k)
+                regions[allRegionsName].logisticFitA.append(popt[2])
+                regions[allRegionsName].logisticFitC.append(popt[3])
 
         
     
@@ -775,7 +572,7 @@ for site in allSiteNames :
         x = np.arange(0, 1, 0.01)
         logisticFitFig.add_trace(go.Scatter(
             x=x,
-            y=fitStep(x, regions[site].logisticFitX0[i], regions[site].logisticFitK[i]),
+            y=fitStep(x, regions[site].logisticFitX0[i], regions[site].logisticFitK[i], regions[site].logisticFitA[i], regions[site].logisticFitC[i]),
         ))
         
     logisticFitFig.update_layout(
@@ -790,17 +587,17 @@ for site in allSiteNames :
     allRegionCoactivationNormalizedPlots.append(
         createPlot(siteData.coactivationNorm.similarity, siteData.coactivationNorm.y * 100, "Normalized coactivation probability in %", "coactivation_normalized" + os.sep + fileDescription, True, ticktextCoactivation))
     allRegionZScoresPlots.append(
-        createBoxPlot(uniqueSimilarities, siteData.zScoresNorm.values, "Mean zscores", "zscores", "zscores" + os.sep + fileDescription))
+        createAndSaveBoxPlot(uniqueSimilarities, siteData.zScoresNorm.values, args.alpha_box, "Mean zscores", "zscores", "zscores" + os.sep + fileDescription))
     allRegionFiringRatesPlots.append(
-        createBoxPlot(uniqueSimilarities, siteData.firingRatesNorm.values, "Normalized firing rates", "firing_rates", "firing_rates" + os.sep + fileDescription))
+        createAndSaveBoxPlot(uniqueSimilarities, siteData.firingRatesNorm.values, args.alpha_box, "Normalized firing rates", "firing_rates", "firing_rates" + os.sep + fileDescription))
     allRegionCohensDPlots.append(
-        createBoxPlot(uniqueSimilarities, siteData.cohensD.values, "Mean cohens d", "cohensd", "cohensd" + os.sep + fileDescription))
+        createAndSaveBoxPlot(uniqueSimilarities, siteData.cohensD.values, args.alpha_box, "Mean cohens d", "cohensd", "cohensd" + os.sep + fileDescription))
     allRegionResponseStrengthPlots.append(
-        createBoxPlot(uniqueSimilarities, siteData.responseStrength.values, "Mean response strength (median - meanBaseline) / maxMedian", "responseStrength", "responseStrength" + os.sep + fileDescription))
+        createAndSaveBoxPlot(uniqueSimilarities, siteData.responseStrength.values, args.alpha_box, "Mean response strength (median - meanBaseline) / maxMedian", "responseStrength", "responseStrength" + os.sep + fileDescription))
     allRegionSpearmanPlots.append(
-        createBoxPlot(np.arange(0.0, 1.0 + corStepSize, corStepSize), siteData.spearmanCorSteps, "Spearman correlation dependent on semantic similarity", "spearmanCorSteps", "spearmanCorSteps" + os.sep + fileDescription, 'all')) 
+        createAndSaveBoxPlot(np.arange(0.0, 1.0 + corStepSize, corStepSize), siteData.spearmanCorSteps, args.alpha_box, "Spearman correlation dependent on semantic similarity", "spearmanCorSteps", "spearmanCorSteps" + os.sep + fileDescription, 'all')) 
     allRegionPearsonPlots.append(
-        createBoxPlot(np.arange(0.0, 1.0 + corStepSize, corStepSize), siteData.pearsonCorSteps, "Pearson correlation dependent on semantic similarity", "spearmanCorSteps", "spearmanCorSteps" + os.sep + fileDescription, 'all')) 
+        createAndSaveBoxPlot(np.arange(0.0, 1.0 + corStepSize, corStepSize), siteData.pearsonCorSteps, args.alpha_box, "Pearson correlation dependent on semantic similarity", "spearmanCorSteps", "spearmanCorSteps" + os.sep + fileDescription, 'all')) 
 
 
 
@@ -818,23 +615,23 @@ saveImg(pearsonPPlot, paradigm + "_" + args.metric + "_pearsonPPlot")
 
 print("\nTime creating figures: " + str(time.time() - figurePrepareTime) + " s\n")
 
-coactivationDiv, coactivationFigId, coactivationTableId = createRegionsDiv("Coactivation")
-copresentationDiv, copresentationFigId, copresentationTableId = createRegionsDiv("Copresentation")
-coactivationNormalizedDiv, coactivationNormalizedFigId, coactivationNormalizedTableId = createRegionsDiv("Coactivation - Normalized")
-zscoresDiv, zscoresFigId, zscoresTableId = createRegionsDiv("Mean zscores dependent on semantic similarity to best response")
-firingRatesDiv, firingRatesFigId, firingRatesTableId = createRegionsDiv("Normalized firing rates dependent on semantic similarity to best response")
-firingRatesBarsDiv, firingRatesBarsFigId, firingRatesBarsTableId = createRegionsDiv("Error bars for normalized firing rates dependent on semantic similarity to best response")
-cohensDDiv, cohensDFigId, cohensDTableId = createRegionsDiv("Mean cohens d dependent on semantic similarity to best response")
-responseStrengthDiv, responseStrengthFigId, responseStrengthTableId = createRegionsDiv("Mean response strength dependent on semantic similarity to best response")
-spearmanCorStepsDiv, spearmanCorStepsFigId, spearmanCorStepsTableId = createRegionsDiv("Spearman correlation dependent on semantic similarity to best response")
-pearsonCorStepsDiv, pearsonCorStepsFigId, pearsonCorStepsTableId = createRegionsDiv("Pearson correlation dependent on semantic similarity to best response")
-firingRatesScatterDiv, firingRatesScatterFigId, firingRatesScatterTableId = createRegionsDiv("Firing rates of concepts dependent on semantic similarity to best response")
-numRespDiv, numRespFigId, numRespTableId = createRegionsDiv("Number of units with respective response counts")
-responseStrengthHistDiv, responseStrengthHistFigId, responseStrengthHistTableId = createRegionsDiv("Response strength histogram for responsive units")
-responseStrengthHistDivNo, responseStrengthHistFigIdNo, responseStrengthHistTableIdNo = createRegionsDiv("Response strength histogram for non responsive units")
-logisticFitDiv, logisticFitFigId, logisticFitTableId = createRegionsDiv("Logistic fit for all responsive units")
-logisticFitX0Div, logisticFitX0FigId, logisticFitX0TableId = createRegionsDiv("Logistic fit for all responsive units: X0")
-logisticFitKDiv, logisticFitKFigId, logisticFitKTableId = createRegionsDiv("Logistic fit for all responsive units: K")
+coactivationDiv, coactivationFigId, coactivationTableId = createRegionsDiv("Coactivation", allSiteNames)
+copresentationDiv, copresentationFigId, copresentationTableId = createRegionsDiv("Copresentation", allSiteNames)
+coactivationNormalizedDiv, coactivationNormalizedFigId, coactivationNormalizedTableId = createRegionsDiv("Coactivation - Normalized", allSiteNames)
+zscoresDiv, zscoresFigId, zscoresTableId = createRegionsDiv("Mean zscores dependent on semantic similarity to best response", allSiteNames)
+firingRatesDiv, firingRatesFigId, firingRatesTableId = createRegionsDiv("Normalized firing rates dependent on semantic similarity to best response", allSiteNames)
+firingRatesBarsDiv, firingRatesBarsFigId, firingRatesBarsTableId = createRegionsDiv("Error bars for normalized firing rates dependent on semantic similarity to best response", allSiteNames)
+cohensDDiv, cohensDFigId, cohensDTableId = createRegionsDiv("Mean cohens d dependent on semantic similarity to best response", allSiteNames)
+responseStrengthDiv, responseStrengthFigId, responseStrengthTableId = createRegionsDiv("Mean response strength dependent on semantic similarity to best response", allSiteNames)
+spearmanCorStepsDiv, spearmanCorStepsFigId, spearmanCorStepsTableId = createRegionsDiv("Spearman correlation dependent on semantic similarity to best response", allSiteNames)
+pearsonCorStepsDiv, pearsonCorStepsFigId, pearsonCorStepsTableId = createRegionsDiv("Pearson correlation dependent on semantic similarity to best response", allSiteNames)
+firingRatesScatterDiv, firingRatesScatterFigId, firingRatesScatterTableId = createRegionsDiv("Firing rates of concepts dependent on semantic similarity to best response", allSiteNames)
+numRespDiv, numRespFigId, numRespTableId = createRegionsDiv("Number of units with respective response counts", allSiteNames)
+responseStrengthHistDiv, responseStrengthHistFigId, responseStrengthHistTableId = createRegionsDiv("Response strength histogram for responsive units", allSiteNames)
+responseStrengthHistDivNo, responseStrengthHistFigIdNo, responseStrengthHistTableIdNo = createRegionsDiv("Response strength histogram for non responsive units", allSiteNames)
+logisticFitDiv, logisticFitFigId, logisticFitTableId = createRegionsDiv("Logistic fit for all responsive units", allSiteNames)
+logisticFitX0Div, logisticFitX0FigId, logisticFitX0TableId = createRegionsDiv("Logistic fit for all responsive units: X0", allSiteNames)
+logisticFitKDiv, logisticFitKFigId, logisticFitKTableId = createRegionsDiv("Logistic fit for all responsive units: K", allSiteNames)
 
 external_stylesheets = ['https://codepen.io/chriddyp/pen/bWLwgP.css']
 app = dash.Dash(__name__, external_stylesheets=external_stylesheets)
