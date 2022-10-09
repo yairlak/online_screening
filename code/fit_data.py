@@ -46,6 +46,6 @@ def fitGauss(x, y) :
 
     return x, yGauss
 
-def fitStep(x, x0, b, a, c) : 
-    return a + (c - a) * scipy.special.expit((x-x0)*b)
-    
+def fitStep(x, x0, k, a, c) : 
+    return a + (c - a) * scipy.special.expit((x-x0)*(-k))
+

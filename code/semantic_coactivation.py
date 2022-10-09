@@ -134,11 +134,13 @@ class Region:
     logisticFitA : List = field (default_factory=lambda: [])
     logisticFitC : List = field (default_factory=lambda: [])
 
+    logisticFitRSquared : List = field (default_factory=lambda: [])
+
+
 def createAndSave(func, filename) : 
     fig = func 
     saveImg(fig, filename)
     return fig
-
 
 def saveImg(fig, filename) : 
 
@@ -171,7 +173,7 @@ else:
 print("\nTime loading data: " + str(time.time() - startLoadData) + " s\n")
 
 startPrepareDataTime = time.time()
-onlyTwoSessions = True  # for testing purposes (first session has no responses)
+onlyTwoSessions = False  # for testing purposes (first session has no responses)
 paradigm = args.path2data.split(os.sep)[-1].split('/')[-2].split('_')[0]
 includeSelfSimilarity = False
 nTHINGS = len(data.df_metadata.uniqueID)
@@ -423,23 +425,34 @@ for session in sessions:
             ## fit step function
             if len(valuesCor) >= 2 : 
                 try : 
-                    popt, pcov = curve_fit(fitStep, similaritiesCor, valuesCor, p0=[0.5, 1, 1, 1])
+                    popt, pcov = curve_fit(fitStep, similaritiesCor, valuesCor, p0=[0.5, 1, 0, 1])
                 except Exception : 
                     print("WARNING: No logistic curve fitting found!")
                     continue
                 x0 = popt[0]
                 k = popt[1] # max(min(popt[1], 50), -50)
+                
+                ssRes = np.sum((valuesCor - fitStep(similaritiesCor, popt[0], popt[1], popt[2], popt[3]))**2)
+                ssTot = np.sum((valuesCor - statistics.mean(valuesCor))**2)
+                rSquared = 1 - ssRes/ssTot
+
                 if x0 > 1 or x0 < 0 : 
                     print("WARNING: Logistic curve fitting error: x0 = " + str(x0))
                     continue
+                if rSquared < 0.4 :  
+                    print("WARNING: Logistic curve fitting is too bad! rSquared = " + str(rSquared))
+                    continue
+
                 regions[site].logisticFitX0.append(x0)
                 regions[site].logisticFitK.append(k)
                 regions[site].logisticFitA.append(popt[2])
                 regions[site].logisticFitC.append(popt[3])
+                regions[site].logisticFitRSquared.append(rSquared)
                 regions[allRegionsName].logisticFitX0.append(x0)
                 regions[allRegionsName].logisticFitK.append(k)
                 regions[allRegionsName].logisticFitA.append(popt[2])
                 regions[allRegionsName].logisticFitC.append(popt[3])
+                regions[allRegionsName].logisticFitRSquared.append(rSquared)
 
         
     
@@ -472,6 +485,7 @@ allRegionRespStrengthHistPlots = []
 allRegionRespStrengthHistPlotsNo = []
 allRegionLogisticFitBoxX0 = []
 allRegionLogisticFitBoxK = []
+allRegionLogisticFitBoxRSquared = []
 allRegionLogisticFitPlots = []
 
 figurePrepareTime = time.time()
@@ -525,9 +539,12 @@ for site in allSiteNames :
     allRegionLogisticFitBoxK.append(createAndSave(
         createSingleBoxPlot(regions[site].logisticFitK, "K", "Logistic fit K"), 
         "logistic_fit_box_k" + os.sep + fileDescription))
-    allRegionLogisticFitBoxK.append(createAndSave(
+    allRegionLogisticFitBoxX0.append(createAndSave(
         createSingleBoxPlot(regions[site].logisticFitX0, "X0", "Logistic fit X0"), 
         "logistic_fit_box_x0" + os.sep + fileDescription))
+    allRegionLogisticFitBoxRSquared.append(createAndSave(
+        createSingleBoxPlot(regions[site].logisticFitRSquared, "RSquared", "Logistic fit RSquared"), 
+        "logistic_fit_box_r_squared" + os.sep + fileDescription))
     allRegionRespStrengthHistPlots.append(createAndSave(
         createHist(siteData.responseStrengthHistResp, np.arange(0,1,0.01), 100.0 / float(totalNumResponseStrengthHist), 'Firing rate', 'Stimuli in %'),
         "response_strength_hist" + os.sep + fileDescription)) 
@@ -590,6 +607,7 @@ responseStrengthHistDivNo, responseStrengthHistFigIdNo, responseStrengthHistTabl
 logisticFitDiv, logisticFitFigId, logisticFitTableId = createRegionsDiv("Logistic fit for all responsive units", allSiteNames)
 logisticFitX0Div, logisticFitX0FigId, logisticFitX0TableId = createRegionsDiv("Logistic fit for all responsive units: X0", allSiteNames)
 logisticFitKDiv, logisticFitKFigId, logisticFitKTableId = createRegionsDiv("Logistic fit for all responsive units: K", allSiteNames)
+logisticFitRSquaredDiv, logisticFitRSquaredFigId, logisticFitRSquaredTableId = createRegionsDiv("Logistic fit for all responsive units: R sqaured", allSiteNames)
 
 external_stylesheets = ['https://codepen.io/chriddyp/pen/bWLwgP.css']
 app = dash.Dash(__name__, external_stylesheets=external_stylesheets)
@@ -613,6 +631,7 @@ app.layout = html.Div(children=[
     logisticFitDiv,
     logisticFitX0Div,
     logisticFitKDiv,
+    logisticFitRSquaredDiv,
     zscoresDiv, 
     cohensDDiv,
     responseStrengthDiv, 
@@ -698,6 +717,13 @@ def update_output_div(active_cell):
 )
 def update_output_div(active_cell):
     return getActivePlot(allRegionLogisticFitBoxK, active_cell)
+
+@app.callback(
+    Output(component_id=logisticFitRSquaredFigId, component_property='figure'), 
+    Input(logisticFitRSquaredTableId, 'active_cell')
+)
+def update_output_div(active_cell):
+    return getActivePlot(allRegionLogisticFitBoxRSquared, active_cell)
 
 
 @app.callback(
