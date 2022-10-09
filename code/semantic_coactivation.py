@@ -461,7 +461,6 @@ allRegionCopresentationPlots = []
 allRegionCoactivationNormalizedPlots = []
 allRegionZScoresPlots = []
 allRegionFiringRatesPlots = []
-allRegionFiringRatesBarPlots = []
 allRegionCohensDPlots = []
 allRegionResponseStrengthPlots = []
 allRegionNumResponsesPlots = []
@@ -469,7 +468,6 @@ allRegionSpearmanPlots = []
 allRegionSpearmanPPlots = []
 allRegionPearsonPlots = []
 allRegionPearsonPPlots = []
-allRegionFiringRateScatterPlots = []
 allRegionRespStrengthHistPlots = []
 allRegionRespStrengthHistPlotsNo = []
 allRegionLogisticFitBoxX0 = []
@@ -487,15 +485,6 @@ for site in allSiteNames :
 
     siteData = regions[site]
     print("Create figures for " + site)
-
-    allRegionFiringRateScatterPlots.append(
-        go.Figure(
-            go.Scatter(
-                x = siteData.firingRatesScatterSimilarities,
-                y = siteData.firingRatesScatter,
-                mode = 'markers'
-            )
-        ))
     
     spearmanPlot.add_trace(createCorrelationPlot(siteData.sitename, siteData.spearmanCor))
     spearmanPPlot.add_trace(createCorrelationPlot(siteData.sitename, siteData.spearmanP))
@@ -515,48 +504,13 @@ for site in allSiteNames :
     fileDescription = paradigm + '_' + args.metric + '_' + site 
 
     totalNumResponseStrengthHist = max(1.0, np.sum(siteData.responseStrengthHistResp) + np.sum(siteData.responseStrengthHistNoResp)) #numRespUnitStimuli
-    
-        
-
-    logisticFitBoxFigX0 = go.Figure()
-    logisticFitBoxFigK = go.Figure()
-    logisticFitBoxFigX0.add_trace(go.Box(
-        y=regions[site].logisticFitX0,
-        name="x0",
-        boxpoints='all',
-    ))
-    logisticFitBoxFigK.add_trace(go.Box(
-        y=regions[site].logisticFitK,
-        name="K",
-        boxpoints='all',
-    ))
-    logisticFitBoxFigX0.update_layout(
-        title_text="Logistic fit X0",
-        showlegend=False
-    )
-    logisticFitBoxFigK.update_layout(
-        title_text="Logistic fit K",
-        showlegend=False 
-    )
-
-    #allRegionLogisticFitBoxX0.append(logisticFitBoxFigX0)
-    #allRegionLogisticFitBoxK.append(logisticFitBoxFigK)
-    #saveImg(logisticFitBoxFigX0, "logistic_fit_box_x0" + os.sep + fileDescription)
-    #saveImg(logisticFitBoxFigK, "logistic_fit_box_k" + os.sep + fileDescription)
-
-    allRegionLogisticFitBoxK.append(createAndSave(
-        createSingleBoxPlot(regions[site].logisticFitK, "K", "Logistic fit K"), 
-        "logistic_fit_box_k" + os.sep + fileDescription))
-    allRegionLogisticFitBoxK.append(createAndSave(
-        createSingleBoxPlot(regions[site].logisticFitX0, "X0", "Logistic fit X0"), 
-        "logistic_fit_box_x0" + os.sep + fileDescription))
 
     logisticFitFig = go.Figure()
+    xLogisticFit = np.arange(0, 1, 0.01)
     for i in range(len(regions[site].logisticFitK)) : 
-        x = np.arange(0, 1, 0.01)
         logisticFitFig.add_trace(go.Scatter(
-            x=x,
-            y=fitStep(x, regions[site].logisticFitX0[i], regions[site].logisticFitK[i], regions[site].logisticFitA[i], regions[site].logisticFitC[i]),
+            x=xLogisticFit,
+            y=fitStep(xLogisticFit, regions[site].logisticFitX0[i], regions[site].logisticFitK[i], regions[site].logisticFitA[i], regions[site].logisticFitC[i]),
         ))
         
     logisticFitFig.update_layout(
@@ -568,6 +522,12 @@ for site in allSiteNames :
     allRegionLogisticFitPlots.append(logisticFitFig)
     saveImg(logisticFitFig, "logistic_fit" + os.sep + fileDescription)
 
+    allRegionLogisticFitBoxK.append(createAndSave(
+        createSingleBoxPlot(regions[site].logisticFitK, "K", "Logistic fit K"), 
+        "logistic_fit_box_k" + os.sep + fileDescription))
+    allRegionLogisticFitBoxK.append(createAndSave(
+        createSingleBoxPlot(regions[site].logisticFitX0, "X0", "Logistic fit X0"), 
+        "logistic_fit_box_x0" + os.sep + fileDescription))
     allRegionRespStrengthHistPlots.append(createAndSave(
         createHist(siteData.responseStrengthHistResp, np.arange(0,1,0.01), 100.0 / float(totalNumResponseStrengthHist), 'Firing rate', 'Stimuli in %'),
         "response_strength_hist" + os.sep + fileDescription)) 
@@ -620,12 +580,10 @@ copresentationDiv, copresentationFigId, copresentationTableId = createRegionsDiv
 coactivationNormalizedDiv, coactivationNormalizedFigId, coactivationNormalizedTableId = createRegionsDiv("Coactivation - Normalized", allSiteNames)
 zscoresDiv, zscoresFigId, zscoresTableId = createRegionsDiv("Mean zscores dependent on semantic similarity to best response", allSiteNames)
 firingRatesDiv, firingRatesFigId, firingRatesTableId = createRegionsDiv("Normalized firing rates dependent on semantic similarity to best response", allSiteNames)
-firingRatesBarsDiv, firingRatesBarsFigId, firingRatesBarsTableId = createRegionsDiv("Error bars for normalized firing rates dependent on semantic similarity to best response", allSiteNames)
 cohensDDiv, cohensDFigId, cohensDTableId = createRegionsDiv("Mean cohens d dependent on semantic similarity to best response", allSiteNames)
 responseStrengthDiv, responseStrengthFigId, responseStrengthTableId = createRegionsDiv("Mean response strength dependent on semantic similarity to best response", allSiteNames)
 spearmanCorStepsDiv, spearmanCorStepsFigId, spearmanCorStepsTableId = createRegionsDiv("Spearman correlation dependent on semantic similarity to best response", allSiteNames)
 pearsonCorStepsDiv, pearsonCorStepsFigId, pearsonCorStepsTableId = createRegionsDiv("Pearson correlation dependent on semantic similarity to best response", allSiteNames)
-firingRatesScatterDiv, firingRatesScatterFigId, firingRatesScatterTableId = createRegionsDiv("Firing rates of concepts dependent on semantic similarity to best response", allSiteNames)
 numRespDiv, numRespFigId, numRespTableId = createRegionsDiv("Number of units with respective response counts", allSiteNames)
 responseStrengthHistDiv, responseStrengthHistFigId, responseStrengthHistTableId = createRegionsDiv("Response strength histogram for responsive units", allSiteNames)
 responseStrengthHistDivNo, responseStrengthHistFigIdNo, responseStrengthHistTableIdNo = createRegionsDiv("Response strength histogram for non responsive units", allSiteNames)
@@ -655,8 +613,6 @@ app.layout = html.Div(children=[
     logisticFitDiv,
     logisticFitX0Div,
     logisticFitKDiv,
-    #firingRatesScatterDiv,
-    #firingRatesBarsDiv,
     zscoresDiv, 
     cohensDDiv,
     responseStrengthDiv, 
@@ -709,13 +665,6 @@ def update_output_div(active_cell):
     return getActivePlot(allRegionCoactivationNormalizedPlots, active_cell)
 
 @app.callback(
-    Output(component_id=firingRatesScatterFigId, component_property='figure'), 
-    Input(firingRatesScatterTableId, 'active_cell')
-)
-def update_output_div(active_cell):
-    return getActivePlot(allRegionFiringRateScatterPlots, active_cell)
-
-@app.callback(
     Output(component_id=responseStrengthHistFigId, component_property='figure'), 
     Input(responseStrengthHistTableId, 'active_cell')
 )
@@ -764,13 +713,6 @@ def update_output_div(active_cell):
 )
 def update_output_div(active_cell):
     return getActivePlot(allRegionFiringRatesPlots, active_cell)
-
-@app.callback(
-    Output(component_id=firingRatesBarsFigId, component_property='figure'), 
-    Input(firingRatesBarsTableId, 'active_cell')
-)
-def update_output_div(active_cell):
-    return getActivePlot(allRegionFiringRatesBarPlots, active_cell)
 
 @app.callback(
     Output(component_id=cohensDFigId, component_property='figure'), 
