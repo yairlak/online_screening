@@ -1,6 +1,76 @@
+import math
+from re import I
 import numpy as np
 import scipy
+import statistics
 from scipy.optimize import curve_fit
+from dataclasses import dataclass, field
+from typing import List
+
+@dataclass
+class Fitter :
+    stepSize : float = 0.1
+    numSteps : int = 0 # is initialized
+    p0 : List = field (default_factory=lambda: [])
+    bounds : List = field (default_factory=lambda: [[]])
+    xFit : List = field (default_factory=lambda: [])
+    yFit : List = field (default_factory=lambda: [[]])
+
+    paramsNames : List = field (default_factory=lambda: [])
+    params : List = field(default_factory=lambda: [[]])
+    rSquared : List = field (default_factory=lambda: [])
+
+    def getFitter(paramsNames, p0, bounds, stepSize=0.1) : 
+        newFitter = Fitter()
+        newFitter.stepSize = stepSize
+        newFitter.p0 = p0
+        newFitter.bounds = bounds
+        newFitter.paramsNames = paramsNames
+        newFitter.numSteps = math.ceil(1.0 / stepSize) + 1
+        newFitter.xFit = np.arange(0, stepSize*newFitter.numSteps, stepSize)
+        newFitter.yFit = [[] for i in range(newFitter.numSteps)]
+        newFitter.params = [[] for i in range(len(paramsNames))]
+
+        return newFitter
+
+    def calculateRSquared(self, y, yFitted) : 
+        ssRes = np.sum((y - yFitted)**2)
+        ssTot = np.sum((y - statistics.mean(y))**2)
+        return 1 - ssRes/ssTot
+
+    def addFit(self, func, funcParams, xToFit, yToFit) :
+        try : 
+            popt, pcov = curve_fit(func, xToFit, yToFit, p0=self.p0, bounds=self.bounds)
+        except Exception as e : 
+            print("WARNING: No logistic curve fitting found: " + str(e))
+            return
+        
+        self.rSquared.append(self.calculateRSquared(yToFit, funcParams(xToFit, popt)))
+
+        yLogisticFit = funcParams(self.xFit, popt)
+        for i in range(len(yLogisticFit)) :
+            self.yFit[i].append(yLogisticFit[i])
+            self.yFit[i].append(yLogisticFit[i])
+
+        for i in range(len(popt)):
+            self.params[i].append(popt[i])
+    
+    def getMeanStddevFit(self) :
+        meanFit = np.array([statistics.mean(self.yFit[i]) for i in range(self.numSteps)])
+        stddevFit = np.array([statistics.stdev(self.yFit[i]) for i in range(self.numSteps)])
+
+        return meanFit, stddevFit
+
+    def append(self, input) :
+        for i in range(len(input.params)) :
+            self.params[i].extend(input.params[i])
+
+        for i in range(len(input.yFit)) :
+            self.yFit[i].extend(input.yFit[i])
+
+        self.rSquared.extend(input.rSquared)
+
+
 
 def smooth(y, numPoints):
     if len(y) == 0 : 
@@ -46,6 +116,9 @@ def fitGauss(x, y) :
 
     return x, yGauss
 
-def fitStep(x, x0, k, a, c) : 
+def fitLogisticFuncParams(x, params) : 
+    return fitLogisticFunc(x, params[0], params[1], params[2], params[3])
+
+def fitLogisticFunc(x, x0, k, a, c) :
     return a + (c - a) * scipy.special.expit((x-x0)*(-k))
 

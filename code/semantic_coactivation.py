@@ -129,13 +129,16 @@ class Region:
     pearsonP : List = field (default_factory=lambda: [])
     pearsonCorSteps : List = field(default_factory=lambda: [[] for i in range(numCorSteps)])
 
-    logisticFitK : List = field (default_factory=lambda: [])
-    logisticFitX0 : List = field (default_factory=lambda: [])
-    logisticFitA : List = field (default_factory=lambda: [])
-    logisticFitC : List = field (default_factory=lambda: [])
+    logisticFit : Fitter = field(default_factory=lambda: 
+        Fitter.getFitter(["x0", "K", "A", "C"], p0=[0.5, 1, 0, 1], bounds=[[0, -1000, 0, 0], [1, 1000, 1, 1]], stepSize=0.1))
 
-    logisticFitRSquared : List = field (default_factory=lambda: [])
-    logisticFitFitted : List = field(default_factory=lambda: [[] for i in range(numLogisticFit)])
+    #logisticFitK : List = field (default_factory=lambda: [])
+    #logisticFitX0 : List = field (default_factory=lambda: [])
+    #logisticFitA : List = field (default_factory=lambda: [])
+    #logisticFitC : List = field (default_factory=lambda: [])
+
+    #logisticFitRSquared : List = field (default_factory=lambda: [])
+    #logisticFitFitted : List = field(default_factory=lambda: [[] for i in range(numLogisticFit)])
 
 
 def createAndSave(func, filename) : 
@@ -427,8 +430,9 @@ for session in sessions:
             
             ## fit step function
             if len(valuesCor) >= 2 : 
-                try : 
-                    popt, pcov = curve_fit(fitStep, similaritiesCor, valuesCor, p0=[0.5, 1, 0, 1], bounds=[[0, -1000, 0, 0], [1, 1000, 1, 1]])
+                regions[site].logisticFit.addFit(fitLogisticFunc, fitLogisticFuncParams, similaritiesCor, valuesCor)
+                """ try : 
+                    popt, pcov = curve_fit(fitLogisticFunc, similaritiesCor, valuesCor, p0=[0.5, 1, 0, 1], bounds=[[0, -1000, 0, 0], [1, 1000, 1, 1]])
                 except Exception as e : 
                     print("WARNING: No logistic curve fitting found: " + str(e))
                     continue
@@ -436,7 +440,7 @@ for session in sessions:
                 x0 = popt[0]
                 k = popt[1] # max(min(popt[1], 50), -50)
                 
-                ssRes = np.sum((valuesCor - fitStep(similaritiesCor, popt[0], popt[1], popt[2], popt[3]))**2)
+                ssRes = np.sum((valuesCor - fitLogisticFunc(similaritiesCor, popt[0], popt[1], popt[2], popt[3]))**2)
                 ssTot = np.sum((valuesCor - statistics.mean(valuesCor))**2)
                 rSquared = 1 - ssRes/ssTot
 
@@ -447,7 +451,7 @@ for session in sessions:
                 #    print("WARNING: Logistic curve fitting is too bad! rSquared = " + str(rSquared))
                 #    continue
 
-                yLogisticFit = fitStep(np.arange(0, logisticFitStepSize*numLogisticFit, logisticFitStepSize), popt[0], popt[1], popt[2], popt[3])
+                yLogisticFit = fitLogisticFunc(np.arange(0, logisticFitStepSize*numLogisticFit, logisticFitStepSize), popt[0], popt[1], popt[2], popt[3])
                 for i in range(len(yLogisticFit)) :
                     regions[site].logisticFitFitted[i].append(yLogisticFit[i])
                     regions[allRegionsName].logisticFitFitted[i].append(yLogisticFit[i])
@@ -461,7 +465,7 @@ for session in sessions:
                 regions[allRegionsName].logisticFitK.append(k)
                 regions[allRegionsName].logisticFitA.append(popt[2])
                 regions[allRegionsName].logisticFitC.append(popt[3])
-                regions[allRegionsName].logisticFitRSquared.append(rSquared)
+                regions[allRegionsName].logisticFitRSquared.append(rSquared) """
 
         
     
@@ -503,6 +507,11 @@ spearmanPlot = go.Figure()
 pearsonPPlot = go.Figure()
 pearsonPlot = go.Figure()
 
+for site in allSiteNames : 
+    if site == allRegionsName : 
+        continue
+    regions[allRegionsName].logisticFit.append(regions[site].logisticFit)
+
 
 for site in allSiteNames : 
 
@@ -530,15 +539,16 @@ for site in allSiteNames :
 
 
     logisticFitFig = go.Figure()
-    if len(regions[site].logisticFitFitted[0]) > 0 :
+    if len(regions[site].logisticFit.yFit[0]) > 0 :
 
-        meanFit = np.array([statistics.mean(regions[site].logisticFitFitted[i]) for i in range(numLogisticFit)])
-        stddevFit = np.array([statistics.stdev(regions[site].logisticFitFitted[i]) for i in range(numLogisticFit)])
+        #meanFit = np.array([statistics.mean(regions[site].logisticFitFitted[i]) for i in range(numLogisticFit)])
+        #stddevFit = np.array([statistics.stdev(regions[site].logisticFitFitted[i]) for i in range(numLogisticFit)])
 
-        xLogisticFit = np.arange(0, 1, logisticFitStepSize)
-        addPlot(logisticFitFig, xLogisticFit, meanFit, "lines", "Mean logistic fit")
-        addPlot(logisticFitFig, xLogisticFit, meanFit - stddevFit, "lines", "Mean - stddev")
-        addPlot(logisticFitFig, xLogisticFit, meanFit + stddevFit, "lines", "Mean + stddev")
+        meanFit, stddevFit = regions[site].logisticFit.getMeanStddevFit()
+        #xLogisticFit = np.arange(0, 1, logisticFitStepSize)
+        addPlot(logisticFitFig, regions[site].logisticFit.xFit, meanFit, "lines", "Mean logistic fit")
+        addPlot(logisticFitFig, regions[site].logisticFit.xFit, meanFit - stddevFit, "lines", "Mean - stddev")
+        addPlot(logisticFitFig, regions[site].logisticFit.xFit, meanFit + stddevFit, "lines", "Mean + stddev")
         #logisticFitFig.add_trace(go.Scatter(
         #    x=xLogisticFit,
         #    y=meanFit
@@ -546,7 +556,7 @@ for site in allSiteNames :
         #for i in range(len(regions[site].logisticFitK)) : 
         #    logisticFitFig.add_trace(go.Scatter(
         #        x=xLogisticFit,
-        #        y=fitStep(xLogisticFit, regions[site].logisticFitX0[i], regions[site].logisticFitK[i], regions[site].logisticFitA[i], regions[site].logisticFitC[i]),
+        #        y=fitLogisticFunc(xLogisticFit, regions[site].logisticFitX0[i], regions[site].logisticFitK[i], regions[site].logisticFitA[i], regions[site].logisticFitC[i]),
         #    ))
             
         logisticFitFig.update_layout(
@@ -559,13 +569,13 @@ for site in allSiteNames :
     allRegionLogisticFitPlots.append(logisticFitFig)
 
     allRegionLogisticFitBoxK.append(createAndSave(
-        createSingleBoxPlot(regions[site].logisticFitK, "K", "Logistic fit K"), 
+        createSingleBoxPlot(regions[site].logisticFit.params[1], "K", "Logistic fit K"), 
         "logistic_fit_box_k" + os.sep + fileDescription))
     allRegionLogisticFitBoxX0.append(createAndSave(
-        createSingleBoxPlot(regions[site].logisticFitX0, "X0", "Logistic fit X0"), 
+        createSingleBoxPlot(regions[site].logisticFit.params[0], "X0", "Logistic fit X0"), 
         "logistic_fit_box_x0" + os.sep + fileDescription))
     allRegionLogisticFitBoxRSquared.append(createAndSave(
-        createSingleBoxPlot(regions[site].logisticFitRSquared, "RSquared", "Logistic fit R Squared"), 
+        createSingleBoxPlot(regions[site].logisticFit.rSquared, "RSquared", "Logistic fit R Squared"), 
         "logistic_fit_box_r_squared" + os.sep + fileDescription))
     allRegionRespStrengthHistPlots.append(createAndSave(
         createHist(siteData.responseStrengthHistResp, np.arange(0,1,0.01), 100.0 / float(totalNumResponseStrengthHist), 'Firing rate', 'Stimuli in %'),
