@@ -135,6 +135,7 @@ class Region:
     logisticFitC : List = field (default_factory=lambda: [])
 
     logisticFitRSquared : List = field (default_factory=lambda: [])
+    logisticFitFitted : List = field(default_factory=lambda: [[] for i in range(numLogisticFit)])
 
 
 def createAndSave(func, filename) : 
@@ -185,6 +186,8 @@ corStepSize = 0.1
 numCorSteps = math.ceil(1.0 / corStepSize) + 1
 numRespUnitStimuli = 0
 numNoRespUnitStimuli = 0
+logisticFitStepSize = 0.1
+numLogisticFit = math.ceil(1.0 / logisticFitStepSize) + 1
 
 startBaseline = -500
 startTimeAvgFiringRate = 0 #100 #should fit response interval, otherwise spikes of best response can be outside of this interval and normalization fails
@@ -320,7 +323,7 @@ for session in sessions:
                     regions[site].responseStrengthHistNoResp.append(firingRates[i])
                     numNoRespUnitStimuli += 1
 
-                if not i == bestResponse and index in responses: ###
+                if not i == bestResponse : #and index in responses: ###
                     corStep = int(similarity / corStepSize)
                     similaritiesCorSteps[corStep].append(similarity)
                     valuesCorSteps[corStep].append(firingRates[i])
@@ -425,10 +428,11 @@ for session in sessions:
             ## fit step function
             if len(valuesCor) >= 2 : 
                 try : 
-                    popt, pcov = curve_fit(fitStep, similaritiesCor, valuesCor, p0=[0.5, 1, 0, 1])
-                except Exception : 
-                    print("WARNING: No logistic curve fitting found!")
+                    popt, pcov = curve_fit(fitStep, similaritiesCor, valuesCor, p0=[0.5, 1, 0, 1], bounds=[[0, -1000, 0, 0], [1, 1000, 1, 1]])
+                except Exception as e : 
+                    print("WARNING: No logistic curve fitting found: " + str(e))
                     continue
+                #print("Logistic curve fitting found!")
                 x0 = popt[0]
                 k = popt[1] # max(min(popt[1], 50), -50)
                 
@@ -436,12 +440,17 @@ for session in sessions:
                 ssTot = np.sum((valuesCor - statistics.mean(valuesCor))**2)
                 rSquared = 1 - ssRes/ssTot
 
-                if x0 > 1 or x0 < 0 : 
-                    print("WARNING: Logistic curve fitting error: x0 = " + str(x0))
-                    continue
-                if rSquared < 0.4 :  
-                    print("WARNING: Logistic curve fitting is too bad! rSquared = " + str(rSquared))
-                    continue
+                #if x0 > 1 or x0 < 0 : 
+                #    print("WARNING: Logistic curve fitting error: x0 = " + str(x0))
+                #    continue
+                #if rSquared < 0.4 :  
+                #    print("WARNING: Logistic curve fitting is too bad! rSquared = " + str(rSquared))
+                #    continue
+
+                yLogisticFit = fitStep(np.arange(0, logisticFitStepSize*numLogisticFit, logisticFitStepSize), popt[0], popt[1], popt[2], popt[3])
+                for i in range(len(yLogisticFit)) :
+                    regions[site].logisticFitFitted[i].append(yLogisticFit[i])
+                    regions[allRegionsName].logisticFitFitted[i].append(yLogisticFit[i])
 
                 regions[site].logisticFitX0.append(x0)
                 regions[site].logisticFitK.append(k)
@@ -519,22 +528,35 @@ for site in allSiteNames :
 
     totalNumResponseStrengthHist = max(1.0, np.sum(siteData.responseStrengthHistResp) + np.sum(siteData.responseStrengthHistNoResp)) #numRespUnitStimuli
 
+
     logisticFitFig = go.Figure()
-    xLogisticFit = np.arange(0, 1, 0.01)
-    for i in range(len(regions[site].logisticFitK)) : 
-        logisticFitFig.add_trace(go.Scatter(
-            x=xLogisticFit,
-            y=fitStep(xLogisticFit, regions[site].logisticFitX0[i], regions[site].logisticFitK[i], regions[site].logisticFitA[i], regions[site].logisticFitC[i]),
-        ))
-        
-    logisticFitFig.update_layout(
-        title_text="Logistic fit",
-        xaxis_title='Semantic similarity',
-        yaxis_title='Firing rate',
-        showlegend=False 
-    )
+    if len(regions[site].logisticFitFitted[0]) > 0 :
+
+        meanFit = np.array([statistics.mean(regions[site].logisticFitFitted[i]) for i in range(numLogisticFit)])
+        stddevFit = np.array([statistics.stdev(regions[site].logisticFitFitted[i]) for i in range(numLogisticFit)])
+
+        xLogisticFit = np.arange(0, 1, logisticFitStepSize)
+        addPlot(logisticFitFig, xLogisticFit, meanFit, "lines", "Mean logistic fit")
+        addPlot(logisticFitFig, xLogisticFit, meanFit - stddevFit, "lines", "Mean - stddev")
+        addPlot(logisticFitFig, xLogisticFit, meanFit + stddevFit, "lines", "Mean + stddev")
+        #logisticFitFig.add_trace(go.Scatter(
+        #    x=xLogisticFit,
+        #    y=meanFit
+        #))
+        #for i in range(len(regions[site].logisticFitK)) : 
+        #    logisticFitFig.add_trace(go.Scatter(
+        #        x=xLogisticFit,
+        #        y=fitStep(xLogisticFit, regions[site].logisticFitX0[i], regions[site].logisticFitK[i], regions[site].logisticFitA[i], regions[site].logisticFitC[i]),
+        #    ))
+            
+        logisticFitFig.update_layout(
+            title_text="Logistic fit",
+            xaxis_title='Semantic similarity',
+            yaxis_title='Firing rate',
+            showlegend=False 
+        )
+        saveImg(logisticFitFig, "logistic_fit" + os.sep + fileDescription)
     allRegionLogisticFitPlots.append(logisticFitFig)
-    saveImg(logisticFitFig, "logistic_fit" + os.sep + fileDescription)
 
     allRegionLogisticFitBoxK.append(createAndSave(
         createSingleBoxPlot(regions[site].logisticFitK, "K", "Logistic fit K"), 
@@ -543,7 +565,7 @@ for site in allSiteNames :
         createSingleBoxPlot(regions[site].logisticFitX0, "X0", "Logistic fit X0"), 
         "logistic_fit_box_x0" + os.sep + fileDescription))
     allRegionLogisticFitBoxRSquared.append(createAndSave(
-        createSingleBoxPlot(regions[site].logisticFitRSquared, "RSquared", "Logistic fit RSquared"), 
+        createSingleBoxPlot(regions[site].logisticFitRSquared, "RSquared", "Logistic fit R Squared"), 
         "logistic_fit_box_r_squared" + os.sep + fileDescription))
     allRegionRespStrengthHistPlots.append(createAndSave(
         createHist(siteData.responseStrengthHistResp, np.arange(0,1,0.01), 100.0 / float(totalNumResponseStrengthHist), 'Firing rate', 'Stimuli in %'),
@@ -607,7 +629,7 @@ responseStrengthHistDivNo, responseStrengthHistFigIdNo, responseStrengthHistTabl
 logisticFitDiv, logisticFitFigId, logisticFitTableId = createRegionsDiv("Logistic fit for all responsive units", allSiteNames)
 logisticFitX0Div, logisticFitX0FigId, logisticFitX0TableId = createRegionsDiv("Logistic fit for all responsive units: X0", allSiteNames)
 logisticFitKDiv, logisticFitKFigId, logisticFitKTableId = createRegionsDiv("Logistic fit for all responsive units: K", allSiteNames)
-logisticFitRSquaredDiv, logisticFitRSquaredFigId, logisticFitRSquaredTableId = createRegionsDiv("Logistic fit for all responsive units: R sqaured", allSiteNames)
+logisticFitRSquaredDiv, logisticFitRSquaredFigId, logisticFitRSquaredTableId = createRegionsDiv("Logistic fit for all responsive units: R squared", allSiteNames)
 
 external_stylesheets = ['https://codepen.io/chriddyp/pen/bWLwgP.css']
 app = dash.Dash(__name__, external_stylesheets=external_stylesheets)
