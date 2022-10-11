@@ -131,14 +131,9 @@ class Region:
 
     logisticFit : Fitter = field(default_factory=lambda: 
         Fitter.getFitter(["x0", "K", "A", "C"], p0=[0.5, 1, 0, 1], bounds=[[0, -1000, 0, 0], [1, 1000, 1, 1]], stepSize=0.1))
-
-    #logisticFitK : List = field (default_factory=lambda: [])
-    #logisticFitX0 : List = field (default_factory=lambda: [])
-    #logisticFitA : List = field (default_factory=lambda: [])
-    #logisticFitC : List = field (default_factory=lambda: [])
-
-    #logisticFitRSquared : List = field (default_factory=lambda: [])
-    #logisticFitFitted : List = field(default_factory=lambda: [[] for i in range(numLogisticFit)])
+    stepFit : Fitter = field(default_factory=lambda: 
+        Fitter.getFitter(["x0", "a", "b"], p0=[0.5, 0, 1], bounds=[[0, 0, 0], [1, 1, 1]], stepSize=0.1))
+    rDiffFit : List = field (default_factory=lambda: [])
 
 
 def createAndSave(func, filename) : 
@@ -426,48 +421,14 @@ for session in sessions:
                     if not math.isnan(pearson[0]) and not math.isnan(pearson[1]) : 
                         regions[site].pearsonCorSteps[i].append(pearson[0])
                         regions[allRegionsName].pearsonCorSteps[i].append(pearson[0])
-
             
             ## fit step function
             if len(valuesCor) >= 2 : 
-                regions[site].logisticFit.addFit(fitLogisticFunc, fitLogisticFuncParams, similaritiesCor, valuesCor)
-                """ try : 
-                    popt, pcov = curve_fit(fitLogisticFunc, similaritiesCor, valuesCor, p0=[0.5, 1, 0, 1], bounds=[[0, -1000, 0, 0], [1, 1000, 1, 1]])
-                except Exception as e : 
-                    print("WARNING: No logistic curve fitting found: " + str(e))
-                    continue
-                #print("Logistic curve fitting found!")
-                x0 = popt[0]
-                k = popt[1] # max(min(popt[1], 50), -50)
+                rSquaredLog = regions[site].logisticFit.addFit(fitLogisticFunc, fitLogisticFuncParams, similaritiesCor, valuesCor)
+                rSquaredStep = regions[site].stepFit.addFit(fitStep, fitStepParams, similaritiesCor, valuesCor)
+                if rSquaredLog >= 0 and rSquaredStep >= 0 : 
+                    regions[site].rDiffFit.append(rSquaredLog - rSquaredStep)
                 
-                ssRes = np.sum((valuesCor - fitLogisticFunc(similaritiesCor, popt[0], popt[1], popt[2], popt[3]))**2)
-                ssTot = np.sum((valuesCor - statistics.mean(valuesCor))**2)
-                rSquared = 1 - ssRes/ssTot
-
-                #if x0 > 1 or x0 < 0 : 
-                #    print("WARNING: Logistic curve fitting error: x0 = " + str(x0))
-                #    continue
-                #if rSquared < 0.4 :  
-                #    print("WARNING: Logistic curve fitting is too bad! rSquared = " + str(rSquared))
-                #    continue
-
-                yLogisticFit = fitLogisticFunc(np.arange(0, logisticFitStepSize*numLogisticFit, logisticFitStepSize), popt[0], popt[1], popt[2], popt[3])
-                for i in range(len(yLogisticFit)) :
-                    regions[site].logisticFitFitted[i].append(yLogisticFit[i])
-                    regions[allRegionsName].logisticFitFitted[i].append(yLogisticFit[i])
-
-                regions[site].logisticFitX0.append(x0)
-                regions[site].logisticFitK.append(k)
-                regions[site].logisticFitA.append(popt[2])
-                regions[site].logisticFitC.append(popt[3])
-                regions[site].logisticFitRSquared.append(rSquared)
-                regions[allRegionsName].logisticFitX0.append(x0)
-                regions[allRegionsName].logisticFitK.append(k)
-                regions[allRegionsName].logisticFitA.append(popt[2])
-                regions[allRegionsName].logisticFitC.append(popt[3])
-                regions[allRegionsName].logisticFitRSquared.append(rSquared) """
-
-        
     
     print("Best response is response in " + str(countBestResponseIsResponse) + " cases and no response in " + str(countBestResponseIsNoResponse) + " cases.")
         #+ "Subj " + str(subjectNum) + ", sess " + str(sessionNum) 
@@ -500,6 +461,7 @@ allRegionLogisticFitBoxX0 = []
 allRegionLogisticFitBoxK = []
 allRegionLogisticFitBoxRSquared = []
 allRegionLogisticFitPlots = []
+allRegionRDiffPlots = []
 
 figurePrepareTime = time.time()
 spearmanPPlot = go.Figure()
@@ -511,6 +473,8 @@ for site in allSiteNames :
     if site == allRegionsName : 
         continue
     regions[allRegionsName].logisticFit.append(regions[site].logisticFit)
+    regions[allRegionsName].stepFit.append(regions[site].stepFit)
+    regions[allRegionsName].rDiffFit.extend(regions[site].rDiffFit)
 
 
 for site in allSiteNames : 
@@ -537,22 +501,14 @@ for site in allSiteNames :
 
     totalNumResponseStrengthHist = max(1.0, np.sum(siteData.responseStrengthHistResp) + np.sum(siteData.responseStrengthHistNoResp)) #numRespUnitStimuli
 
-
     logisticFitFig = go.Figure()
     if len(regions[site].logisticFit.yFit[0]) > 0 :
 
-        #meanFit = np.array([statistics.mean(regions[site].logisticFitFitted[i]) for i in range(numLogisticFit)])
-        #stddevFit = np.array([statistics.stdev(regions[site].logisticFitFitted[i]) for i in range(numLogisticFit)])
-
         meanFit, stddevFit = regions[site].logisticFit.getMeanStddevFit()
-        #xLogisticFit = np.arange(0, 1, logisticFitStepSize)
         addPlot(logisticFitFig, regions[site].logisticFit.xFit, meanFit, "lines", "Mean logistic fit")
         addPlot(logisticFitFig, regions[site].logisticFit.xFit, meanFit - stddevFit, "lines", "Mean - stddev")
         addPlot(logisticFitFig, regions[site].logisticFit.xFit, meanFit + stddevFit, "lines", "Mean + stddev")
-        #logisticFitFig.add_trace(go.Scatter(
-        #    x=xLogisticFit,
-        #    y=meanFit
-        #))
+
         #for i in range(len(regions[site].logisticFitK)) : 
         #    logisticFitFig.add_trace(go.Scatter(
         #        x=xLogisticFit,
@@ -568,15 +524,18 @@ for site in allSiteNames :
         saveImg(logisticFitFig, "logistic_fit" + os.sep + fileDescription)
     allRegionLogisticFitPlots.append(logisticFitFig)
 
-    allRegionLogisticFitBoxK.append(createAndSave(
-        createSingleBoxPlot(regions[site].logisticFit.params[1], "K", "Logistic fit K"), 
-        "logistic_fit_box_k" + os.sep + fileDescription))
     allRegionLogisticFitBoxX0.append(createAndSave(
-        createSingleBoxPlot(regions[site].logisticFit.params[0], "X0", "Logistic fit X0"), 
-        "logistic_fit_box_x0" + os.sep + fileDescription))
+        createBoxPlot([regions[site].logisticFit.params[0], regions[site].stepFit.params[0]], ["Log", "Step"], "Fit X0"), 
+        "fit" + os.sep + "box_x0" + os.sep + fileDescription))
+    allRegionLogisticFitBoxK.append(createAndSave(
+        createBoxPlot( [regions[site].logisticFit.params[1]], ["K"], "Logistic fit K"), 
+        "fit" + os.sep + "logistic_fit_box_k" + os.sep + fileDescription))
     allRegionLogisticFitBoxRSquared.append(createAndSave(
-        createSingleBoxPlot(regions[site].logisticFit.rSquared, "RSquared", "Logistic fit R Squared"), 
-        "logistic_fit_box_r_squared" + os.sep + fileDescription))
+        createBoxPlot([regions[site].logisticFit.rSquared, regions[site].stepFit.rSquared], ["Log", "Step"], "Fit R Squared"), 
+        "fit" + os.sep + "box_r_squared" + os.sep + fileDescription))
+    allRegionRDiffPlots.append(createAndSave(
+        createBoxPlot([regions[site].rDiffFit], ["r(Log) - r(Step)"], "Diff of R squared of logistic fit and R squared of step fit"), 
+        "fit" + os.sep + "box_r_diff" + os.sep + fileDescription))
     allRegionRespStrengthHistPlots.append(createAndSave(
         createHist(siteData.responseStrengthHistResp, np.arange(0,1,0.01), 100.0 / float(totalNumResponseStrengthHist), 'Firing rate', 'Stimuli in %'),
         "response_strength_hist" + os.sep + fileDescription)) 
@@ -590,24 +549,23 @@ for site in allSiteNames :
         createPlot(siteData.coactivationNorm.similarity, siteData.coactivationNorm.y * 100, "Normalized coactivation probability in %", "coactivation normalized", True, ticktextCoactivation), 
         "coactivation_normalized" + os.sep + fileDescription))
     allRegionZScoresPlots.append(createAndSave(
-        createBoxPlot(uniqueSimilarities, siteData.zScoresNorm.values, "Mean zscores", "zscores", args.alpha_box), 
+        createStepBoxPlot(uniqueSimilarities, siteData.zScoresNorm.values, "Mean zscores", "zscores", args.alpha_box), 
         "zscores" + os.sep + fileDescription))
     allRegionFiringRatesPlots.append(createAndSave(
-        createBoxPlot(uniqueSimilarities, siteData.firingRatesNorm.values, "Normalized firing rates", "firing_rates", args.alpha_box), 
+        createStepBoxPlot(uniqueSimilarities, siteData.firingRatesNorm.values, "Normalized firing rates", "firing_rates", args.alpha_box), 
         "firing_rates" + os.sep + fileDescription))
     allRegionCohensDPlots.append(createAndSave(
-        createBoxPlot(uniqueSimilarities, siteData.cohensD.values, "Mean cohens d", "cohensd", args.alpha_box), 
+        createStepBoxPlot(uniqueSimilarities, siteData.cohensD.values, "Mean cohens d", "cohensd", args.alpha_box), 
         "cohensd" + os.sep + fileDescription))
     allRegionResponseStrengthPlots.append(createAndSave(
-        createBoxPlot(uniqueSimilarities, siteData.responseStrength.values, "Mean response strength (median - meanBaseline) / maxMedian", "responseStrength", args.alpha_box), 
+        createStepBoxPlot(uniqueSimilarities, siteData.responseStrength.values, "Mean response strength (median - meanBaseline) / maxMedian", "responseStrength", args.alpha_box), 
         "responseStrength" + os.sep + fileDescription))
     allRegionSpearmanPlots.append(createAndSave(
-        createBoxPlot(np.arange(0.0, 1.0 + corStepSize, corStepSize), siteData.spearmanCorSteps, "Spearman correlation dependent on semantic similarity", "spearmanCorSteps", args.alpha_box, 'all'), 
+        createStepBoxPlot(np.arange(0.0, 1.0 + corStepSize, corStepSize), siteData.spearmanCorSteps, "Spearman correlation dependent on semantic similarity", "spearmanCorSteps", args.alpha_box, 'all'), 
         "spearmanCorSteps" + os.sep + fileDescription)) 
     allRegionPearsonPlots.append(createAndSave(
-        createBoxPlot(np.arange(0.0, 1.0 + corStepSize, corStepSize), siteData.pearsonCorSteps, "Pearson correlation dependent on semantic similarity", "spearmanCorSteps", args.alpha_box, 'all'), 
+        createStepBoxPlot(np.arange(0.0, 1.0 + corStepSize, corStepSize), siteData.pearsonCorSteps, "Pearson correlation dependent on semantic similarity", "spearmanCorSteps", args.alpha_box, 'all'), 
         "spearmanCorSteps" + os.sep + fileDescription)) 
-
 
 
 spearmanPlot.update_layout(title="Spearman correlation for responding units",)
@@ -640,6 +598,7 @@ logisticFitDiv, logisticFitFigId, logisticFitTableId = createRegionsDiv("Logisti
 logisticFitX0Div, logisticFitX0FigId, logisticFitX0TableId = createRegionsDiv("Logistic fit for all responsive units: X0", allSiteNames)
 logisticFitKDiv, logisticFitKFigId, logisticFitKTableId = createRegionsDiv("Logistic fit for all responsive units: K", allSiteNames)
 logisticFitRSquaredDiv, logisticFitRSquaredFigId, logisticFitRSquaredTableId = createRegionsDiv("Logistic fit for all responsive units: R squared", allSiteNames)
+logisticFitRDiffDiv, logisticFitRDiffFigId, logisticFitRDiffTableId = createRegionsDiv("Diff of R squared between logistic and step fit", allSiteNames)
 
 external_stylesheets = ['https://codepen.io/chriddyp/pen/bWLwgP.css']
 app = dash.Dash(__name__, external_stylesheets=external_stylesheets)
@@ -664,11 +623,11 @@ app.layout = html.Div(children=[
     logisticFitX0Div,
     logisticFitKDiv,
     logisticFitRSquaredDiv,
+    logisticFitRDiffDiv,
     zscoresDiv, 
     cohensDDiv,
     responseStrengthDiv, 
     numRespDiv, 
-    
 ])
 
 print("\n--- Ready! ---\n\n")
@@ -756,6 +715,13 @@ def update_output_div(active_cell):
 )
 def update_output_div(active_cell):
     return getActivePlot(allRegionLogisticFitBoxRSquared, active_cell)
+
+@app.callback(
+    Output(component_id=logisticFitRDiffFigId, component_property='figure'), 
+    Input(logisticFitRDiffTableId, 'active_cell')
+)
+def update_output_div(active_cell):
+    return getActivePlot(allRegionRDiffPlots, active_cell)
 
 
 @app.callback(

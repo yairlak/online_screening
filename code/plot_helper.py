@@ -135,13 +135,14 @@ def createCorrelationPlot(sitename, correlation) :
         boxpoints='all',
     )
 
-def createSingleBoxPlot(values, xName, title, boxpoints='all') :
+def createBoxPlot(values, xNames, title, boxpoints='all') :
     fig = go.Figure()
-    fig.add_trace(go.Box(
-        y=values,
-        name=xName,
-        boxpoints=boxpoints,
-    ))
+    for i in range(len(xNames)) : 
+        fig.add_trace(go.Box(
+            y=values[i],
+            name=xNames[i],
+            boxpoints=boxpoints,
+        ))
     fig.update_layout(
         title_text=title,
         showlegend=False
@@ -149,7 +150,7 @@ def createSingleBoxPlot(values, xName, title, boxpoints='all') :
     return fig
 
 
-def createBoxPlot(x, values, title, yLabel="", alpha=0.001, boxpoints=False) :   
+def createStepBoxPlot(x, values, title, yLabel="", alpha=0.001, boxpoints=False) :   
     
     fig = go.Figure()
     for i in range(len(values)) : 

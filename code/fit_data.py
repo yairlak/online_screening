@@ -43,9 +43,10 @@ class Fitter :
             popt, pcov = curve_fit(func, xToFit, yToFit, p0=self.p0, bounds=self.bounds)
         except Exception as e : 
             print("WARNING: No logistic curve fitting found: " + str(e))
-            return
+            return -1
         
-        self.rSquared.append(self.calculateRSquared(yToFit, funcParams(xToFit, popt)))
+        rSquared = self.calculateRSquared(yToFit, funcParams(xToFit, popt))
+        self.rSquared.append(rSquared)
 
         yLogisticFit = funcParams(self.xFit, popt)
         for i in range(len(yLogisticFit)) :
@@ -54,6 +55,8 @@ class Fitter :
 
         for i in range(len(popt)):
             self.params[i].append(popt[i])
+        
+        return rSquared
     
     def getMeanStddevFit(self) :
         meanFit = np.array([statistics.mean(self.yFit[i]) for i in range(self.numSteps)])
@@ -121,4 +124,13 @@ def fitLogisticFuncParams(x, params) :
 
 def fitLogisticFunc(x, x0, k, a, c) :
     return a + (c - a) * scipy.special.expit((x-x0)*(-k))
+
+def fitStepParams(x, params) :
+    return fitStep(x, params[0], params[1], params[2])
+
+def fitStep(x, x0, a, b) :
+    y = np.zeros(len(x))
+    y[np.where(x <= x0)[0]] = a
+    y[np.where(x > x0)[0]] = b
+    return a * (np.heaviside(x-x0, 0) + b) #a * (np.sign(x-x0) + b)
 
