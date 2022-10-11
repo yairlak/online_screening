@@ -48,13 +48,19 @@ class Fitter :
         rSquared = self.calculateRSquared(yToFit, funcParams(xToFit, popt))
         self.rSquared.append(rSquared)
 
+        for i in range(len(popt)):
+            self.params[i].append(popt[i])
+        
+        #popt[0] = 0
+
         yLogisticFit = funcParams(self.xFit, popt)
         for i in range(len(yLogisticFit)) :
             self.yFit[i].append(yLogisticFit[i])
-            self.yFit[i].append(yLogisticFit[i])
 
-        for i in range(len(popt)):
-            self.params[i].append(popt[i])
+        #if yLogisticFit[0] >= yLogisticFit[-1] : 
+        #    print("--- BAD fitting of logistic function. K: " + str(popt[1]))
+        #else : 
+        #    print("--- GOOD fitting of logistic function. K: " + str(popt[1]))
         
         return rSquared
     
@@ -132,5 +138,5 @@ def fitStep(x, x0, a, b) :
     y = np.zeros(len(x))
     y[np.where(x <= x0)[0]] = a
     y[np.where(x > x0)[0]] = b
-    return a * (np.heaviside(x-x0, 0) + b) #a * (np.sign(x-x0) + b)
+    return fitLogisticFunc(x, x0, 1000, a, b)  #a * (np.heaviside(x-x0, 0) + b) #a * (np.sign(x-x0) + b)
 

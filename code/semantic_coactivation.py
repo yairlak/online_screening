@@ -509,6 +509,24 @@ for site in allSiteNames :
         addPlot(logisticFitFig, regions[site].logisticFit.xFit, meanFit - stddevFit, "lines", "Mean - stddev")
         addPlot(logisticFitFig, regions[site].logisticFit.xFit, meanFit + stddevFit, "lines", "Mean + stddev")
 
+        pTmp = regions[site].logisticFit.params
+        
+        for i in range(len(pTmp[0])) :
+            logisticFitFigSingle = go.Figure(
+                go.Scatter(
+                    x=regions[site].logisticFit.xFit,
+                    y=fitLogisticFunc(regions[site].logisticFit.xFit, pTmp[0][i], pTmp[1][i], pTmp[2][i], pTmp[3][i]),
+                )
+            )
+
+            logisticFitFigSingle.update_layout(
+                title_text="Logistic fit. R: " + str(round(regions[site].logisticFit.rSquared[i],2)) + ", X0: " + str(round(pTmp[0][i],2)) + ", K: " + str(round(pTmp[1][i],2)) + ", a: " + str(round(pTmp[2][i],2)) + ", c: " + str(round(pTmp[3][i],2)),
+                xaxis_title='Semantic similarity',
+                yaxis_title='Firing rate',
+                showlegend=False 
+            )
+            saveImg(logisticFitFigSingle, "fit" + os.sep + "logistic_fit_single" + os.sep + fileDescription + "_" + str(i))
+
         #for i in range(len(regions[site].logisticFitK)) : 
         #    logisticFitFig.add_trace(go.Scatter(
         #        x=xLogisticFit,
@@ -521,7 +539,7 @@ for site in allSiteNames :
             yaxis_title='Firing rate',
             showlegend=False 
         )
-        saveImg(logisticFitFig, "logistic_fit" + os.sep + fileDescription)
+        saveImg(logisticFitFig, "fit" + os.sep + "logistic_fit" + os.sep + fileDescription)
     allRegionLogisticFitPlots.append(logisticFitFig)
 
     allRegionLogisticFitBoxX0.append(createAndSave(
