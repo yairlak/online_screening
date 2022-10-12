@@ -222,8 +222,8 @@ def createPlot(x, y, yLabel, title, plotHalfGaussian, ticktext=[]) :
     addPlot(fig, xWithoutOutliers, yFitted, 'lines', 'Savgol filter')
     
     if plotHalfGaussian : 
-        xPartialGauss, yPartialGauss = fitPartialGaussian(xWithoutOutliers, yWithoutOutliers)
-        addPlot(fig, xPartialGauss, yPartialGauss, 'lines', 'Half gaussian fit')
+        yPartialGauss = fitPartialGaussian(xWithoutOutliers, yWithoutOutliers)
+        addPlot(fig, xWithoutOutliers, yPartialGauss, 'lines', 'Half gaussian fit')
 
     fig.update_layout(
         title_text=title,
@@ -240,6 +240,31 @@ def createPlot(x, y, yLabel, title, plotHalfGaussian, ticktext=[]) :
             )
         )
 
+    return fig
+
+def createFitPlot(regionFit, name) :
+
+    fig = go.Figure()
+    if len(regionFit.yFit[0]) > 0 :
+
+        meanFit, stddevFit = regionFit.getMeanStddevFit()
+        addPlot(fig, regionFit.xFit, meanFit, "lines", "Mean fit")
+        addPlot(fig, regionFit.xFit, meanFit - stddevFit, "lines", "Mean - stddev")
+        addPlot(fig, regionFit.xFit, meanFit + stddevFit, "lines", "Mean + stddev")
+
+        
+        #for i in range(len(regions[site].logisticFitK)) : 
+        #    logisticFitFig.add_trace(go.Scatter(
+        #        x=xLogisticFit,
+        #        y=fitLogisticFunc(xLogisticFit, regions[site].logisticFitX0[i], regions[site].logisticFitK[i], regions[site].logisticFitA[i], regions[site].logisticFitC[i]),
+        #    ))
+            
+    fig.update_layout(
+        title_text=name + " fit",
+        xaxis_title='Semantic similarity',
+        yaxis_title='Firing rate',
+        showlegend=False 
+    )
     return fig
 
 def addPlot(fig, x, y, mode, name) : 

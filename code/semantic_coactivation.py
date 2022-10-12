@@ -133,7 +133,10 @@ class Region:
         Fitter.getFitter(["x0", "K", "A", "C"], p0=[0.5, 1, 0, 1], bounds=[[0, -1000, 0, 0], [1, 1000, 1, 1]], stepSize=0.1))
     stepFit : Fitter = field(default_factory=lambda: 
         Fitter.getFitter(["x0", "a", "b"], p0=[0.5, 0, 1], bounds=[[0, 0, 0], [1, 1, 1]], stepSize=0.1))
+    gaussFit : Fitter = field(default_factory=lambda: 
+        Fitter.getFitter(["x0", "a", "b", "sigma"], p0=[0.5, 1, 0, 1], bounds=[[0, 0, 0, 0], [1, 500, 1, 500]], stepSize=0.1))
     rDiffFit : List = field (default_factory=lambda: [])
+    rDiffGauss : List = field (default_factory=lambda: [])
 
 
 def createAndSave(func, filename) : 
@@ -321,7 +324,7 @@ for session in sessions:
                     regions[site].responseStrengthHistNoResp.append(firingRates[i])
                     numNoRespUnitStimuli += 1
 
-                if not i == bestResponse : #and index in responses: ###
+                if not i == bestResponse : ##and index in responses: ###
                     corStep = int(similarity / corStepSize)
                     similaritiesCorSteps[corStep].append(similarity)
                     valuesCorSteps[corStep].append(firingRates[i])
@@ -423,11 +426,14 @@ for session in sessions:
                         regions[allRegionsName].pearsonCorSteps[i].append(pearson[0])
             
             ## fit step function
-            if len(valuesCor) >= 2 : 
+            if len(valuesCor) >= 3 : 
                 rSquaredLog = regions[site].logisticFit.addFit(fitLogisticFunc, fitLogisticFuncParams, similaritiesCor, valuesCor)
                 rSquaredStep = regions[site].stepFit.addFit(fitStep, fitStepParams, similaritiesCor, valuesCor)
+                rSquaredGauss = regions[site].gaussFit.addFit(halfGauss, halfGaussParams, similaritiesCor, valuesCor)
                 if rSquaredLog >= 0 and rSquaredStep >= 0 : 
                     regions[site].rDiffFit.append(rSquaredLog - rSquaredStep)
+                if rSquaredGauss >= 0 and rSquaredStep >= 0 : 
+                    regions[site].rDiffGauss.append(rSquaredGauss - rSquaredStep)
                 
     
     print("Best response is response in " + str(countBestResponseIsResponse) + " cases and no response in " + str(countBestResponseIsNoResponse) + " cases.")
@@ -461,7 +467,9 @@ allRegionLogisticFitBoxX0 = []
 allRegionLogisticFitBoxK = []
 allRegionLogisticFitBoxRSquared = []
 allRegionLogisticFitPlots = []
+allRegionGaussFitPlots = []
 allRegionRDiffPlots = []
+allRegionRDiffGaussPlots = []
 
 figurePrepareTime = time.time()
 spearmanPPlot = go.Figure()
@@ -474,7 +482,9 @@ for site in allSiteNames :
         continue
     regions[allRegionsName].logisticFit.append(regions[site].logisticFit)
     regions[allRegionsName].stepFit.append(regions[site].stepFit)
+    regions[allRegionsName].gaussFit.append(regions[site].stepFit)
     regions[allRegionsName].rDiffFit.extend(regions[site].rDiffFit)
+    regions[allRegionsName].rDiffGauss.extend(regions[site].rDiffGauss)
 
 
 for site in allSiteNames : 
@@ -501,13 +511,7 @@ for site in allSiteNames :
 
     totalNumResponseStrengthHist = max(1.0, np.sum(siteData.responseStrengthHistResp) + np.sum(siteData.responseStrengthHistNoResp)) #numRespUnitStimuli
 
-    logisticFitFig = go.Figure()
     if len(regions[site].logisticFit.yFit[0]) > 0 :
-
-        meanFit, stddevFit = regions[site].logisticFit.getMeanStddevFit()
-        addPlot(logisticFitFig, regions[site].logisticFit.xFit, meanFit, "lines", "Mean logistic fit")
-        addPlot(logisticFitFig, regions[site].logisticFit.xFit, meanFit - stddevFit, "lines", "Mean - stddev")
-        addPlot(logisticFitFig, regions[site].logisticFit.xFit, meanFit + stddevFit, "lines", "Mean + stddev")
 
         pTmp = regions[site].logisticFit.params
         
@@ -532,16 +536,13 @@ for site in allSiteNames :
         #        x=xLogisticFit,
         #        y=fitLogisticFunc(xLogisticFit, regions[site].logisticFitX0[i], regions[site].logisticFitK[i], regions[site].logisticFitA[i], regions[site].logisticFitC[i]),
         #    ))
-            
-        logisticFitFig.update_layout(
-            title_text="Logistic fit",
-            xaxis_title='Semantic similarity',
-            yaxis_title='Firing rate',
-            showlegend=False 
-        )
-        saveImg(logisticFitFig, "fit" + os.sep + "logistic_fit" + os.sep + fileDescription)
-    allRegionLogisticFitPlots.append(logisticFitFig)
 
+    allRegionGaussFitPlots.append(createAndSave(
+        createFitPlot(regions[site].gaussFit, "Gauss"), 
+        "fit" + os.sep + "gaussian_fit" + os.sep + fileDescription))
+    allRegionLogisticFitPlots.append(createAndSave(
+        createFitPlot(regions[site].logisticFit, "Logistic"), 
+        "fit" + os.sep + "logistic_fit" + os.sep + fileDescription))
     allRegionLogisticFitBoxX0.append(createAndSave(
         createBoxPlot([regions[site].logisticFit.params[0], regions[site].stepFit.params[0]], ["Log", "Step"], "Fit X0"), 
         "fit" + os.sep + "box_x0" + os.sep + fileDescription))
@@ -551,9 +552,12 @@ for site in allSiteNames :
     allRegionLogisticFitBoxRSquared.append(createAndSave(
         createBoxPlot([regions[site].logisticFit.rSquared, regions[site].stepFit.rSquared], ["Log", "Step"], "Fit R Squared"), 
         "fit" + os.sep + "box_r_squared" + os.sep + fileDescription))
+    allRegionRDiffGaussPlots.append(createAndSave(
+        createBoxPlot([regions[site].rDiffGauss], ["r(Gauss) - r(Step)"], "Diff of R squared of gaussian fit and R squared of step fit"), 
+        "fit" + os.sep + "box_r_diff_gauss" + os.sep + fileDescription))
     allRegionRDiffPlots.append(createAndSave(
         createBoxPlot([regions[site].rDiffFit], ["r(Log) - r(Step)"], "Diff of R squared of logistic fit and R squared of step fit"), 
-        "fit" + os.sep + "box_r_diff" + os.sep + fileDescription))
+        "fit" + os.sep + "box_r_diff_log" + os.sep + fileDescription))
     allRegionRespStrengthHistPlots.append(createAndSave(
         createHist(siteData.responseStrengthHistResp, np.arange(0,1,0.01), 100.0 / float(totalNumResponseStrengthHist), 'Firing rate', 'Stimuli in %'),
         "response_strength_hist" + os.sep + fileDescription)) 
@@ -613,10 +617,12 @@ numRespDiv, numRespFigId, numRespTableId = createRegionsDiv("Number of units wit
 responseStrengthHistDiv, responseStrengthHistFigId, responseStrengthHistTableId = createRegionsDiv("Response strength histogram for responsive units", allSiteNames)
 responseStrengthHistDivNo, responseStrengthHistFigIdNo, responseStrengthHistTableIdNo = createRegionsDiv("Response strength histogram for non responsive units", allSiteNames)
 logisticFitDiv, logisticFitFigId, logisticFitTableId = createRegionsDiv("Logistic fit for all responsive units", allSiteNames)
+gaussianFitDiv, gaussianFitFigId, gaussianFitTableId = createRegionsDiv("Gaussian fit for all responsive units", allSiteNames)
 logisticFitX0Div, logisticFitX0FigId, logisticFitX0TableId = createRegionsDiv("Logistic fit for all responsive units: X0", allSiteNames)
 logisticFitKDiv, logisticFitKFigId, logisticFitKTableId = createRegionsDiv("Logistic fit for all responsive units: K", allSiteNames)
 logisticFitRSquaredDiv, logisticFitRSquaredFigId, logisticFitRSquaredTableId = createRegionsDiv("Logistic fit for all responsive units: R squared", allSiteNames)
 logisticFitRDiffDiv, logisticFitRDiffFigId, logisticFitRDiffTableId = createRegionsDiv("Diff of R squared between logistic and step fit", allSiteNames)
+gaussianFitRDiffDiv, gaussianFitRDiffFigId, gaussianFitRDiffTableId = createRegionsDiv("Diff of R squared between gaussian and step fit", allSiteNames)
 
 external_stylesheets = ['https://codepen.io/chriddyp/pen/bWLwgP.css']
 app = dash.Dash(__name__, external_stylesheets=external_stylesheets)
@@ -638,10 +644,12 @@ app.layout = html.Div(children=[
     responseStrengthHistDiv, 
     responseStrengthHistDivNo, 
     logisticFitDiv,
+    gaussianFitDiv,
     logisticFitX0Div,
     logisticFitKDiv,
     logisticFitRSquaredDiv,
     logisticFitRDiffDiv,
+    gaussianFitRDiffDiv,
     zscoresDiv, 
     cohensDDiv,
     responseStrengthDiv, 
@@ -714,6 +722,13 @@ def update_output_div(active_cell):
     return getActivePlot(allRegionLogisticFitPlots, active_cell)
 
 @app.callback(
+    Output(component_id=gaussianFitFigId, component_property='figure'), 
+    Input(gaussianFitTableId, 'active_cell')
+)
+def update_output_div(active_cell):
+    return getActivePlot(allRegionGaussFitPlots, active_cell)
+
+@app.callback(
     Output(component_id=logisticFitX0FigId, component_property='figure'), 
     Input(logisticFitX0TableId, 'active_cell')
 )
@@ -740,6 +755,13 @@ def update_output_div(active_cell):
 )
 def update_output_div(active_cell):
     return getActivePlot(allRegionRDiffPlots, active_cell)
+
+@app.callback(
+    Output(component_id=gaussianFitRDiffFigId, component_property='figure'), 
+    Input(gaussianFitRDiffTableId, 'active_cell')
+)
+def update_output_div(active_cell):
+    return getActivePlot(allRegionRDiffGaussPlots, active_cell)
 
 
 @app.callback(
