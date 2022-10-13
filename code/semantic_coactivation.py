@@ -191,8 +191,10 @@ logisticFitStepSize = 0.1
 numLogisticFit = math.ceil(1.0 / logisticFitStepSize) + 1
 
 startBaseline = -500
-startTimeAvgFiringRate = 0 #100 #should fit response interval, otherwise spikes of best response can be outside of this interval and normalization fails
-stopTimeAvgFiringRate = 1000 #800 # 800 for rodrigo
+startTimeAvgFiringRate = 100 #100 #should fit response interval, otherwise spikes of best response can be outside of this interval and normalization fails
+stopTimeAvgFiringRate = 800 #800 # 800 for rodrigo
+minRatioActiveTrials = 0.5
+minFiringRateConsider = 0.6
 firingRateFactor = (1000 / (stopTimeAvgFiringRate - startTimeAvgFiringRate))
 firingRateFactorBaselines = (1000 / (0 - startBaseline))
 
@@ -255,9 +257,9 @@ for session in sessions:
         trials = unitData['trial']
         channel = unitData['channel_num']
         cluster = unitData['class_num']
-        responseStimuliIndices = np.where(pvals < args.alpha)[0]
+        firingRates, consider = get_mean_firing_rate_normalized(trials, stimuliIndices, startTimeAvgFiringRate, stopTimeAvgFiringRate, minRatioActiveTrials, minFiringRateConsider)
+        responseStimuliIndices = np.where((pvals < args.alpha) & (consider > 0))[0]
         responses = [thingsIndices[i] for i in responseStimuliIndices]
-        firingRates = get_mean_firing_rate_normalized(trials, stimuliIndices, startTimeAvgFiringRate, stopTimeAvgFiringRate)
         similaritiesCor = []
         valuesCor = []
         similaritiesCorSteps = [[] for i in range(numCorSteps)]

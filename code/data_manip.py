@@ -171,24 +171,33 @@ def get_dict_cat2object(objectnames, df_metadata, concept_source):
     
     return dict_cat2object
 
-def get_mean_firing_rate_normalized(all_trials, objectnumbers, min_t = 100, max_t = 1000) : 
+def get_mean_firing_rate_normalized(all_trials, objectnumbers, min_t = 100, max_t = 1000, min_ratio_active_trials = 0.5, min_firing_rate = 0.6) : 
 
+    consider = np.ones(max(objectnumbers) + 1)
     firing_rates = np.zeros(max(objectnumbers) + 1) 
     stimuli = np.unique(objectnumbers)
 
     for stim in stimuli : 
         stim_trials = all_trials[np.where(objectnumbers == stim)]
+        num_active = 0
 
         for trial_spikes in stim_trials : 
             trial_spikes = trial_spikes[0]
-            trial_spikes = trial_spikes[np.where(trial_spikes >= min_t) and np.where(trial_spikes <= max_t)]
+            trial_spikes = trial_spikes[np.where((trial_spikes >= min_t) & (trial_spikes < max_t))]
             #trial_spikes = trial_spikes[]
             firing_rates[stim] += len(trial_spikes)
+            if len(trial_spikes) > 0 : 
+                num_active += 1
+
+        total_firing_rate = 1000 * firing_rates[stim] / (max_t - min_t)
+        if total_firing_rate < min_firing_rate or num_active / len(stim_trials) < min_ratio_active_trials : 
+            consider[stim] = 0
+
         #object_trials = object_trials[np.where(object_trials >= min_t)]
         #object_trials = object_trials[np.where(object_trials <= max_t)]
         #firing_rates[object - 1] = np.count_nonzero(object_trials)
 
-    return firing_rates / max(firing_rates)
+    return firing_rates / max(firing_rates), consider
 
 
 def object2category(objectname, df_metadata, concept_source):
