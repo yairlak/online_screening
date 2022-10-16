@@ -247,8 +247,11 @@ def createFitPlot(regionFit, name) :
     fig = go.Figure()
     if len(regionFit.yFit[0]) > 0 :
 
-        meanFit, stddevFit = regionFit.getMeanStddevFit()
+        meanFit, medianFit, stddevFit, meanParams, medianParams = regionFit.getMeanMedianStddevFit()
         addPlot(fig, regionFit.xFit, meanFit, "lines", "Mean fit")
+        #addPlot(fig, regionFit.xFit, medianFit, "lines", "Median fit")
+        addPlot(fig, regionFit.xFit, meanParams, "lines", "Mean params")
+        addPlot(fig, regionFit.xFit, medianParams, "lines", "Median params")
         addPlot(fig, regionFit.xFit, meanFit - stddevFit, "lines", "Mean - stddev")
         addPlot(fig, regionFit.xFit, meanFit + stddevFit, "lines", "Mean + stddev")
 
@@ -263,7 +266,7 @@ def createFitPlot(regionFit, name) :
         title_text=name + " fit",
         xaxis_title='Semantic similarity',
         yaxis_title='Firing rate',
-        showlegend=False 
+        #showlegend=False 
     )
     return fig
 

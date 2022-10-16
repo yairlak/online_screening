@@ -11,6 +11,8 @@ from typing import List
 class Fitter :
     stepSize : float = 0.1
     numSteps : int = 0 # is initialized
+    func = lambda : fitLogisticFunc
+    funcParams = lambda : fitLogisticFuncParams
     p0 : List = field (default_factory=lambda: [])
     bounds : List = field (default_factory=lambda: [[]])
     xFit : List = field (default_factory=lambda: [])
@@ -20,11 +22,13 @@ class Fitter :
     params : List = field(default_factory=lambda: [[]])
     rSquared : List = field (default_factory=lambda: [])
 
-    def getFitter(paramsNames, p0, bounds, stepSize=0.1) : 
+    def getFitter(func, funcParams, paramsNames, p0, bounds, stepSize=0.02) : 
         newFitter = Fitter()
         newFitter.stepSize = stepSize
         newFitter.p0 = p0
         newFitter.bounds = bounds
+        newFitter.func = func
+        newFitter.funcParams = funcParams
         newFitter.paramsNames = paramsNames
         newFitter.numSteps = math.ceil(1.0 / stepSize) + 1
         newFitter.xFit = np.arange(0, stepSize*newFitter.numSteps, stepSize)
@@ -38,24 +42,25 @@ class Fitter :
         ssTot = np.sum((y - statistics.mean(y))**2)
         return 1 - ssRes/ssTot
 
-    def addFit(self, func, funcParams, xToFit, yToFit) :
+    def addFit(self, xToFit, yToFit) :
         try : 
-            popt, pcov = curve_fit(func, xToFit, yToFit, p0=self.p0, bounds=self.bounds)
+            popt, pcov = curve_fit(self.func, xToFit, yToFit, p0=self.p0, bounds=self.bounds)
         except Exception as e : 
             print("WARNING: No logistic curve fitting found: " + str(e))
             return -1
         
-        rSquared = self.calculateRSquared(yToFit, funcParams(xToFit, popt))
+        rSquared = self.calculateRSquared(yToFit, self.funcParams(xToFit, popt))
         self.rSquared.append(rSquared)
 
         for i in range(len(popt)):
             self.params[i].append(popt[i])
         
+        #xFitTmp = self.xFit - popt[0]
         #popt[0] = 0
 
-        yLogisticFit = funcParams(self.xFit, popt)
-        for i in range(len(yLogisticFit)) :
-            self.yFit[i].append(yLogisticFit[i])
+        yFit = self.funcParams(xFitTmp, popt)
+        for i in range(len(yFit)) :
+            self.yFit[i].append(yFit[i])
 
         #if yLogisticFit[0] >= yLogisticFit[-1] : 
         #    print("--- BAD fitting of logistic function. K: " + str(popt[1]))
@@ -64,19 +69,29 @@ class Fitter :
         
         return rSquared
     
-    def getMeanStddevFit(self) :
+    def getMeanMedianStddevFit(self) :
 
         if len(self.yFit) == 0 : 
-            return np.zeros(self.numSteps), np.zeros(self.numSteps)
+            return np.zeros(self.numSteps), np.zeros(self.numSteps), np.zeros(self.numSteps)
+        
+        #paramsMean, paramsMedian = np.zeros(len(self.params))
+        #for i in range(len(self.params)) : 
+        #    if len(self.params[i]) > 0 : 
+
+        paramsMean = np.array([statistics.mean(self.params[i]) for i in range(len(self.params))])
+        paramsMedian = np.array([statistics.median(self.params[i]) for i in range(len(self.params))])
+        meanParams = self.funcParams(self.xFit, paramsMean)
+        medianParams = self.funcParams(self.xFit, paramsMedian)
 
         meanFit = np.array([statistics.mean(self.yFit[i]) for i in range(self.numSteps)])
+        medianFit = np.array([statistics.median(self.yFit[i]) for i in range(self.numSteps)])
         
         if len(self.yFit[0]) == 1 : 
-            return meanFit, np.zeros(self.numSteps)
+            return meanFit, medianFit, np.zeros(self.numSteps), meanParams, medianParams
 
         stddevFit = np.array([statistics.stdev(self.yFit[i]) for i in range(self.numSteps)])
 
-        return meanFit, stddevFit
+        return meanFit, medianFit, stddevFit, meanParams, medianParams
 
     def append(self, input) :
         for i in range(len(input.params)) :
@@ -131,7 +146,7 @@ def fitPartialGaussian(x, y) :
 
     return yGaussPart 
 
-def fitGauss(x, y) : 
+def fitGauss(x, y, xPlot=np.arange(0.0, 1-0.01, 0.01)) : 
     mean = sum(x * y) / sum(y)
     sigma = np.sqrt(sum(y * (x - mean)**2) / sum(y))
 
@@ -141,7 +156,7 @@ def fitGauss(x, y) :
         print("WARNING: Error fitting gauss")
         return [], []
 
-    yGauss = Gauss(x, *popt)
+    yGauss = Gauss(xPlot, *popt)
 
     return x, yGauss
 
@@ -158,9 +173,14 @@ def halfGaussParams(x, params) :
     return halfGauss(x, params[0], params[1], params[2], params[3])
 
 def halfGauss(x, x0, a, b, sigma) : 
-    xMirrored = np.concatenate((x, np.flip(x)))
-    yGauss = Gauss(xMirrored, 1, a, b, sigma)
-    return yGauss[:int(len(xMirrored) / 2)]
+    xDoubled = np.concatenate((x, x + max(x) + (x[-1]-x[-2]) - x[0]))
+    yGauss = Gauss(xDoubled, max(x), a, b, sigma)
+    yGauss = yGauss[:int(len(xDoubled) / 2)]
+
+    #xMirrored = np.concatenate((x, np.flip(x)))
+    #yGauss = Gauss(xMirrored, 1, a, b, sigma)
+    #yGauss = yGauss[:int(len(xMirrored) / 2)]
+    return yGauss
 
 def fitLogisticFuncParams(x, params) : 
     return fitLogisticFunc(x, params[0], params[1], params[2], params[3])

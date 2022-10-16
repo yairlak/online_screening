@@ -60,7 +60,7 @@ parser.add_argument('--alpha_box', type=float, default=0.001,
                     help='Alpha for box significance')
 
 # PLOT
-parser.add_argument('--step', type=float, default=0.05,
+parser.add_argument('--step', type=float, default=0.1,
                     help='Plotting detail')
 parser.add_argument('--max_stdev_outliers', type=float, default=5,
                     help='Limit for excluding outliers')   
@@ -91,8 +91,8 @@ class SimilaritiesArray:
 
 @dataclass
 class NormArray:
-    y : List = field(default_factory=lambda: np.zeros((nSimilarities)))
-    normalizer : List = field(default_factory=lambda: np.zeros((nSimilarities)))
+    y : List = field(default_factory=lambda: np.zeros((nSimilarities-1)))
+    normalizer : List = field(default_factory=lambda: np.zeros((nSimilarities-1)))
     similarity : List = field(default_factory=lambda: [])
 
     def normalize(self) : 
@@ -130,11 +130,11 @@ class Region:
     pearsonCorSteps : List = field(default_factory=lambda: [[] for i in range(numCorSteps)])
 
     logisticFit : Fitter = field(default_factory=lambda: 
-        Fitter.getFitter(["x0", "K", "A", "C"], p0=[0.5, 1, 0, 1], bounds=[[0, -1000, 0, 0], [1, 1000, 1, 1]], stepSize=0.1))
+        Fitter.getFitter(fitLogisticFunc, fitLogisticFuncParams, ["x0", "K", "A", "C"], p0=[0.5, 1, 0, 1], bounds=[[0, -1000, 0, 0], [1, 1000, 1, 1]]))
     stepFit : Fitter = field(default_factory=lambda: 
-        Fitter.getFitter(["x0", "a", "b"], p0=[0.5, 0, 1], bounds=[[0, 0, 0], [1, 1, 1]], stepSize=0.1))
+        Fitter.getFitter(fitStep, fitStepParams, ["x0", "a", "b"], p0=[0.5, 0, 1], bounds=[[0, 0, 0], [1, 1, 1]]))
     gaussFit : Fitter = field(default_factory=lambda: 
-        Fitter.getFitter(["x0", "a", "b", "sigma"], p0=[0.5, 1, 0, 1], bounds=[[0, 0, 0, 0], [1, 500, 1, 500]], stepSize=0.1))
+        Fitter.getFitter(halfGauss, halfGaussParams, ["x0", "a", "b", "sigma"], p0=[0.5, 1, 0, 1], bounds=[[0, 0, 0, 0], [1, 500, 1, 500]]))
     rDiffFit : List = field (default_factory=lambda: [])
     rDiffGauss : List = field (default_factory=lambda: [])
 
@@ -429,9 +429,9 @@ for session in sessions:
             
             ## fit step function
             if len(valuesCor) >= 3 : 
-                rSquaredLog = regions[site].logisticFit.addFit(fitLogisticFunc, fitLogisticFuncParams, similaritiesCor, valuesCor)
-                rSquaredStep = regions[site].stepFit.addFit(fitStep, fitStepParams, similaritiesCor, valuesCor)
-                rSquaredGauss = regions[site].gaussFit.addFit(halfGauss, halfGaussParams, similaritiesCor, valuesCor)
+                rSquaredLog = regions[site].logisticFit.addFit(similaritiesCor, valuesCor)
+                rSquaredStep = regions[site].stepFit.addFit(similaritiesCor, valuesCor)
+                rSquaredGauss = regions[site].gaussFit.addFit(similaritiesCor, valuesCor)
                 if rSquaredLog >= 0 and rSquaredStep >= 0 : 
                     regions[site].rDiffFit.append(rSquaredLog - rSquaredStep)
                 if rSquaredGauss >= 0 and rSquaredStep >= 0 : 
@@ -484,7 +484,7 @@ for site in allSiteNames :
         continue
     regions[allRegionsName].logisticFit.append(regions[site].logisticFit)
     regions[allRegionsName].stepFit.append(regions[site].stepFit)
-    regions[allRegionsName].gaussFit.append(regions[site].stepFit)
+    regions[allRegionsName].gaussFit.append(regions[site].gaussFit)
     regions[allRegionsName].rDiffFit.extend(regions[site].rDiffFit)
     regions[allRegionsName].rDiffGauss.extend(regions[site].rDiffGauss)
 
@@ -570,7 +570,7 @@ for site in allSiteNames :
         createHist(siteData.numResponsesHist, range(args.max_responses_unit + 1), 1, 'Number of units', 'Number of responses'),
         "num_responses" + os.sep + fileDescription))
     allRegionCoactivationNormalizedPlots.append(createAndSave(
-        createPlot(siteData.coactivationNorm.similarity, siteData.coactivationNorm.y * 100, "Normalized coactivation probability in %", "coactivation normalized", True, ticktextCoactivation), 
+        createPlot(siteData.coactivationNorm.similarity[:-1], siteData.coactivationNorm.y * 100, "Normalized coactivation probability in %", "coactivation normalized", True, ticktextCoactivation), 
         "coactivation_normalized" + os.sep + fileDescription))
     allRegionZScoresPlots.append(createAndSave(
         createStepBoxPlot(uniqueSimilarities, siteData.zScoresNorm.values, "Mean zscores", "zscores", args.alpha_box), 
@@ -616,8 +616,8 @@ responseStrengthDiv, responseStrengthFigId, responseStrengthTableId = createRegi
 spearmanCorStepsDiv, spearmanCorStepsFigId, spearmanCorStepsTableId = createRegionsDiv("Spearman correlation dependent on semantic similarity to best response", allSiteNames)
 pearsonCorStepsDiv, pearsonCorStepsFigId, pearsonCorStepsTableId = createRegionsDiv("Pearson correlation dependent on semantic similarity to best response", allSiteNames)
 numRespDiv, numRespFigId, numRespTableId = createRegionsDiv("Number of units with respective response counts", allSiteNames)
-responseStrengthHistDiv, responseStrengthHistFigId, responseStrengthHistTableId = createRegionsDiv("Response strength histogram for responsive units", allSiteNames)
-responseStrengthHistDivNo, responseStrengthHistFigIdNo, responseStrengthHistTableIdNo = createRegionsDiv("Response strength histogram for non responsive units", allSiteNames)
+responseStrengthHistDiv, responseStrengthHistFigId, responseStrengthHistTableId = createRegionsDiv("Response strength histogram for responsive stimuli", allSiteNames)
+responseStrengthHistDivNo, responseStrengthHistFigIdNo, responseStrengthHistTableIdNo = createRegionsDiv("Response strength histogram for non responsive stimuli", allSiteNames)
 logisticFitDiv, logisticFitFigId, logisticFitTableId = createRegionsDiv("Logistic fit for all responsive units", allSiteNames)
 gaussianFitDiv, gaussianFitFigId, gaussianFitTableId = createRegionsDiv("Gaussian fit for all responsive units", allSiteNames)
 logisticFitX0Div, logisticFitX0FigId, logisticFitX0TableId = createRegionsDiv("Logistic fit for all responsive units: X0", allSiteNames)
