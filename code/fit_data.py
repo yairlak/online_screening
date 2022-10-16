@@ -58,7 +58,7 @@ class Fitter :
         #xFitTmp = self.xFit - popt[0]
         #popt[0] = 0
 
-        yFit = self.funcParams(xFitTmp, popt)
+        yFit = self.funcParams(self.xFit, popt)
         for i in range(len(yFit)) :
             self.yFit[i].append(yFit[i])
 
