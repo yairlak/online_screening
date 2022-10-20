@@ -68,6 +68,30 @@ class Fitter :
         #    print("--- GOOD fitting of logistic function. K: " + str(popt[1]))
         
         return rSquared
+
+    def getMeanStddevAligned(self) : 
+        meanX0 = statistics.mean(self.params[0])
+        xAligned = np.arange(-meanX0, -meanX0+self.stepSize*self.numSteps, self.stepSize)
+        
+        yAligned = [[] for i in range(self.numSteps)]
+
+        for i in range(len(self.params[0])) :
+            paramsAligned = [self.params[j][i] for j in range(len(self.params))]
+            paramsAligned[0] = 0
+            yAlignedSingle = self.funcParams(xAligned, paramsAligned)
+            for i in range(len(yAligned)) :
+                yAligned[i].append(yAlignedSingle[i])
+
+        
+        meanFit = np.array([statistics.mean(yAligned[i]) for i in range(self.numSteps)])
+        medianFit = np.array([statistics.median(yAligned[i]) for i in range(self.numSteps)])
+        
+        if len(yAligned[0]) == 1 : 
+            stddevFit = np.zeros(self.numSteps)
+        else: 
+            stddevFit = np.array([statistics.stdev(yAligned[i]) for i in range(self.numSteps)])
+
+        return xAligned, meanFit, medianFit, stddevFit
     
     def getMeanMedianStddevFit(self) :
 
@@ -125,7 +149,7 @@ def smooth(y, numPoints):
         return np.convolve(y, np.ones(numPoints)/numPoints, mode='same')
 
 
-def fitPartialGaussian(x, y) : 
+def fitPartialGaussian(x, y, plotStep=0.01) : 
     if len(y) <= 2 or not np.any(y > 0): 
         return x, y
 
@@ -139,14 +163,26 @@ def fitPartialGaussian(x, y) :
     yPart = y[:maxIndex]
     yGaussInput = np.concatenate((yPart, yPart[::-1]))
 
-    xGauss, yGauss = fitGauss(xGauss, yGaussInput)
+    xGauss, yGauss = fitGauss(xGauss, yGaussInput, plotStep)
 
-    xGaussPart = xGauss[:maxIndex]
-    yGaussPart = yGauss[:maxIndex]
+    xGaussPart = xGauss#[:math.floor(len(xGauss)/2)]
+    yGaussPart = yGauss#[:math.floor(len(xGauss)/2)]
 
-    return yGaussPart 
+    return xGaussPart, yGaussPart 
 
-def fitGauss(x, y, xPlot=np.arange(0.0, 1-0.01, 0.01)) : 
+def fitLog(x, y, plotStep=0.01) : 
+    try : 
+        popt, pcov = curve_fit(fitLogisticFunc, x, y, p0=[0.5, 1, 0, 1], bounds=[[0, -1000, 0, 0], [1, 1000, 1, 1]])  
+        xPlot = np.arange(min(x), max(x) + plotStep, plotStep) #
+        yLog = fitLogisticFuncParams(xPlot, popt)
+        return xPlot, yLog
+
+    except Exception as e : 
+        print("Error fitting logistic function: " + str(e))
+        return [], []
+
+
+def fitGauss(x, y, plotStep = 0.01, minX = 0.0, maxX = 1.0) : 
     mean = sum(x * y) / sum(y)
     sigma = np.sqrt(sum(y * (x - mean)**2) / sum(y))
 
@@ -156,18 +192,13 @@ def fitGauss(x, y, xPlot=np.arange(0.0, 1-0.01, 0.01)) :
         print("WARNING: Error fitting gauss")
         return [], []
 
+    xPlot = np.arange(minX, maxX, plotStep)
     yGauss = Gauss(xPlot, *popt)
 
-    return x, yGauss
+    return xPlot, yGauss
 
 def Gauss(x, x0, a, b, sigma):
     return b + a * np.exp(-(x - x0)**2 / (2 * sigma**2))
-
-
-#def partialGauss(x, x0, a, sigma) : 
-#    xMirrored = mirrorInputAtMax(x, y)
-#    yMirrored = Gauss(xMirrored, x0, a, sigma)
-#    y = yMirrored[:maxIndex]
 
 def halfGaussParams(x, params) :
     return halfGauss(x, params[0], params[1], params[2], params[3])
@@ -196,4 +227,6 @@ def fitStep(x, x0, a, b) :
     y[np.where(x <= x0)[0]] = a
     y[np.where(x > x0)[0]] = b
     return fitLogisticFunc(x, x0, 1000, a, b)  #a * (np.heaviside(x-x0, 0) + b) #a * (np.sign(x-x0) + b)
+
+
 

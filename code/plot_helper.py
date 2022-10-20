@@ -149,20 +149,28 @@ def createBoxPlot(values, xNames, title, boxpoints='all') :
     )
     return fig
 
-
-def createStepBoxPlot(x, values, title, yLabel="", alpha=0.001, boxpoints=False) :   
+def createStepBoxPlot(x, values, title, yLabel="", alpha=0.001, boxpoints=False, addFit=True) :   
+    
+    yFit=[]
+    xFit=[]
     
     fig = go.Figure()
     for i in range(len(values)) : 
         if(len(values[i]) >= 1) : 
             fig.add_trace(go.Box(
+                #xaxis='x',
+                x0=x[i],
                 y=values[i],
                 name="{:.2f} ({})".format(x[i], len(values[i])),
                 boxpoints=boxpoints,
                 #boxpoints='all',
             ))
+            xFit.append(x[i])
+            yFit.append(statistics.median(values[i]))
         else : 
             fig.add_trace(go.Box(
+                xaxis='x',
+                x0=x[i],
                 y=[0.0],
                 name="{:.2f} ({})".format(x[i], len(values[i])),
                 boxpoints=boxpoints,
@@ -175,16 +183,31 @@ def createStepBoxPlot(x, values, title, yLabel="", alpha=0.001, boxpoints=False)
                 print(title + ': p_value=%.8f' % p_value,
                     'for value=%i ' % i)
 
+    if addFit and len(yFit) > 0: 
+        xFitted, yFitted = fitLog(xFit, yFit, x[1]-x[0])
+        fig.add_trace(
+            go.Scatter(
+                x=xFitted,
+                #xaxis='x',
+                y=yFitted,
+                mode='lines',
+            ))
+        #addPlot(fig, x, yFitted, 'lines', 'Logistic fit')
+
     fig.update_layout(
         title_text=title,
         xaxis_title='Semantic similarity',
         yaxis_title=yLabel,
-        showlegend=False
+        showlegend=False,
     )
+    #fig.update_xaxes(
+        #range=[0,1]
+        #tickvals=x
+    #)
 
     return fig
 
-def createPlot(x, y, yLabel, title, plotHalfGaussian, ticktext=[]) :
+def createPlot(x, y, yLabel, title, plotHalfGaussian, ticktext=[], plotStep=0.01) :
 
     if len(y) == 0 : 
         meanY = 0
@@ -206,7 +229,7 @@ def createPlot(x, y, yLabel, title, plotHalfGaussian, ticktext=[]) :
         xGauss = xWithoutOutliers
         yGauss = yWithoutOutliers
     else : 
-        xGauss, yGauss = fitGauss(xWithoutOutliers, yWithoutOutliers)
+        xGauss, yGauss = fitGauss(xWithoutOutliers, yWithoutOutliers, plotStep)
 
     try : 
         yFitted = savgol_filter(yWithoutOutliers, 15, 3) # window size 51, polynomial order 3
@@ -214,16 +237,19 @@ def createPlot(x, y, yLabel, title, plotHalfGaussian, ticktext=[]) :
         print("WARNING: Error applying filter")
         yFitted = yWithoutOutliers
 
+    xLog, yLog = fitLog(xWithoutOutliers, yWithoutOutliers, plotStep)
+
     fig = go.Figure()
 
     addPlot(fig, xWithoutOutliers, yWithoutOutliers, 'markers', 'Data')
     #addPlot(fig, xWithoutOutliers, smooth(yWithoutOutliers, 5), 'lines', 'Smoothed 5 point avg')
-    addPlot(fig, xGauss, yGauss, 'lines', 'Gaussian fit')
+    #addPlot(fig, xGauss, yGauss, 'lines', 'Gaussian fit')
+    addPlot(fig, xLog, yLog, 'lines', 'Logistic fit')
     addPlot(fig, xWithoutOutliers, yFitted, 'lines', 'Savgol filter')
     
     if plotHalfGaussian : 
-        yPartialGauss = fitPartialGaussian(xWithoutOutliers, yWithoutOutliers)
-        addPlot(fig, xWithoutOutliers, yPartialGauss, 'lines', 'Half gaussian fit')
+        xPartialGauss, yPartialGauss = fitPartialGaussian(xWithoutOutliers, yWithoutOutliers, plotStep)
+        addPlot(fig, xPartialGauss, yPartialGauss, 'lines', 'Half gaussian fit')
 
     fig.update_layout(
         title_text=title,
@@ -239,6 +265,24 @@ def createPlot(x, y, yLabel, title, plotHalfGaussian, ticktext=[]) :
                 ticktext = ticktext#[relevantIndices] 
             )
         )
+
+    return fig
+
+def createFitPlotAligned(regionFit, name) : 
+    fig = go.Figure()
+    if len(regionFit.yFit[0]) > 0 :
+        xAligned, meanFit, medianFit, stddevFit = regionFit.getMeanStddevAligned()
+        addPlot(fig, xAligned, meanFit, "lines", "Mean fit")
+        addPlot(fig, xAligned, medianFit, "lines", "Median fit")
+        addPlot(fig, xAligned, meanFit - stddevFit, "lines", "Mean - stddev")
+        addPlot(fig, xAligned, meanFit + stddevFit, "lines", "Mean + stddev")
+
+    
+    fig.update_layout(
+        title_text=name + " fit",
+        xaxis_title='Semantic similarity',
+        yaxis_title='Firing rate',
+    )
 
     return fig
 
@@ -266,7 +310,6 @@ def createFitPlot(regionFit, name) :
         title_text=name + " fit",
         xaxis_title='Semantic similarity',
         yaxis_title='Firing rate',
-        #showlegend=False 
     )
     return fig
 
