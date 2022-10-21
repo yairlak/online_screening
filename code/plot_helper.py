@@ -22,6 +22,8 @@ from dash import html
 
 import plotly.graph_objects as go
 import plotly.express as px
+import plotly.colors as pcolors
+from matplotlib import colors as mcolors
 
 
 
@@ -272,10 +274,11 @@ def createFitPlotAligned(regionFit, name) :
     fig = go.Figure()
     if len(regionFit.yFit[0]) > 0 :
         xAligned, meanFit, medianFit, stddevFit = regionFit.getMeanStddevAligned()
-        addPlot(fig, xAligned, meanFit, "lines", "Mean fit")
+        addMeanStddevPlots(fig, xAligned, meanFit, stddevFit)
         addPlot(fig, xAligned, medianFit, "lines", "Median fit")
-        addPlot(fig, xAligned, meanFit - stddevFit, "lines", "Mean - stddev")
-        addPlot(fig, xAligned, meanFit + stddevFit, "lines", "Mean + stddev")
+        #addPlot(fig, xAligned, meanFit, "lines", "Mean fit")
+        #addPlot(fig, xAligned, meanFit - stddevFit, "lines", "Mean - stddev")
+        #addPlot(fig, xAligned, meanFit + stddevFit, "lines", "Mean + stddev")
 
     
     fig.update_layout(
@@ -286,18 +289,30 @@ def createFitPlotAligned(regionFit, name) :
 
     return fig
 
+def addMeanStddevPlots(fig, x, meanFit, stddevFit) :
+    color="blue"
+    lower = meanFit - stddevFit
+    upper = meanFit + stddevFit
+    colorBetweenLines(fig, x, meanFit, lower, color)
+    colorBetweenLines(fig, x, meanFit, upper, color)
+    addPlotColor(fig, x, meanFit, "lines", "Mean fit", color)
+    #addPlotColor(fig, x, lower, "lines", "Mean - stddev", [color, 0.1],)
+    #addPlotColor(fig, x, upper, "lines", "Mean + stddev", [color, 0.1])
+
+
 def createFitPlot(regionFit, name) :
 
     fig = go.Figure()
     if len(regionFit.yFit[0]) > 0 :
 
         meanFit, medianFit, stddevFit, meanParams, medianParams = regionFit.getMeanMedianStddevFit()
-        addPlot(fig, regionFit.xFit, meanFit, "lines", "Mean fit")
         #addPlot(fig, regionFit.xFit, medianFit, "lines", "Median fit")
-        addPlot(fig, regionFit.xFit, meanParams, "lines", "Mean params")
-        addPlot(fig, regionFit.xFit, medianParams, "lines", "Median params")
-        addPlot(fig, regionFit.xFit, meanFit - stddevFit, "lines", "Mean - stddev")
-        addPlot(fig, regionFit.xFit, meanFit + stddevFit, "lines", "Mean + stddev")
+        addMeanStddevPlots(fig, regionFit.xFit, meanFit, stddevFit)
+        addPlotColor(fig, regionFit.xFit, meanParams, "lines", "Mean params", "green")
+        addPlotColor(fig, regionFit.xFit, medianParams, "lines", "Median params", "red")
+        ##addPlot(fig, regionFit.xFit, meanFit, "lines", "Mean fit")
+        ##addPlot(fig, regionFit.xFit, meanFit - stddevFit, "lines", "Mean - stddev")
+        ##addPlot(fig, regionFit.xFit, meanFit + stddevFit, "lines", "Mean + stddev")
 
         
         #for i in range(len(regions[site].logisticFitK)) : 
@@ -313,6 +328,25 @@ def createFitPlot(regionFit, name) :
     )
     return fig
 
+def addOpacity(color, opacity) : 
+    listColor = list(mcolors.to_rgba(color))
+    listColor[3] = opacity
+    return pcolors.convert_to_RGB_255(tuple(listColor))
+
+def rgb_to_rgba(rgb_value, alpha):
+    colorList = list(mcolors.to_rgba(rgb_value))
+    return "rgba("+str(colorList[0])+","+str(colorList[1])+","+str(colorList[2])+","+str(alpha)+")" 
+
+def colorBetweenLines(fig, x, y1, y2, color) :
+    fig.add_trace(go.Scatter(
+        x=np.concatenate([x, x[::-1]]),
+        y=np.concatenate([y1, y2[::-1]]),
+        fill='toself',
+        fillcolor=rgb_to_rgba(color, 0.2),
+        line_color=rgb_to_rgba(color, 0.1),
+        showlegend=False,
+    ))
+
 def addPlot(fig, x, y, mode, name) : 
     fig.add_trace(
         go.Scatter(
@@ -320,4 +354,14 @@ def addPlot(fig, x, y, mode, name) :
             y=y,
             mode=mode,
             name=name
+        ))
+
+def addPlotColor(fig, x, y, mode, name, color) : 
+    fig.add_trace(
+        go.Scatter(
+            x=x,
+            y=y,
+            mode=mode,
+            name=name, 
+            marker=dict(color=color)
         ))

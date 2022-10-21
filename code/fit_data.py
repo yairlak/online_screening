@@ -163,12 +163,7 @@ def fitPartialGaussian(x, y, plotStep=0.01) :
     yPart = y[:maxIndex]
     yGaussInput = np.concatenate((yPart, yPart[::-1]))
 
-    xGauss, yGauss = fitGauss(xGauss, yGaussInput, plotStep)
-
-    xGaussPart = xGauss#[:math.floor(len(xGauss)/2)]
-    yGaussPart = yGauss#[:math.floor(len(xGauss)/2)]
-
-    return xGaussPart, yGaussPart 
+    return fitGauss(xGauss, yGaussInput, plotStep)
 
 def fitLog(x, y, plotStep=0.01) : 
     try : 
@@ -207,10 +202,6 @@ def halfGauss(x, x0, a, b, sigma) :
     xDoubled = np.concatenate((x, x + max(x) + (x[-1]-x[-2]) - x[0]))
     yGauss = Gauss(xDoubled, max(x), a, b, sigma)
     yGauss = yGauss[:int(len(xDoubled) / 2)]
-
-    #xMirrored = np.concatenate((x, np.flip(x)))
-    #yGauss = Gauss(xMirrored, 1, a, b, sigma)
-    #yGauss = yGauss[:int(len(xMirrored) / 2)]
     return yGauss
 
 def fitLogisticFuncParams(x, params) : 
