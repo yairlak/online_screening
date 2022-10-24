@@ -151,7 +151,7 @@ def createBoxPlot(values, xNames, title, boxpoints='all') :
     )
     return fig
 
-def createStepBoxPlot(x, values, title, yLabel="", alpha=0.001, boxpoints=False, addFit=True) :   
+def createStepBoxPlot(x, values, title, yLabel="", alpha=0.001, boxpoints=False, addLog=False, addPartialGaussian=True) :   
     
     yFit=[]
     xFit=[]
@@ -167,8 +167,11 @@ def createStepBoxPlot(x, values, title, yLabel="", alpha=0.001, boxpoints=False,
                 boxpoints=boxpoints,
                 #boxpoints='all',
             ))
-            xFit.append(x[i])
-            yFit.append(statistics.median(values[i]))
+            xFit = np.concatenate((xFit, np.repeat(x[i], len(values[i]))))
+            yFit = np.concatenate((yFit, values[i]))
+        #if(len(values[i]) >= 10) : 
+        #    xFit.append(x[i])
+        #    yFit.append(statistics.median(values[i]))
         else : 
             fig.add_trace(go.Box(
                 xaxis='x',
@@ -185,16 +188,20 @@ def createStepBoxPlot(x, values, title, yLabel="", alpha=0.001, boxpoints=False,
                 print(title + ': p_value=%.8f' % p_value,
                     'for value=%i ' % i)
 
-    if addFit and len(yFit) > 0: 
-        xFitted, yFitted = fitLog(xFit, yFit, x[1]-x[0])
-        fig.add_trace(
-            go.Scatter(
-                x=xFitted,
-                #xaxis='x',
-                y=yFitted,
-                mode='lines',
-            ))
-        #addPlot(fig, x, yFitted, 'lines', 'Logistic fit')
+    if addLog and len(yFit) > 0: 
+        xFitted, yFitted = fitLog(xFit, yFit)#, x[1]-x[0])
+        #fig.add_trace(
+        #    go.Scatter(
+        #        x=xFitted,
+        #        #xaxis='x',
+        #        y=yFitted,
+        #        mode='lines',
+        #    ))
+        addPlot(fig, xFitted, yFitted, 'lines', 'Logistic fit')
+        
+    if addPartialGaussian and len(yFit) > 0: 
+        xFitted, yFitted = fitPartialGaussian(xFit, yFit)#, x[1]-x[0])
+        addPlot(fig, xFitted, yFitted, 'lines', 'Gaussian fit')
 
     fig.update_layout(
         title_text=title,
@@ -202,10 +209,11 @@ def createStepBoxPlot(x, values, title, yLabel="", alpha=0.001, boxpoints=False,
         yaxis_title=yLabel,
         showlegend=False,
     )
-    #fig.update_xaxes(
-        #range=[0,1]
-        #tickvals=x
-    #)
+
+    fig.update_xaxes(
+        tickmode = 'array',
+        tickvals = np.arange(0,1,0.1)
+    )
 
     return fig
 
@@ -246,8 +254,8 @@ def createPlot(x, y, yLabel, title, plotHalfGaussian, ticktext=[], plotStep=0.01
     addPlot(fig, xWithoutOutliers, yWithoutOutliers, 'markers', 'Data')
     #addPlot(fig, xWithoutOutliers, smooth(yWithoutOutliers, 5), 'lines', 'Smoothed 5 point avg')
     #addPlot(fig, xGauss, yGauss, 'lines', 'Gaussian fit')
-    addPlot(fig, xLog, yLog, 'lines', 'Logistic fit')
-    addPlot(fig, xWithoutOutliers, yFitted, 'lines', 'Savgol filter')
+    #addPlot(fig, xLog, yLog, 'lines', 'Logistic fit')
+    #addPlot(fig, xWithoutOutliers, yFitted, 'lines', 'Savgol filter')
     
     if plotHalfGaussian : 
         xPartialGauss, yPartialGauss = fitPartialGaussian(xWithoutOutliers, yWithoutOutliers, plotStep)
@@ -273,9 +281,10 @@ def createPlot(x, y, yLabel, title, plotHalfGaussian, ticktext=[], plotStep=0.01
 def createFitPlotAligned(regionFit, name) : 
     fig = go.Figure()
     if len(regionFit.yFit[0]) > 0 :
-        xAligned, meanFit, medianFit, stddevFit = regionFit.getMeanStddevAligned()
+        xAligned, meanFit, medianFit, paramsMedianFit, stddevFit = regionFit.getMeanStddevAligned()
         addMeanStddevPlots(fig, xAligned, meanFit, stddevFit)
         addPlot(fig, xAligned, medianFit, "lines", "Median fit")
+        addPlotColor(fig, xAligned, paramsMedianFit, "lines", "Median params fit", "red")
         #addPlot(fig, xAligned, meanFit, "lines", "Mean fit")
         #addPlot(fig, xAligned, meanFit - stddevFit, "lines", "Mean - stddev")
         #addPlot(fig, xAligned, meanFit + stddevFit, "lines", "Mean + stddev")

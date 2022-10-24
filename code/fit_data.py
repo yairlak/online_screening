@@ -1,3 +1,4 @@
+from cmath import isnan
 import math
 from re import I
 import numpy as np
@@ -85,13 +86,17 @@ class Fitter :
         
         meanFit = np.array([statistics.mean(yAligned[i]) for i in range(self.numSteps)])
         medianFit = np.array([statistics.median(yAligned[i]) for i in range(self.numSteps)])
+
+        paramsMedian = np.array([statistics.median(self.params[i]) for i in range(len(self.params))])
+        paramsMedian[0] = 0
+        paramsMedianFit = self.funcParams(xAligned, paramsMedian)
         
         if len(yAligned[0]) == 1 : 
             stddevFit = np.zeros(self.numSteps)
         else: 
             stddevFit = np.array([statistics.stdev(yAligned[i]) for i in range(self.numSteps)])
 
-        return xAligned, meanFit, medianFit, stddevFit
+        return xAligned, meanFit, medianFit, paramsMedianFit, stddevFit
     
     def getMeanMedianStddevFit(self) :
 
@@ -150,10 +155,10 @@ def smooth(y, numPoints):
 
 
 def fitPartialGaussian(x, y, plotStep=0.01) : 
-    if len(y) <= 2 or not np.any(y > 0): 
+    if len(y) <= 2 or not np.any(np.asarray(y) > 0): 
         return x, y
 
-    maxIndex = np.amax(np.where(y > 0)) + 1
+    maxIndex = np.amax(np.where(np.asarray(y) > 0)) + 1
 
     xGauss = x[:maxIndex]
     xGauss = np.append(xGauss, xGauss[-1]-xGauss[-2] + xGauss[-1])
@@ -180,11 +185,13 @@ def fitLog(x, y, plotStep=0.01) :
 def fitGauss(x, y, plotStep = 0.01, minX = 0.0, maxX = 1.0) : 
     mean = sum(x * y) / sum(y)
     sigma = np.sqrt(sum(y * (x - mean)**2) / sum(y))
+    if isnan(sigma) :
+        sigma = 1.0
 
     try : 
-        popt,pcov = curve_fit(Gauss, x, y, p0=[mean, max(y), 0, sigma])
-    except Exception: 
-        print("WARNING: Error fitting gauss")
+        popt,pcov = curve_fit(Gauss, x, y, p0=[0.5, max(y), 0, 5], bounds=[[0, 0, 0, 0.1], [10, 5000, 10, 5000]]) #p0=[mean, max(y), 0, sigma]
+    except Exception as e: 
+        print("WARNING: Error fitting gauss" + str(e))
         return [], []
 
     xPlot = np.arange(minX, maxX, plotStep)
@@ -217,7 +224,7 @@ def fitStep(x, x0, a, b) :
     y = np.zeros(len(x))
     y[np.where(x <= x0)[0]] = a
     y[np.where(x > x0)[0]] = b
-    return fitLogisticFunc(x, x0, 1000, a, b)  #a * (np.heaviside(x-x0, 0) + b) #a * (np.sign(x-x0) + b)
+    return fitLogisticFunc(x, x0, 10000, a, b)  #a * (np.heaviside(x-x0, 0) + b) #a * (np.sign(x-x0) + b)
 
 
 

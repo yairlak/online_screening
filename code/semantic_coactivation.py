@@ -7,6 +7,7 @@
 
 import os
 import math
+from unittest.mock import NonCallableMagicMock
 import numpy as np
 import pandas as pd
 import time
@@ -17,7 +18,6 @@ import statistics
 from typing import List
 from dataclasses import dataclass, field
 from scipy import stats
-from scipy.optimize import curve_fit
 import plotly.graph_objects as go
 
 import dash
@@ -34,7 +34,8 @@ from data_manip import get_mean_firing_rate_normalized
 parser = argparse.ArgumentParser()
 
 # SESSION/UNIT
-parser.add_argument('--session', default="90_1_aos", type=str, #"90_1_aos" / None ; 90_3_aos, channel 68 cluster 1
+parser.add_argument('--session', default=None, type=str, #"90_1_aos" / None ; 90_3_aos, channel 68 cluster 1
+                    #"88_1_aos", "88_3_aos", .. 89_3
                     help="If None, all sessions in folder are processed. \
                         Otherwise, format should be '{subject}_{session}, \
                             e.g., '90_1'.")
@@ -121,6 +122,7 @@ class Region:
     firingRatesScatter : List = field (default_factory=lambda: [])
     responseStrengthHistResp : List = field (default_factory=lambda: [])
     responseStrengthHistNoResp : List = field (default_factory=lambda: [])
+    steepestSlopeLog : List = field (default_factory=lambda: [])
 
     spearmanCor : List = field (default_factory=lambda: [])
     spearmanP : List = field (default_factory=lambda: [])
@@ -134,7 +136,7 @@ class Region:
     stepFit : Fitter = field(default_factory=lambda: 
         Fitter.getFitter(fitStep, fitStepParams, ["x0", "a", "b"], p0=[0.5, 0, 1], bounds=[[0, 0, 0], [1, 1, 1]]))
     gaussFit : Fitter = field(default_factory=lambda: 
-        Fitter.getFitter(halfGauss, halfGaussParams, ["x0", "a", "b", "sigma"], p0=[0.5, 1, 0, 1], bounds=[[0, 0, 0, 0], [1, 500, 1, 500]]))
+        Fitter.getFitter(halfGauss, halfGaussParams, ["x0", "a", "b", "sigma"], p0=[0.5, 1, 0, 1], bounds=[[0, 0, 0, 0], [1, 100, 1, 100]]))
     rDiffLog : List = field (default_factory=lambda: [])
     rDiffGauss : List = field (default_factory=lambda: [])
     rDiffLogGauss : List = field (default_factory=lambda: [])
@@ -204,6 +206,7 @@ allSiteNames = [allRegionsName]
 regions = {}
 
 regions[allRegionsName] = Region(allRegionsName)
+alphaBestResponse = []
 
 sessionCounter = 0
 for session in sessions:
@@ -290,6 +293,7 @@ for session in sessions:
             #bestResponse = responseStimuliIndices[np.argmax(firingRates[responseStimuliIndices])] # best Response = highest z? highest response strength?
             #firingRates /= firingRates[bestResponse]
             indexBest = thingsIndices[bestResponse]
+            alphaBestResponse.append(pvals[bestResponse])
 
             if indexBest not in responses : 
                 countBestResponseIsNoResponse += 1
@@ -439,6 +443,15 @@ for session in sessions:
                     regions[site].rDiffGauss.append(rSquaredGauss - rSquaredStep)
                 if rSquaredLog >= 0 and rSquaredGauss >= 0 : 
                     regions[site].rDiffGauss.append(rSquaredGauss - rSquaredLog)
+                if rSquaredLog >= 0 :
+                    stepSlope = 0.05
+                    logFit = regions[site].logisticFit
+                    for i in range(len(logFit.params[0])) :
+                        params = [logFit.params[0][i], logFit.params[1][i], logFit.params[2][i], logFit.params[3][i]]
+                        yFit = regions[site].logisticFit.funcParams(np.arange(0,1,0.001), params)
+                        steepestSlope = np.max(abs(yFit[:-1] - yFit[1:]))
+                        regions[site].steepestSlopeLog.append(steepestSlope / stepSlope)
+                        regions[allRegionsName].steepestSlopeLog.append(steepestSlope / stepSlope)
                 
     
     print("Best response is response in " + str(countBestResponseIsResponse) + " cases and no response in " + str(countBestResponseIsNoResponse) + " cases.")
@@ -476,6 +489,7 @@ allRegionLogisticFitAlignedPlots = []
 allRegionGaussFitPlots = []
 allRegionGaussFitAlignedPlots = []
 allRegionRDiffPlots = []
+allRegionSlopeLogPlots = []
 #allRegionRDiffGaussPlots = []
 
 figurePrepareTime = time.time()
@@ -589,7 +603,7 @@ for site in allSiteNames :
         createStepBoxPlot(uniqueSimilarities, siteData.zScoresNorm.values, "Mean zscores", "zscores", args.alpha_box), 
         "zscores" + os.sep + fileDescription))
     allRegionFiringRatesPlots.append(createAndSave(
-        createStepBoxPlot(uniqueSimilarities, siteData.firingRatesNorm.values, "Normalized firing rates", "firing_rates", args.alpha_box, False, True), 
+        createStepBoxPlot(uniqueSimilarities, siteData.firingRatesNorm.values, "Normalized firing rates", "firing_rates", args.alpha_box), #False, True), 
         "firing_rates" + os.sep + fileDescription))
     allRegionCohensDPlots.append(createAndSave(
         createStepBoxPlot(uniqueSimilarities, siteData.cohensD.values, "Mean cohens d", "cohensd", args.alpha_box), 
@@ -603,6 +617,9 @@ for site in allSiteNames :
     allRegionPearsonPlots.append(createAndSave(
         createStepBoxPlot(np.arange(0.0, 1.0 + corStepSize, corStepSize), siteData.pearsonCorSteps, "Pearson correlation dependent on semantic similarity", "spearmanCorSteps", args.alpha_box, 'all'), 
         "spearmanCorSteps" + os.sep + fileDescription)) 
+    allRegionSlopeLogPlots.append(createAndSave(
+        createBoxPlot([regions[site].steepestSlopeLog], ["Slope"], "Steepest slope of logistic fit"), 
+        "fit" + os.sep + "slope_log" + os.sep + fileDescription))
 
 
 spearmanPlot.update_layout(title="Spearman correlation for responding units",)
@@ -640,6 +657,7 @@ logisticFitKDiv, logisticFitKFigId, logisticFitKTableId = createRegionsDiv("Logi
 logisticFitRSquaredDiv, logisticFitRSquaredFigId, logisticFitRSquaredTableId = createRegionsDiv("Logistic fit for all responsive units: R squared", allSiteNames)
 logisticFitRDiffDiv, logisticFitRDiffFigId, logisticFitRDiffTableId = createRegionsDiv("Diff of R squared between logistic and step fit", allSiteNames)
 #gaussianFitRDiffDiv, gaussianFitRDiffFigId, gaussianFitRDiffTableId = createRegionsDiv("Diff of R squared between gaussian and step fit", allSiteNames)
+slopeLogDiv, slopeLogFigId, slopeLogTableId = createRegionsDiv("Deepest slope of log fit of firing rate to similarity", allSiteNames)
 
 external_stylesheets = ['https://codepen.io/chriddyp/pen/bWLwgP.css']
 app = dash.Dash(__name__, external_stylesheets=external_stylesheets)
@@ -660,6 +678,7 @@ app.layout = html.Div(children=[
     firingRatesDiv, 
     responseStrengthHistDiv, 
     responseStrengthHistDivNo, 
+    slopeLogDiv,
     logisticFitDiv,
     logisticFitAlignedDiv,
     gaussianFitDiv,
@@ -675,6 +694,12 @@ app.layout = html.Div(children=[
     numRespDiv, 
 ])
 
+
+#print("pvals best responses: " + str(alphaBestResponse))
+print("pvals median: " + str(statistics.median(alphaBestResponse)))
+print("pvals mean: " + str(statistics.mean(alphaBestResponse)))
+print("pvals < 0.001: " + str(len(np.where(np.asarray(alphaBestResponse) < 0.001)[0])))
+print("pvals > 0.001: " + str(len(np.where(np.asarray(alphaBestResponse) > 0.001)[0])))
 print("\n--- Ready! ---\n\n")
 
 
@@ -796,6 +821,12 @@ def update_output_div(active_cell):
 #def update_output_div(active_cell):
 #    return getActivePlot(allRegionRDiffGaussPlots, active_cell)
 
+@app.callback(
+    Output(component_id=slopeLogFigId, component_property='figure'), 
+    Input(slopeLogTableId, 'active_cell')
+)
+def update_output_div(active_cell):
+    return getActivePlot(allRegionSlopeLogPlots, active_cell)
 
 @app.callback(
     Output(component_id=zscoresFigId, component_property='figure'), 

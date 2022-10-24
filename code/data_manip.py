@@ -190,7 +190,7 @@ def get_mean_firing_rate_normalized(all_trials, objectnumbers, min_t = 100, max_
                 num_active += 1
 
         total_firing_rate = 1000 * firing_rates[stim] / (max_t - min_t)
-        if total_firing_rate < min_firing_rate or num_active / len(stim_trials) < min_ratio_active_trials : 
+        if total_firing_rate < min_firing_rate or num_active / len(stim_trials) < min_ratio_active_trials or len(stim_trials) < 6: 
             consider[stim] = 0
 
         #object_trials = object_trials[np.where(object_trials >= min_t)]
