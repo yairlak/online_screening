@@ -10,8 +10,9 @@ from typing import List
 
 @dataclass
 class Fitter :
-    stepSize : float = 0.1
+    stepSize : float = 0.01
     numSteps : int = 0 # is initialized
+    stepSlope : float = 0.01
     func = lambda : fitLogisticFunc
     funcParams = lambda : fitLogisticFuncParams
     p0 : List = field (default_factory=lambda: [])
@@ -22,6 +23,7 @@ class Fitter :
     paramsNames : List = field (default_factory=lambda: [])
     params : List = field(default_factory=lambda: [[]])
     rSquared : List = field (default_factory=lambda: [])
+    steepestSlopes : List = field (default_factory=lambda: [])
 
     def getFitter(func, funcParams, paramsNames, p0, bounds, stepSize=0.02) : 
         newFitter = Fitter()
@@ -101,7 +103,7 @@ class Fitter :
     def getMeanMedianStddevFit(self) :
 
         if len(self.yFit) == 0 : 
-            return np.zeros(self.numSteps), np.zeros(self.numSteps), np.zeros(self.numSteps)
+            return np.zeros(self.numSteps), np.zeros(self.numSteps), np.zeros(self.numSteps), np.zeros(self.numSteps), np.zeros(self.numSteps), np.zeros(self.numSteps)
         
         #paramsMean, paramsMedian = np.zeros(len(self.params))
         #for i in range(len(self.params)) : 
@@ -116,11 +118,26 @@ class Fitter :
         medianFit = np.array([statistics.median(self.yFit[i]) for i in range(self.numSteps)])
         
         if len(self.yFit[0]) == 1 : 
-            return meanFit, medianFit, np.zeros(self.numSteps), meanParams, medianParams
+            return meanFit, medianFit, np.zeros(self.numSteps), meanParams, medianParams, paramsMedian
 
         stddevFit = np.array([statistics.stdev(self.yFit[i]) for i in range(self.numSteps)])
 
-        return meanFit, medianFit, stddevFit, meanParams, medianParams
+        return meanFit, medianFit, stddevFit, meanParams, medianParams, paramsMedian
+
+
+    def calculateSteepestSlopes(self) :
+        self.steepestSlopes = []
+    
+        for i in range(len(self.params[0])) :
+            params = []
+            for j in range(len(self.params)) :
+                params.append(self.params[j][i])
+            yFit = self.funcParams(np.arange(0,1,self.stepSlope), params)
+            steepestSlope = np.max(abs(yFit[:-1] - yFit[1:]))
+            self.steepestSlopes.append(steepestSlope / self.stepSlope)
+            self.steepestSlopes.append(steepestSlope / self.stepSlope)
+
+        return 
 
     def append(self, input) :
         for i in range(len(input.params)) :
@@ -131,6 +148,10 @@ class Fitter :
 
         self.rSquared.extend(input.rSquared)
 
+
+def sortByX(x, y) :
+    sortedIndices = np.argsort(x)
+    return np.sort(x), y[sortedIndices]
 
 
 def mirrorInputAtMax(x, y) : 
@@ -157,6 +178,8 @@ def smooth(y, numPoints):
 def fitPartialGaussian(x, y, plotStep=0.01) : 
     if len(y) <= 2 or not np.any(np.asarray(y) > 0): 
         return x, y
+
+    x, y = sortByX(x, y)
 
     maxIndex = np.amax(np.where(np.asarray(y) > 0)) + 1
 
@@ -206,6 +229,9 @@ def halfGaussParams(x, params) :
     return halfGauss(x, params[0], params[1], params[2], params[3])
 
 def halfGauss(x, x0, a, b, sigma) : 
+    if len(x) == 1 : 
+        return Gauss(x, max(x), a, b, sigma)
+    #x, y = sortByX(x, y)
     xDoubled = np.concatenate((x, x + max(x) + (x[-1]-x[-2]) - x[0]))
     yGauss = Gauss(xDoubled, max(x), a, b, sigma)
     yGauss = yGauss[:int(len(xDoubled) / 2)]

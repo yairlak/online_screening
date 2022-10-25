@@ -135,6 +135,7 @@ def createCorrelationPlot(sitename, correlation) :
         y=correlation, 
         name=sitename + " (" + str(len(correlation)) + ")",
         boxpoints='all',
+        #boxmean='sd'
     )
 
 def createBoxPlot(values, xNames, title, boxpoints='all') :
@@ -144,6 +145,7 @@ def createBoxPlot(values, xNames, title, boxpoints='all') :
             y=values[i],
             name=xNames[i],
             boxpoints=boxpoints,
+            #boxmean='sd'
         ))
     fig.update_layout(
         title_text=title,
@@ -151,13 +153,30 @@ def createBoxPlot(values, xNames, title, boxpoints='all') :
     )
     return fig
 
-def createStepBoxPlot(x, values, title, yLabel="", alpha=0.001, boxpoints=False, addLog=False, addPartialGaussian=True) :   
+def createStepBoxPlot(similaritiesArray, title, yLabel="", alpha=0.001, boxpoints=False, addLog=False, addPartialGaussian=True, stepBox=0.1) :   
     
+    x = np.asarray(similaritiesArray.similarities)
+    values = np.asarray(similaritiesArray.values)
+
     yFit=[]
     xFit=[]
     
     fig = go.Figure()
-    for i in range(len(values)) : 
+
+    for step in np.arange(-0.01,1.05,stepBox) : # due to rounding errors
+        indices = np.where((x >= step) & (x < step+stepBox))[0]
+        if len(indices) == 0 : 
+            continue
+        y = values[indices]
+        fig.add_trace(go.Box(
+            x0=step,
+            y=values[indices],
+            name="{:.2f} ({})".format(step, y),
+            boxpoints=boxpoints,
+            #boxmean='sd'
+        ))
+
+    """ for i in range(len(values)) : 
         if(len(values[i]) >= 1) : 
             fig.add_trace(go.Box(
                 #xaxis='x',
@@ -179,14 +198,17 @@ def createStepBoxPlot(x, values, title, yLabel="", alpha=0.001, boxpoints=False,
                 y=[0.0],
                 name="{:.2f} ({})".format(x[i], len(values[i])),
                 boxpoints=boxpoints,
-            ))
+            )) """
 
-        if i < len(values)-1 : 
-            t_value, p_value = stats.ttest_ind(values[i], values[i+1]) 
+        #if i < len(values)-1 : 
+        #    t_value, p_value = stats.ttest_ind(values[i], values[i+1]) 
 
-            if p_value <= alpha : 
-                print(title + ': p_value=%.8f' % p_value,
-                    'for value=%i ' % i)
+        #    if p_value <= alpha : 
+        #        print(title + ': p_value=%.8f' % p_value,
+        #            'for value=%i ' % i)
+
+    xFit = x
+    yFit = values
 
     if addLog and len(yFit) > 0: 
         xFitted, yFitted = fitLog(xFit, yFit)#, x[1]-x[0])
@@ -212,7 +234,7 @@ def createStepBoxPlot(x, values, title, yLabel="", alpha=0.001, boxpoints=False,
 
     fig.update_xaxes(
         tickmode = 'array',
-        tickvals = np.arange(0,1,0.1)
+        tickvals = np.arange(0,1.05,0.1)
     )
 
     return fig
@@ -244,7 +266,7 @@ def createPlot(x, y, yLabel, title, plotHalfGaussian, ticktext=[], plotStep=0.01
     try : 
         yFitted = savgol_filter(yWithoutOutliers, 15, 3) # window size 51, polynomial order 3
     except Exception : 
-        print("WARNING: Error applying filter")
+        #print("WARNING: Error applying filter")
         yFitted = yWithoutOutliers
 
     xLog, yLog = fitLog(xWithoutOutliers, yWithoutOutliers, plotStep)
@@ -278,6 +300,16 @@ def createPlot(x, y, yLabel, title, plotHalfGaussian, ticktext=[], plotStep=0.01
 
     return fig
 
+def addMeanStddevPlots(fig, x, meanFit, stddevFit) :
+    color="blue"
+    lower = meanFit - stddevFit
+    upper = meanFit + stddevFit
+    colorBetweenLines(fig, x, meanFit, lower, color)
+    colorBetweenLines(fig, x, meanFit, upper, color)
+    addPlotColor(fig, x, meanFit, "lines", "Mean fit", color)
+    #addPlotColor(fig, x, lower, "lines", "Mean - stddev", [color, 0.1],)
+    #addPlotColor(fig, x, upper, "lines", "Mean + stddev", [color, 0.1])
+
 def createFitPlotAligned(regionFit, name) : 
     fig = go.Figure()
     if len(regionFit.yFit[0]) > 0 :
@@ -298,23 +330,12 @@ def createFitPlotAligned(regionFit, name) :
 
     return fig
 
-def addMeanStddevPlots(fig, x, meanFit, stddevFit) :
-    color="blue"
-    lower = meanFit - stddevFit
-    upper = meanFit + stddevFit
-    colorBetweenLines(fig, x, meanFit, lower, color)
-    colorBetweenLines(fig, x, meanFit, upper, color)
-    addPlotColor(fig, x, meanFit, "lines", "Mean fit", color)
-    #addPlotColor(fig, x, lower, "lines", "Mean - stddev", [color, 0.1],)
-    #addPlotColor(fig, x, upper, "lines", "Mean + stddev", [color, 0.1])
-
-
 def createFitPlot(regionFit, name) :
 
     fig = go.Figure()
     if len(regionFit.yFit[0]) > 0 :
 
-        meanFit, medianFit, stddevFit, meanParams, medianParams = regionFit.getMeanMedianStddevFit()
+        meanFit, medianFit, stddevFit, meanParams, medianParams, paramsMedian = regionFit.getMeanMedianStddevFit()
         #addPlot(fig, regionFit.xFit, medianFit, "lines", "Median fit")
         addMeanStddevPlots(fig, regionFit.xFit, meanFit, stddevFit)
         addPlotColor(fig, regionFit.xFit, meanParams, "lines", "Mean params", "green")
@@ -322,6 +343,29 @@ def createFitPlot(regionFit, name) :
         ##addPlot(fig, regionFit.xFit, meanFit, "lines", "Mean fit")
         ##addPlot(fig, regionFit.xFit, meanFit - stddevFit, "lines", "Mean - stddev")
         ##addPlot(fig, regionFit.xFit, meanFit + stddevFit, "lines", "Mean + stddev")
+
+        medianSlope = statistics.median(regionFit.steepestSlopes)
+        x0 = paramsMedian[0]
+        y0 = regionFit.funcParams([x0], paramsMedian)[0]
+        x1 = max(max(x0-y0/medianSlope, min(medianParams)),0)
+        x2 = min(min((1-y0) / medianSlope + x0, max(medianParams)),1)
+        x= [x1, x0, x2]
+        y = medianSlope * (x-x0) + y0
+        #y= [0,y0,1]
+        #if x[0] < 0 :
+        #    x[0] = 0
+        #    y[0] = y0 - medianSlope * x0 # b = y - m*x0
+
+        #if x[2] > 1 :
+        #    x[2] = 1
+        #    y[2] = y0 + medianSlope * (1-x0) 
+
+        fig.add_trace(go.Scatter(
+            x=x,
+            y=y,
+            mode="lines",
+            name="Median steepest slope: " + str(round(medianSlope,2))
+        ))
 
         
         #for i in range(len(regions[site].logisticFitK)) : 

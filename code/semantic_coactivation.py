@@ -7,7 +7,6 @@
 
 import os
 import math
-from unittest.mock import NonCallableMagicMock
 import numpy as np
 import pandas as pd
 import time
@@ -85,10 +84,12 @@ args=parser.parse_args()
 
 @dataclass 
 class SimilaritiesArray:
-    values : List = field(default_factory=lambda: [[] for i in range(nSimilarities)])
+    values : List = field(default_factory=lambda: [])
+    similarities : List = field(default_factory=lambda: [])
 
-    def addValue(self, index, value) : 
-        self.values[index].append(value)
+    def addValue(self, similarity, value) : 
+        self.similarities.append(similarity)
+        self.values.append(value)
 
 @dataclass
 class NormArray:
@@ -122,14 +123,13 @@ class Region:
     firingRatesScatter : List = field (default_factory=lambda: [])
     responseStrengthHistResp : List = field (default_factory=lambda: [])
     responseStrengthHistNoResp : List = field (default_factory=lambda: [])
-    steepestSlopeLog : List = field (default_factory=lambda: [])
 
     spearmanCor : List = field (default_factory=lambda: [])
     spearmanP : List = field (default_factory=lambda: [])
-    spearmanCorSteps : List = field(default_factory=lambda: [[] for i in range(numCorSteps)])
+    spearmanCorSteps : SimilaritiesArray = field(default_factory=lambda: SimilaritiesArray())
     pearsonCor : List = field (default_factory=lambda: [])
     pearsonP : List = field (default_factory=lambda: [])
-    pearsonCorSteps : List = field(default_factory=lambda: [[] for i in range(numCorSteps)])
+    pearsonCorSteps : SimilaritiesArray = field(default_factory=lambda: SimilaritiesArray())
 
     logisticFit : Fitter = field(default_factory=lambda: 
         Fitter.getFitter(fitLogisticFunc, fitLogisticFuncParams, ["x0", "K", "A", "C"], p0=[0.5, 1, 0, 1], bounds=[[0, -1000, 0, 0], [1, 1000, 1, 1]]))
@@ -207,6 +207,7 @@ regions = {}
 
 regions[allRegionsName] = Region(allRegionsName)
 alphaBestResponse = []
+sitesToExclude = ["LFa", "LTSA", "LTSP"]
 
 sessionCounter = 0
 for session in sessions:
@@ -232,6 +233,8 @@ for session in sessions:
     allSitesSession = []
     for unit in units:
         site = data.neural_data[session]['units'][unit]['site']
+        if site in sitesToExclude : 
+            continue
 
         if site not in allSitesSession : 
             allSitesSession.append(site)
@@ -242,6 +245,8 @@ for session in sessions:
 
 
     for site in allSitesSession :  
+        if site in sitesToExclude : 
+            continue
         for i1, i2 in itertools.product(thingsIndices, thingsIndices) : 
             if i2 > i1 or (i1 == i2 and not includeSelfSimilarity) :
                 continue
@@ -253,7 +258,7 @@ for session in sessions:
 
     for unit in units:
         unitData = data.neural_data[session]['units'][unit]
-        if not unitData['kind'] == 'SU' :
+        if not unitData['kind'] == 'SU' or unitData['site'] in sitesToExclude :
             continue
         pvals = unitData['p_vals']
         zscores = unitData['zscores']
@@ -308,10 +313,10 @@ for session in sessions:
                 index = thingsIndices[i]
                 similarity = data.similarity_matrix[index][indexBest]
                 similarityIndex = similarityMatrixToIndex[index, indexBest]
-                #regions[allRegionsName].zScoresNorm.addValue(similarityIndex, zscores[i])
-                #regions[site].zScoresNorm.addValue(similarityIndex, zscores[i])
-                regions[allRegionsName].firingRatesNorm.addValue(similarityIndex, firingRates[i])
-                regions[site].firingRatesNorm.addValue(similarityIndex, firingRates[i])
+                #regions[allRegionsName].zScoresNorm.addValue(similarity, zscores[i])
+                #regions[site].zScoresNorm.addValue(similarity, zscores[i])
+                regions[allRegionsName].firingRatesNorm.addValue(similarity, firingRates[i])
+                regions[site].firingRatesNorm.addValue(similarity, firingRates[i])
 
                 regions[allRegionsName].firingRatesScatterSimilarities.append(similarity)
                 regions[site].firingRatesScatterSimilarities.append(similarity)
@@ -392,17 +397,17 @@ for session in sessions:
                     
                 cohensDResult = (mean1 - meanAll) / stddevNorm
                 similarityIndex = similarityMatrixToIndex[indexBest, index]
-                regions[allRegionsName].cohensD.addValue(similarityIndex, cohensDResult)
-                regions[site].cohensD.addValue(similarityIndex, cohensDResult)
+                regions[allRegionsName].cohensD.addValue(similarity, cohensDResult)
+                regions[site].cohensD.addValue(similarity, cohensDResult)
 
                 # response strength
                 responseStrengthUnit = (medianFiringRatesStimuli[stimNum] - meanBaseline) / maxMedianFiringRate
-                regions[allRegionsName].responseStrength.addValue(similarityIndex, responseStrengthUnit)
-                regions[site].responseStrength.addValue(similarityIndex, responseStrengthUnit)
+                regions[allRegionsName].responseStrength.addValue(similarity, responseStrengthUnit)
+                regions[site].responseStrength.addValue(similarity, responseStrengthUnit)
 
                 zscore = (mean1 - meanAll) / stddevAll # meanBaseline ?, firingRates[stimNum]
-                regions[allRegionsName].zScoresNorm.addValue(similarityIndex, zscore)
-                regions[site].zScoresNorm.addValue(similarityIndex, zscore)
+                regions[allRegionsName].zScoresNorm.addValue(similarity, zscore)
+                regions[site].zScoresNorm.addValue(similarity, zscore)
 
         if len(valuesCor) > 0 : 
             spearman = stats.spearmanr(valuesCor, similaritiesCor)
@@ -420,17 +425,18 @@ for session in sessions:
                 regions[allRegionsName].pearsonP.append(pearson[1])
 
             for i in range(numCorSteps) : 
+                similarityCorStep = i * corStepSize
                 if len(valuesCorSteps[i]) > 0 : 
                     spearman = stats.spearmanr(valuesCorSteps[i], similaritiesCorSteps[i]) 
                     if not math.isnan(spearman.correlation) : 
-                        regions[site].spearmanCorSteps[i].append(spearman.correlation)
-                        regions[allRegionsName].spearmanCorSteps[i].append(spearman.correlation)
+                        regions[site].spearmanCorSteps.addValue(similarityCorStep, spearman.correlation)
+                        regions[allRegionsName].spearmanCorSteps.addValue(similarityCorStep, spearman.correlation)
                     
                 if len(valuesCorSteps[i]) >= 2 : 
                     pearson = stats.pearsonr(valuesCorSteps[i], similaritiesCorSteps[i]) 
                     if not math.isnan(pearson[0]) and not math.isnan(pearson[1]) : 
-                        regions[site].pearsonCorSteps[i].append(pearson[0])
-                        regions[allRegionsName].pearsonCorSteps[i].append(pearson[0])
+                        regions[site].pearsonCorSteps.addValue(similarityCorStep, pearson[0])
+                        regions[allRegionsName].pearsonCorSteps.addValue(similarityCorStep, pearson[0])
             
             ## fit step function
             if len(valuesCor) >= 3 : 
@@ -443,15 +449,6 @@ for session in sessions:
                     regions[site].rDiffGauss.append(rSquaredGauss - rSquaredStep)
                 if rSquaredLog >= 0 and rSquaredGauss >= 0 : 
                     regions[site].rDiffGauss.append(rSquaredGauss - rSquaredLog)
-                if rSquaredLog >= 0 :
-                    stepSlope = 0.05
-                    logFit = regions[site].logisticFit
-                    for i in range(len(logFit.params[0])) :
-                        params = [logFit.params[0][i], logFit.params[1][i], logFit.params[2][i], logFit.params[3][i]]
-                        yFit = regions[site].logisticFit.funcParams(np.arange(0,1,0.001), params)
-                        steepestSlope = np.max(abs(yFit[:-1] - yFit[1:]))
-                        regions[site].steepestSlopeLog.append(steepestSlope / stepSlope)
-                        regions[allRegionsName].steepestSlopeLog.append(steepestSlope / stepSlope)
                 
     
     print("Best response is response in " + str(countBestResponseIsResponse) + " cases and no response in " + str(countBestResponseIsNoResponse) + " cases.")
@@ -489,7 +486,7 @@ allRegionLogisticFitAlignedPlots = []
 allRegionGaussFitPlots = []
 allRegionGaussFitAlignedPlots = []
 allRegionRDiffPlots = []
-allRegionSlopeLogPlots = []
+allRegionSlopePlots = []
 #allRegionRDiffGaussPlots = []
 
 figurePrepareTime = time.time()
@@ -499,6 +496,7 @@ pearsonPPlot = go.Figure()
 pearsonPlot = go.Figure()
 
 for site in allSiteNames : 
+
     if site == allRegionsName : 
         continue
     regions[allRegionsName].logisticFit.append(regions[site].logisticFit)
@@ -559,6 +557,8 @@ for site in allSiteNames :
         #        y=fitLogisticFunc(xLogisticFit, regions[site].logisticFitX0[i], regions[site].logisticFitK[i], regions[site].logisticFitA[i], regions[site].logisticFitC[i]),
         #    ))
 
+    regions[site].gaussFit.calculateSteepestSlopes()
+    regions[site].logisticFit.calculateSteepestSlopes()
 
     allRegionGaussFitPlots.append(createAndSave(
         createFitPlot(regions[site].gaussFit, "Gauss"), 
@@ -600,26 +600,26 @@ for site in allSiteNames :
         createPlot(siteData.coactivationNorm.similarity[:-1], siteData.coactivationNorm.y * 100, "Normalized coactivation probability in %", "coactivation normalized", True, ticktextCoactivation), 
         "coactivation_normalized" + os.sep + fileDescription))
     allRegionZScoresPlots.append(createAndSave(
-        createStepBoxPlot(uniqueSimilarities, siteData.zScoresNorm.values, "Mean zscores", "zscores", args.alpha_box), 
+        createStepBoxPlot(siteData.zScoresNorm, "Mean zscores", "zscores", args.alpha_box), 
         "zscores" + os.sep + fileDescription))
     allRegionFiringRatesPlots.append(createAndSave(
-        createStepBoxPlot(uniqueSimilarities, siteData.firingRatesNorm.values, "Normalized firing rates", "firing_rates", args.alpha_box), #False, True), 
+        createStepBoxPlot(siteData.firingRatesNorm, "Normalized firing rates", "firing_rates", args.alpha_box), #False, True), 
         "firing_rates" + os.sep + fileDescription))
     allRegionCohensDPlots.append(createAndSave(
-        createStepBoxPlot(uniqueSimilarities, siteData.cohensD.values, "Mean cohens d", "cohensd", args.alpha_box), 
+        createStepBoxPlot(siteData.cohensD, "Mean cohens d", "cohensd", args.alpha_box), 
         "cohensd" + os.sep + fileDescription))
     allRegionResponseStrengthPlots.append(createAndSave(
-        createStepBoxPlot(uniqueSimilarities, siteData.responseStrength.values, "Mean response strength (median - meanBaseline) / maxMedian", "responseStrength", args.alpha_box), 
+        createStepBoxPlot(siteData.responseStrength, "Mean response strength (median - meanBaseline) / maxMedian", "responseStrength", args.alpha_box), 
         "responseStrength" + os.sep + fileDescription))
     allRegionSpearmanPlots.append(createAndSave(
-        createStepBoxPlot(np.arange(0.0, 1.0 + corStepSize, corStepSize), siteData.spearmanCorSteps, "Spearman correlation dependent on semantic similarity", "spearmanCorSteps", args.alpha_box, 'all'), 
+        createStepBoxPlot(siteData.spearmanCorSteps, "Spearman correlation dependent on semantic similarity", "spearmanCorSteps", args.alpha_box, 'all', False, False), 
         "spearmanCorSteps" + os.sep + fileDescription)) 
     allRegionPearsonPlots.append(createAndSave(
-        createStepBoxPlot(np.arange(0.0, 1.0 + corStepSize, corStepSize), siteData.pearsonCorSteps, "Pearson correlation dependent on semantic similarity", "spearmanCorSteps", args.alpha_box, 'all'), 
+        createStepBoxPlot(siteData.pearsonCorSteps, "Pearson correlation dependent on semantic similarity", "spearmanCorSteps", args.alpha_box, 'all', False, False), 
         "spearmanCorSteps" + os.sep + fileDescription)) 
-    allRegionSlopeLogPlots.append(createAndSave(
-        createBoxPlot([regions[site].steepestSlopeLog], ["Slope"], "Steepest slope of logistic fit"), 
-        "fit" + os.sep + "slope_log" + os.sep + fileDescription))
+    allRegionSlopePlots.append(createAndSave(
+        createBoxPlot([regions[site].logisticFit.steepestSlopes, regions[site].gaussFit.steepestSlopes], ["Log", "Gauss"], "Steepest slope of fitted data"), 
+        "fit" + os.sep + "slopes" + os.sep + fileDescription))
 
 
 spearmanPlot.update_layout(title="Spearman correlation for responding units",)
@@ -657,7 +657,7 @@ logisticFitKDiv, logisticFitKFigId, logisticFitKTableId = createRegionsDiv("Logi
 logisticFitRSquaredDiv, logisticFitRSquaredFigId, logisticFitRSquaredTableId = createRegionsDiv("Logistic fit for all responsive units: R squared", allSiteNames)
 logisticFitRDiffDiv, logisticFitRDiffFigId, logisticFitRDiffTableId = createRegionsDiv("Diff of R squared between logistic and step fit", allSiteNames)
 #gaussianFitRDiffDiv, gaussianFitRDiffFigId, gaussianFitRDiffTableId = createRegionsDiv("Diff of R squared between gaussian and step fit", allSiteNames)
-slopeLogDiv, slopeLogFigId, slopeLogTableId = createRegionsDiv("Deepest slope of log fit of firing rate to similarity", allSiteNames)
+slopeDiv, slopeFigId, slopeTableId = createRegionsDiv("Deepest slope of log fit of firing rate to similarity", allSiteNames)
 
 external_stylesheets = ['https://codepen.io/chriddyp/pen/bWLwgP.css']
 app = dash.Dash(__name__, external_stylesheets=external_stylesheets)
@@ -678,7 +678,7 @@ app.layout = html.Div(children=[
     firingRatesDiv, 
     responseStrengthHistDiv, 
     responseStrengthHistDivNo, 
-    slopeLogDiv,
+    slopeDiv,
     logisticFitDiv,
     logisticFitAlignedDiv,
     gaussianFitDiv,
@@ -822,11 +822,11 @@ def update_output_div(active_cell):
 #    return getActivePlot(allRegionRDiffGaussPlots, active_cell)
 
 @app.callback(
-    Output(component_id=slopeLogFigId, component_property='figure'), 
-    Input(slopeLogTableId, 'active_cell')
+    Output(component_id=slopeFigId, component_property='figure'), 
+    Input(slopeTableId, 'active_cell')
 )
 def update_output_div(active_cell):
-    return getActivePlot(allRegionSlopeLogPlots, active_cell)
+    return getActivePlot(allRegionSlopePlots, active_cell)
 
 @app.callback(
     Output(component_id=zscoresFigId, component_property='figure'), 

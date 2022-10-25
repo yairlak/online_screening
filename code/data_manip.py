@@ -7,6 +7,7 @@ Created on Wed Jan 12 10:46:08 2022
 """
 import os
 import glob
+import statistics
 import mat73
 import numpy as np
 from scipy import stats
@@ -181,17 +182,22 @@ def get_mean_firing_rate_normalized(all_trials, objectnumbers, min_t = 100, max_
         stim_trials = all_trials[np.where(objectnumbers == stim)]
         num_active = 0
 
+        firing_rates_for_median = []
+
         for trial_spikes in stim_trials : 
             trial_spikes = trial_spikes[0]
             trial_spikes = trial_spikes[np.where((trial_spikes >= min_t) & (trial_spikes < max_t))]
             #trial_spikes = trial_spikes[]
             firing_rates[stim] += len(trial_spikes)
+            firing_rates_for_median.append(len(trial_spikes))
             if len(trial_spikes) > 0 : 
                 num_active += 1
 
-        total_firing_rate = 1000 * firing_rates[stim] / (max_t - min_t)
+        total_firing_rate = 1000 * firing_rates[stim] / (max_t - min_t) #1000 * statistics.median(firing_rates_for_median) / (max_t - min_t)
         if total_firing_rate < min_firing_rate or num_active / len(stim_trials) < min_ratio_active_trials or len(stim_trials) < 6: 
             consider[stim] = 0
+
+        firing_rates[stim] = total_firing_rate
 
         #object_trials = object_trials[np.where(object_trials >= min_t)]
         #object_trials = object_trials[np.where(object_trials <= max_t)]
