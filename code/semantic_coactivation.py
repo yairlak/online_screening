@@ -46,7 +46,7 @@ parser.add_argument('--similarity_matrix_delimiter', default=',', type=str,
                     help='Similarity metric delimiter')
 
 # FLAGS
-parser.add_argument('--dont_plot', action='store_true', default=True, 
+parser.add_argument('--dont_plot', action='store_true', default=False, 
                     help='If True, plotting to figures folder is supressed')
 parser.add_argument('--only_SU', default=True, 
                     help='If True, only single units are considered')
@@ -520,12 +520,13 @@ for site in allSiteNames :
     coactivationBeforeNormalization = siteData.coactivationNorm.y.copy()
     siteData.coactivationNorm.normalize()
 
-    ticktextCoactivation = np.asarray([str(round(siteData.coactivationNorm.similarity[i], 2))
-        #+ ": " + str(siteData.coactivationNorm.y[i] * 100) 
-        #+ ("%.2f" % coactivationBeforeNormalization[i])
-        + " (" + str(round(siteData.coactivationNorm.y[i] * 100, 5)) 
-        + " = " + str(coactivationBeforeNormalization[i])
-        + "/" + str(siteData.coactivationNorm.normalizer[i]) + ")" for i in range(len(coactivationBeforeNormalization))])
+    ticktextCoactivation = np.asarray([str(round(siteData.coactivationNorm.similarity[i], 2)) for i in range(len(coactivationBeforeNormalization))])
+        ##+ ": " + str(siteData.coactivationNorm.y[i] * 100) 
+        ##+ ("%.2f" % coactivationBeforeNormalization[i])
+        #+ " (" + str(round(siteData.coactivationNorm.y[i] * 100, 5)) 
+        #+ " = " + str(coactivationBeforeNormalization[i])
+        #+ "/" + str(siteData.coactivationNorm.normalizer[i]) + ")" 
+        #for i in range(len(coactivationBeforeNormalization))])
 
     fileDescription = paradigm + '_' + args.metric + '_' + site 
 
@@ -546,7 +547,7 @@ for site in allSiteNames :
             logisticFitFigSingle.update_layout(
                 title_text="Logistic fit. R: " + str(round(regions[site].logisticFit.rSquared[i],2)) + ", X0: " + str(round(pTmp[0][i],2)) + ", K: " + str(round(pTmp[1][i],2)) + ", a: " + str(round(pTmp[2][i],2)) + ", c: " + str(round(pTmp[3][i],2)),
                 xaxis_title='Semantic similarity',
-                yaxis_title='Firing rate',
+                yaxis_title='Normalized firing rate',
                 showlegend=False 
             )
             saveImg(logisticFitFigSingle, "fit" + os.sep + "logistic_fit_single" + os.sep + fileDescription + "_" + str(i))
@@ -588,10 +589,10 @@ for site in allSiteNames :
     #    createBoxPlot([regions[site].rDiffLog], ["r(Log) - r(Step)"], "Diff of R squared of logistic fit and R squared of step fit"), 
     #    "fit" + os.sep + "box_r_diff_log" + os.sep + fileDescription))
     allRegionRespStrengthHistPlots.append(createAndSave(
-        createHist(siteData.responseStrengthHistResp, np.arange(0,1,0.01), 100.0 / float(totalNumResponseStrengthHist), 'Firing rate', 'Stimuli in %'),
+        createHist(siteData.responseStrengthHistResp, np.arange(0,1,0.01), 100.0 / float(totalNumResponseStrengthHist), 'Normalized firing rate', 'Stimuli in %'),
         "response_strength_hist" + os.sep + fileDescription)) 
     allRegionRespStrengthHistPlotsNo.append(createAndSave(
-        createHist(siteData.responseStrengthHistNoResp, np.arange(0,1,0.01), 100.0 / float(totalNumResponseStrengthHist), 'Firing rate', 'Stimuli in %'),
+        createHist(siteData.responseStrengthHistNoResp, np.arange(0,1,0.01), 100.0 / float(totalNumResponseStrengthHist), 'Normalized firing rate', 'Stimuli in %'),
         "response_strength_hist_no" + os.sep + fileDescription))
     allRegionNumResponsesPlots.append(createAndSave(
         createHist(siteData.numResponsesHist, range(args.max_responses_unit + 1), 1, 'Number of units', 'Number of responses'),
@@ -603,7 +604,7 @@ for site in allSiteNames :
         createStepBoxPlot(siteData.zScoresNorm, "Mean zscores", "zscores", args.alpha_box), 
         "zscores" + os.sep + fileDescription))
     allRegionFiringRatesPlots.append(createAndSave(
-        createStepBoxPlot(siteData.firingRatesNorm, "Normalized firing rates", "firing_rates", args.alpha_box), #False, True), 
+        createStepBoxPlot(siteData.firingRatesNorm, "Normalized firing rates", "Normalized firing rates", args.alpha_box), #False, True), 
         "firing_rates" + os.sep + fileDescription))
     allRegionCohensDPlots.append(createAndSave(
         createStepBoxPlot(siteData.cohensD, "Mean cohens d", "cohensd", args.alpha_box), 

@@ -6,6 +6,7 @@
 """
 
 import os
+
 import numpy as np
 import statistics 
 from fit_data import *
@@ -141,10 +142,11 @@ def createCorrelationPlot(sitename, correlation) :
 def createBoxPlot(values, xNames, title, boxpoints='all') :
     fig = go.Figure()
     for i in range(len(xNames)) : 
+        #stddev = statistics.stdev(values[i])
         fig.add_trace(go.Box(
             y=values[i],
             name=xNames[i],
-            boxpoints=boxpoints,
+            #boxpoints=boxpoints,
             #boxmean='sd'
         ))
     fig.update_layout(
@@ -161,13 +163,28 @@ def createStepBoxPlot(similaritiesArray, title, yLabel="", alpha=0.001, boxpoint
     yFit=[]
     xFit=[]
     
+    lowerfences = []
+    upperfences = []
+    means = []
+    q1 = []
+    q3 = []
+
     fig = go.Figure()
 
-    for step in np.arange(-0.01,1.05,stepBox) : # due to rounding errors
+    for step in np.arange(-0.01,1.001,stepBox) : # due to rounding errors
         indices = np.where((x >= step) & (x < step+stepBox))[0]
         if len(indices) == 0 : 
             continue
         y = values[indices]
+        if len(y) >= 2 :
+            mean = statistics.mean(y)
+            stddev = statistics.stdev(y)
+            means.append(mean)
+            lowerfences.append(mean-stddev)
+            upperfences.append(mean+stddev)
+            q1.append(np.percentile(y, 25))
+            q1.append(np.percentile(y, 75))
+    
         fig.add_trace(go.Box(
             x0=step,
             y=values[indices],
@@ -175,6 +192,10 @@ def createStepBoxPlot(similaritiesArray, title, yLabel="", alpha=0.001, boxpoint
             boxpoints=boxpoints,
             #boxmean='sd'
         ))
+
+    fig.update_traces(q1=q1, median=means,
+        q3=q3, lowerfence=lowerfences,
+        upperfence=upperfences )
 
     """ for i in range(len(values)) : 
         if(len(values[i]) >= 1) : 
@@ -325,7 +346,7 @@ def createFitPlotAligned(regionFit, name) :
     fig.update_layout(
         title_text=name + " fit",
         xaxis_title='Semantic similarity',
-        yaxis_title='Firing rate',
+        yaxis_title='Normalized firing rate',
     )
 
     return fig
@@ -338,7 +359,7 @@ def createFitPlot(regionFit, name) :
         meanFit, medianFit, stddevFit, meanParams, medianParams, paramsMedian = regionFit.getMeanMedianStddevFit()
         #addPlot(fig, regionFit.xFit, medianFit, "lines", "Median fit")
         addMeanStddevPlots(fig, regionFit.xFit, meanFit, stddevFit)
-        addPlotColor(fig, regionFit.xFit, meanParams, "lines", "Mean params", "green")
+        #addPlotColor(fig, regionFit.xFit, meanParams, "lines", "Mean params", "green")
         addPlotColor(fig, regionFit.xFit, medianParams, "lines", "Median params", "red")
         ##addPlot(fig, regionFit.xFit, meanFit, "lines", "Mean fit")
         ##addPlot(fig, regionFit.xFit, meanFit - stddevFit, "lines", "Mean - stddev")
@@ -347,26 +368,17 @@ def createFitPlot(regionFit, name) :
         medianSlope = statistics.median(regionFit.steepestSlopes)
         x0 = paramsMedian[0]
         y0 = regionFit.funcParams([x0], paramsMedian)[0]
-        x1 = max(max(x0-y0/medianSlope, min(medianParams)),0)
-        x2 = min(min((1-y0) / medianSlope + x0, max(medianParams)),1)
-        x= [x1, x0, x2]
-        y = medianSlope * (x-x0) + y0
-        #y= [0,y0,1]
-        #if x[0] < 0 :
-        #    x[0] = 0
-        #    y[0] = y0 - medianSlope * x0 # b = y - m*x0
+        y1 = min(medianParams) - 0.05
+        y2 = max(medianParams) + 0.05
+        y = [y1, y0, y2]
+        x = (y - y0) / medianSlope + x0
 
-        #if x[2] > 1 :
-        #    x[2] = 1
-        #    y[2] = y0 + medianSlope * (1-x0) 
+        #x1 = max(x0-y0/medianSlope, 0) #max(max(x0-y0/medianSlope, min(medianParams)),0)
+        #x2 = min((1-y0) / medianSlope + x0, 1) #min(min((1-y0) / medianSlope + x0, min(medianParams)),1)
+        #x= [x1, x0, x2]
+        #y = medianSlope * (x-x0) + y0
 
-        fig.add_trace(go.Scatter(
-            x=x,
-            y=y,
-            mode="lines",
-            name="Median steepest slope: " + str(round(medianSlope,2))
-        ))
-
+        addPlotColor(fig, x, y, "lines", "Median steepest slope: " + str(round(medianSlope,2)), "green")
         
         #for i in range(len(regions[site].logisticFitK)) : 
         #    logisticFitFig.add_trace(go.Scatter(
@@ -377,7 +389,7 @@ def createFitPlot(regionFit, name) :
     fig.update_layout(
         title_text=name + " fit",
         xaxis_title='Semantic similarity',
-        yaxis_title='Firing rate',
+        yaxis_title='Normalized firing rate',
     )
     return fig
 

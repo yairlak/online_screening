@@ -64,12 +64,19 @@ class DataHandler(object):
             
             neural_data[subject_session_key]['units'] = {}
             for unit_num in range(cherries['cherries'].shape[1]):
+                
+                site = cherries['cherries'][0, unit_num]['site'][0]
+                if site == "RAH" or site == "RMH" :
+                    site = "RH"
+                if site == "LAH" or site == "LMH" :
+                    site = "LH"
+
                 neural_data[subject_session_key]['units'][unit_num + 1] = {}
+                neural_data[subject_session_key]['units'][unit_num + 1]['site'] = site
                 neural_data[subject_session_key]['units'][unit_num + 1]['trial'] = cherries['cherries'][0, unit_num]['trial'][0, :]
                 neural_data[subject_session_key]['units'][unit_num + 1]['class_num'] = cherries['cherries'][0, unit_num]['classno'][0, 0]
                 neural_data[subject_session_key]['units'][unit_num + 1]['channel_num'] = cherries['cherries'][0, unit_num]['channr'][0, 0]
                 neural_data[subject_session_key]['units'][unit_num + 1]['channel_name'] = cherries['cherries'][0, unit_num]['chnname'][0]
-                neural_data[subject_session_key]['units'][unit_num + 1]['site'] = cherries['cherries'][0, unit_num]['site'][0]
                 neural_data[subject_session_key]['units'][unit_num + 1]['kind'] = cherries['cherries'][0, unit_num]['kind'][0]
                 neural_data[subject_session_key]['units'][unit_num + 1]['zscores'] = zscores[unit_num]
                 neural_data[subject_session_key]['units'][unit_num + 1]['p_vals'] = pvals[unit_num]

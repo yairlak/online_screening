@@ -4,6 +4,7 @@ from re import I
 import numpy as np
 import scipy
 import statistics
+from scipy.stats import sem
 from scipy.optimize import curve_fit
 from dataclasses import dataclass, field
 from typing import List
@@ -96,7 +97,7 @@ class Fitter :
         if len(yAligned[0]) == 1 : 
             stddevFit = np.zeros(self.numSteps)
         else: 
-            stddevFit = np.array([statistics.stdev(yAligned[i]) for i in range(self.numSteps)])
+            stddevFit = np.array([sem(yAligned[i]) for i in range(self.numSteps)]) #statistics.stdev
 
         return xAligned, meanFit, medianFit, paramsMedianFit, stddevFit
     
@@ -120,7 +121,7 @@ class Fitter :
         if len(self.yFit[0]) == 1 : 
             return meanFit, medianFit, np.zeros(self.numSteps), meanParams, medianParams, paramsMedian
 
-        stddevFit = np.array([statistics.stdev(self.yFit[i]) for i in range(self.numSteps)])
+        stddevFit = np.array([sem(self.yFit[i]) for i in range(self.numSteps)])
 
         return meanFit, medianFit, stddevFit, meanParams, medianParams, paramsMedian
 
