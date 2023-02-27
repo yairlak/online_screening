@@ -48,18 +48,18 @@ parser.add_argument('--session', default=None, type=str,
                             e.g., '90_1'.")
 
 # ANALYSIS
-parser.add_argument('--data_type', default="zscores", type=str, # zscores or firing_rates
+parser.add_argument('--data_type', default="firing_rates", type=str, # zscores or firing_rates
                     help="Determines underlying datatype for heatmaps. \
                         Currently, zscores or firing_rate are implemented.")
 parser.add_argument('--min_t', default=100, type=int,
                     help="Relevant for calculating mean firing_rate. \
                         Min time offset of spike after stimulus onset.")
-parser.add_argument('--max_t', default=1000, type=int,
+parser.add_argument('--max_t', default=800, type=int,
                     help="Relevant for calculating mean firing_rate. \
                         Max time offset of spike after stimulus onset.")
 
 # FLAGS
-parser.add_argument('--show_all', default=True,
+parser.add_argument('--show_all', default=False,
                     help='If True, all heatmaps are shown on dashboard')
 parser.add_argument('--dont_plot', action='store_true', default=False, 
                     help='If True, plotting to figures folder is supressed')
@@ -71,7 +71,7 @@ parser.add_argument('--alpha', type=float, default=0.001,
                     help='alpha for stats')
 
 # PLOT
-parser.add_argument('--interpolation_factor', type=float, default=100,
+parser.add_argument('--interpolation_factor', type=float, default=1000,
                     help='heatmap interpolation grid size')
 parser.add_argument('--padding_factor', type=float, default=1.1,
                     help='padding around datapoints')
@@ -147,7 +147,7 @@ def getInterpolatedMap(x, y, z) :
     rbf = scipy.interpolate.Rbf(xWithBorder, yWithBorder, zWithBorder, function='linear')
     zi = rbf(xi, yi)
 
-    return px.imshow(zi,aspect=0.8,color_continuous_scale='RdBu_r',origin='lower')
+    return px.imshow(zi,aspect=0.8,color_continuous_scale='RdBu_r',origin='lower') #, zmax=1
 
 #def createHeatMapZScores(tuner, figureHeight, savePath=outputPath, addName=False) : 
 #    createHeatMap(tuner, tuner.zscores, figureHeight, savePath, addName)
@@ -182,7 +182,7 @@ def createHeatMap(tuner, figureHeight, savePath="", addName=False) :
             go.Scatter(
                 mode='text',
                 x=rescaleX([tuner.stimuliX[stimulusNum]]), y=rescaleY([tuner.stimuliY[stimulusNum]]),
-                text=[tuner.stimuliNames[stimulusNum]],
+                #text=[tuner.stimuliNames[stimulusNum]],
                 hovertext=[tuner.stimuliNames[stimulusNum] + ", z: " + str(round(targetValues[stimulusNum], 2))],
                 opacity=opacityStim,
                 textfont=dict(
@@ -270,10 +270,12 @@ def createHeatMap(tuner, figureHeight, savePath="", addName=False) :
             filename += "_" + tuner.name
         heatmapFilename = filename + "_heatmap.png"
         rasterFilename = filename + "_rasterplots.png"
-        completeFilename = filename + ".png"
+        completeFilename = filename 
 
         heatmap.write_image(heatmapFilename)
+        heatmap.write_image(filename + "_heatmap.svg")
         rasterGrid.write_image(rasterFilename)
+        rasterGrid.write_image(filename + "_rasterplots.svg")
 
         pltHeatmap = Image.open(heatmapFilename)
         pltRaster = Image.open(rasterFilename)
@@ -284,7 +286,8 @@ def createHeatMap(tuner, figureHeight, savePath="", addName=False) :
 
         completeImage.paste(pltHeatmap, (0,0))
         completeImage.paste(pltRaster, (0,pltHeatmap.size[1]))
-        completeImage.save(completeFilename)
+        completeImage.save(completeFilename + ".png")
+        #completeImage.save(completeFilename + ".svg")
 
         os.remove(heatmapFilename)
         os.remove(rasterFilename)
@@ -375,8 +378,9 @@ for session in sessions:
     else:
         units = [args.unit]
 
-    patientNr = session.split("_")[0]
-    sessionNr = session.split("_")[1]
+    subjectNum = int(session.split("_")[0])
+    sessionNum = int(session.split("_")[1])
+    sessionParadigm = session.split("_")[2]
 
     stimuliIndices = data.neural_data[session]['objectindices_session']
     stimuliNames = np.unique(data.neural_data[session]['objectnames'])
@@ -400,8 +404,8 @@ for session in sessions:
         cluster = data.neural_data[session]['units'][unit]['class_num']
         trials = data.neural_data[session]['units'][unit]['trial']
         kind = data.neural_data[session]['units'][unit]['kind']
-        firingRates = get_mean_firing_rate_normalized(trials, stimuliIndices, args.min_t, args.max_t)
-        name = "pat " + str(patientNr) + ", session " + str(sessionNr) + ", " + channelName + ", channel " + str(channel) + ", cluster " + str(cluster) + ", " + kind
+        firingRates = get_mean_firing_rate_normalized(trials, stimuliIndices, args.min_t, args.max_t)[0]
+        name = "pat " + str(subjectNum) + ", session " + str(sessionNum) + ", " + channelName + ", channel " + str(channel) + ", cluster " + str(cluster) + ", " + kind
         
         responses = []
         responseIndices = np.where(pvals < args.alpha)[0]
@@ -412,7 +416,7 @@ for session in sessions:
             responses.append(RasterInput(stimulusName, pvals[responseIndex], trials[trialIndices]))
 
         for tuner in tuners : 
-            if tuner.subjectsession == session and tuner.channel == channel and tuner.cluster == cluster : 
+            if tuner.subjectsession + "_" + tuner.paradigm == session and tuner.channel == channel and tuner.cluster == cluster : 
                 tuner.zscores = zscores
                 tuner.firingRates = firingRates
                 tuner.stimuli = stimuliNums

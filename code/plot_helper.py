@@ -127,9 +127,11 @@ def createRegionsDiv(name, allSiteNames) :
     return createTableDiv(
         name, figureId, tableId, "Regions", columnId, columnData), figureId, tableId
 
-def createHist(x, inputBins, factorY, labelX, labelY) : 
+def createHist(x, inputBins, factorY, labelX, labelY, color="blue") : 
     counts, bins = np.histogram(x, bins=inputBins)
-    return px.bar(x=bins[:-1], y=counts.astype(float)*float(factorY), labels={'x':labelX, 'y':labelY})
+    fig = px.bar(x=bins[:-1], y=counts.astype(float)*float(factorY), labels={'x':labelX, 'y':labelY})
+    fig.update_traces(marker_color=color)
+    return fig
 
 def createCorrelationPlot(sitename, correlation) : 
     return go.Box(
@@ -148,9 +150,10 @@ def createBoxPlot(values, xNames, title, boxpoints='all') :
             name=xNames[i],
             #boxpoints=boxpoints,
             #boxmean='sd'
+            marker_color = 'blue'
         ))
     fig.update_layout(
-        title_text=title,
+        #title_text=title, ###
         showlegend=False
     )
     return fig
@@ -190,6 +193,7 @@ def createStepBoxPlot(similaritiesArray, title, yLabel="", alpha=0.001, boxpoint
             y=values[indices],
             name="{:.2f} ({})".format(step, y),
             boxpoints=boxpoints,
+            marker_color = 'blue'
             #boxmean='sd'
         ))
 
@@ -247,7 +251,7 @@ def createStepBoxPlot(similaritiesArray, title, yLabel="", alpha=0.001, boxpoint
         addPlot(fig, xFitted, yFitted, 'lines', 'Gaussian fit')
 
     fig.update_layout(
-        title_text=title,
+        #title_text=title, ###
         xaxis_title='Semantic similarity',
         yaxis_title=yLabel,
         showlegend=False,
@@ -327,7 +331,7 @@ def addMeanStddevPlots(fig, x, meanFit, stddevFit) :
     upper = meanFit + stddevFit
     colorBetweenLines(fig, x, meanFit, lower, color)
     colorBetweenLines(fig, x, meanFit, upper, color)
-    addPlotColor(fig, x, meanFit, "lines", "Mean fit", color)
+    addPlotColor(fig, x, meanFit, "lines", "Mean over fits for all neurons", color)
     #addPlotColor(fig, x, lower, "lines", "Mean - stddev", [color, 0.1],)
     #addPlotColor(fig, x, upper, "lines", "Mean + stddev", [color, 0.1])
 
@@ -336,8 +340,8 @@ def createFitPlotAligned(regionFit, name) :
     if len(regionFit.yFit[0]) > 0 :
         xAligned, meanFit, medianFit, paramsMedianFit, stddevFit = regionFit.getMeanStddevAligned()
         addMeanStddevPlots(fig, xAligned, meanFit, stddevFit)
-        addPlot(fig, xAligned, medianFit, "lines", "Median fit")
-        addPlotColor(fig, xAligned, paramsMedianFit, "lines", "Median params fit", "red")
+        addPlot(fig, xAligned, medianFit, "lines", "Median over fits for all neurons")
+        addPlotColor(fig, xAligned, paramsMedianFit, "lines", "Median of fitted parameters", "red")
         #addPlot(fig, xAligned, meanFit, "lines", "Mean fit")
         #addPlot(fig, xAligned, meanFit - stddevFit, "lines", "Mean - stddev")
         #addPlot(fig, xAligned, meanFit + stddevFit, "lines", "Mean + stddev")
@@ -351,34 +355,54 @@ def createFitPlotAligned(regionFit, name) :
 
     return fig
 
+def getLineWithSlope(slope, params, paramsY, regionFit) :
+    
+    x0 = params[0]
+    y0 = regionFit.funcParams([x0], params)[0]
+    y1 = min(paramsY) - 0.05#, y0 - slope * x0)
+    y2 = max(paramsY) + 0.05#, (1-y0)/slope - x0)
+    y = [y1, y0, y2]
+    x = (y - y0) / slope + x0
+    return x, y
+
 def createFitPlot(regionFit, name) :
 
     fig = go.Figure()
     if len(regionFit.yFit[0]) > 0 :
 
         meanFit, medianFit, stddevFit, meanParams, medianParams, paramsMedian = regionFit.getMeanMedianStddevFit()
-        #addPlot(fig, regionFit.xFit, medianFit, "lines", "Median fit")
-        addMeanStddevPlots(fig, regionFit.xFit, meanFit, stddevFit)
-        #addPlotColor(fig, regionFit.xFit, meanParams, "lines", "Mean params", "green")
-        addPlotColor(fig, regionFit.xFit, medianParams, "lines", "Median params", "red")
-        ##addPlot(fig, regionFit.xFit, meanFit, "lines", "Mean fit")
-        ##addPlot(fig, regionFit.xFit, meanFit - stddevFit, "lines", "Mean - stddev")
-        ##addPlot(fig, regionFit.xFit, meanFit + stddevFit, "lines", "Mean + stddev")
 
         medianSlope = statistics.median(regionFit.steepestSlopes)
-        x0 = paramsMedian[0]
-        y0 = regionFit.funcParams([x0], paramsMedian)[0]
-        y1 = min(medianParams) - 0.05
-        y2 = max(medianParams) + 0.05
-        y = [y1, y0, y2]
-        x = (y - y0) / medianSlope + x0
+        q1 = np.percentile(regionFit.steepestSlopes, 25)
+        q3 = np.percentile(regionFit.steepestSlopes, 75)
+        semSlope = sem(regionFit.steepestSlopes)
+        #x0 = paramsMedian[0]
+        #y0 = regionFit.funcParams([x0], paramsMedian)[0]
+        #y1 = min(medianParams) - 0.05
+        #y2 = max(medianParams) + 0.05
+        #y = [y1, y0, y2]
+        #x = (y - y0) / medianSlope + x0
+
+        xMedianSlope, yMedianSlope = getLineWithSlope(medianSlope, paramsMedian, medianParams, regionFit)
+        xSlopeLower, ySlopeLower = getLineWithSlope(q1, paramsMedian, medianParams, regionFit)
+        xSlopeUpper, ySlopeUpper = getLineWithSlope(q3, paramsMedian, medianParams, regionFit)
 
         #x1 = max(x0-y0/medianSlope, 0) #max(max(x0-y0/medianSlope, min(medianParams)),0)
         #x2 = min((1-y0) / medianSlope + x0, 1) #min(min((1-y0) / medianSlope + x0, min(medianParams)),1)
         #x= [x1, x0, x2]
         #y = medianSlope * (x-x0) + y0
+        
+        #addPlot(fig, regionFit.xFit, medianFit, "lines", "Median fit")
+        addMeanStddevPlots(fig, regionFit.xFit, meanFit, stddevFit)
+        #addPlotColor(fig, regionFit.xFit, meanParams, "lines", "Mean params", "green")
+        addPlotColor(fig, regionFit.xFit, medianParams, "lines", "Median of fitted parameters", "red")
+        ##addPlot(fig, regionFit.xFit, meanFit, "lines", "Mean fit")
+        ##addPlot(fig, regionFit.xFit, meanFit - stddevFit, "lines", "Mean - stddev")
+        ##addPlot(fig, regionFit.xFit, meanFit + stddevFit, "lines", "Mean + stddev")
 
-        addPlotColor(fig, x, y, "lines", "Median steepest slope: " + str(round(medianSlope,2)), "green")
+        addPlotColor(fig, xMedianSlope, yMedianSlope, "lines", "Median steepest slope: " + str(round(medianSlope,2)), "indigo")
+        #colorBetweenLines(fig, xSlopeUpper, yMedianSlope, ySlopeUpper, "indigo")
+        #colorBetweenLines(fig, xSlopeLower, yMedianSlope, ySlopeLower, "indigo")
         
         #for i in range(len(regions[site].logisticFitK)) : 
         #    logisticFitFig.add_trace(go.Scatter(
@@ -387,9 +411,10 @@ def createFitPlot(regionFit, name) :
         #    ))
             
     fig.update_layout(
-        title_text=name + " fit",
+        title_text=name + " fit for all responsive units",
         xaxis_title='Semantic similarity',
         yaxis_title='Normalized firing rate',
+        xaxis = dict(tickvals = np.arange(0, 1, 0.1),)
     )
     return fig
 

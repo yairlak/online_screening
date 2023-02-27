@@ -46,7 +46,7 @@ parser.add_argument('--similarity_matrix_delimiter', default=',', type=str,
                     help='Similarity metric delimiter')
 
 # FLAGS
-parser.add_argument('--dont_plot', action='store_true', default=False, 
+parser.add_argument('--dont_plot', action='store_true', default=True, 
                     help='If True, plotting to figures folder is supressed')
 parser.add_argument('--only_SU', default=True, 
                     help='If True, only single units are considered')
@@ -149,11 +149,12 @@ def createAndSave(func, filename) :
 
 def saveImg(fig, filename) : 
 
-    file = args.path2images + filename + ".png"
+    file = args.path2images + filename 
 
     if not args.dont_plot : 
         os.makedirs(os.path.dirname(file), exist_ok=True)
-        fig.write_image(file)
+        fig.write_image(file + ".svg")
+        fig.write_image(file + ".png")
 
 
 #############
@@ -209,6 +210,7 @@ regions[allRegionsName] = Region(allRegionsName)
 alphaBestResponse = []
 sitesToExclude = ["LFa", "LTSA", "LTSP"]
 
+unitCounter = 0
 sessionCounter = 0
 for session in sessions:
 
@@ -257,6 +259,7 @@ for session in sessions:
     countBestResponseIsNoResponse = 0
 
     for unit in units:
+        unitCounter += 1
         unitData = data.neural_data[session]['units'][unit]
         if not unitData['kind'] == 'SU' or unitData['site'] in sitesToExclude :
             continue
@@ -313,8 +316,8 @@ for session in sessions:
                 index = thingsIndices[i]
                 similarity = data.similarity_matrix[index][indexBest]
                 similarityIndex = similarityMatrixToIndex[index, indexBest]
-                #regions[allRegionsName].zScoresNorm.addValue(similarity, zscores[i])
-                #regions[site].zScoresNorm.addValue(similarity, zscores[i])
+                ## regions[allRegionsName].zScoresNorm.addValue(similarity, zscores[i])
+                ## regions[site].zScoresNorm.addValue(similarity, zscores[i])
                 regions[allRegionsName].firingRatesNorm.addValue(similarity, firingRates[i])
                 regions[site].firingRatesNorm.addValue(similarity, firingRates[i])
 
@@ -327,14 +330,15 @@ for session in sessions:
                 regions[site].similaritiesArray.append(similarity) # 89 3 aos, channel 74 cluster 2, 1913, 1690
 
                 #88 3 aos, channel 18, cluster 2
-                if index in responses : 
-                    regions[allRegionsName].responseStrengthHistResp.append(firingRates[i])
-                    regions[site].responseStrengthHistResp.append(firingRates[i])
-                    numRespUnitStimuli += 1
-                else : 
-                    regions[allRegionsName].responseStrengthHistNoResp.append(firingRates[i])
-                    regions[site].responseStrengthHistNoResp.append(firingRates[i])
-                    numNoRespUnitStimuli += 1
+                if not index == indexBest: 
+                    if index in responses : 
+                            regions[allRegionsName].responseStrengthHistResp.append(firingRates[i])
+                            regions[site].responseStrengthHistResp.append(firingRates[i])
+                            numRespUnitStimuli += 1
+                    else : 
+                        regions[allRegionsName].responseStrengthHistNoResp.append(firingRates[i])
+                        regions[site].responseStrengthHistNoResp.append(firingRates[i])
+                        numNoRespUnitStimuli += 1
 
                 if not i == bestResponse : ##and index in responses: ###
                     corStep = int(similarity / corStepSize)
@@ -462,6 +466,8 @@ for session in sessions:
         break
 
 print("\nTime preparing data: " + str(time.time() - startPrepareDataTime) + " s\n")
+print("\nNum sessions: " + str(sessionCounter) + " \n")
+print("\nNum units: " + str(unitCounter) + " \n")
 
 
 allRegionCoactivationPlots = []
@@ -589,13 +595,13 @@ for site in allSiteNames :
     #    createBoxPlot([regions[site].rDiffLog], ["r(Log) - r(Step)"], "Diff of R squared of logistic fit and R squared of step fit"), 
     #    "fit" + os.sep + "box_r_diff_log" + os.sep + fileDescription))
     allRegionRespStrengthHistPlots.append(createAndSave(
-        createHist(siteData.responseStrengthHistResp, np.arange(0,1,0.01), 100.0 / float(totalNumResponseStrengthHist), 'Normalized firing rate', 'Stimuli in %'),
+        createHist(siteData.responseStrengthHistResp, np.arange(0,1.02,0.01), 100.0 / float(totalNumResponseStrengthHist), 'Normalized firing rate', 'Stimuli in %', "blue"),
         "response_strength_hist" + os.sep + fileDescription)) 
     allRegionRespStrengthHistPlotsNo.append(createAndSave(
-        createHist(siteData.responseStrengthHistNoResp, np.arange(0,1,0.01), 100.0 / float(totalNumResponseStrengthHist), 'Normalized firing rate', 'Stimuli in %'),
+        createHist(siteData.responseStrengthHistNoResp, np.arange(0,1.02,0.01), 100.0 / float(totalNumResponseStrengthHist), 'Normalized firing rate', 'Stimuli in %', "red"),
         "response_strength_hist_no" + os.sep + fileDescription))
     allRegionNumResponsesPlots.append(createAndSave(
-        createHist(siteData.numResponsesHist, range(args.max_responses_unit + 1), 1, 'Number of units', 'Number of responses'),
+        createHist(siteData.numResponsesHist, range(args.max_responses_unit + 1), 1, 'Number of units', 'Number of responses', "blue"),
         "num_responses" + os.sep + fileDescription))
     allRegionCoactivationNormalizedPlots.append(createAndSave(
         createPlot(siteData.coactivationNorm.similarity[:-1], siteData.coactivationNorm.y * 100, "Normalized coactivation probability in %", "coactivation normalized", True, ticktextCoactivation), 
@@ -604,7 +610,7 @@ for site in allSiteNames :
         createStepBoxPlot(siteData.zScoresNorm, "Mean zscores", "zscores", args.alpha_box), 
         "zscores" + os.sep + fileDescription))
     allRegionFiringRatesPlots.append(createAndSave(
-        createStepBoxPlot(siteData.firingRatesNorm, "Normalized firing rates", "Normalized firing rates", args.alpha_box), #False, True), 
+        createStepBoxPlot(siteData.firingRatesNorm, "Normalized firing rates", "Normalized firing rates", args.alpha_box, 'all'), #False, True), 
         "firing_rates" + os.sep + fileDescription))
     allRegionCohensDPlots.append(createAndSave(
         createStepBoxPlot(siteData.cohensD, "Mean cohens d", "cohensd", args.alpha_box), 
@@ -619,8 +625,11 @@ for site in allSiteNames :
         createStepBoxPlot(siteData.pearsonCorSteps, "Pearson correlation dependent on semantic similarity", "spearmanCorSteps", args.alpha_box, 'all', False, False), 
         "spearmanCorSteps" + os.sep + fileDescription)) 
     allRegionSlopePlots.append(createAndSave(
-        createBoxPlot([regions[site].logisticFit.steepestSlopes, regions[site].gaussFit.steepestSlopes], ["Log", "Gauss"], "Steepest slope of fitted data"), 
+        createBoxPlot([regions[site].logisticFit.steepestSlopes], [""], "Steepest slope of fitted data per neuron"), 
         "fit" + os.sep + "slopes" + os.sep + fileDescription))
+    #allRegionSlopePlots.append(createAndSave(
+    #    createBoxPlot([regions[site].logisticFit.steepestSlopes, regions[site].gaussFit.steepestSlopes], ["Log", "Gauss"], "Steepest slope of fitted data"), 
+    #    "fit" + os.sep + "slopes" + os.sep + fileDescription))
 
 
 spearmanPlot.update_layout(title="Spearman correlation for responding units",)
@@ -658,7 +667,7 @@ logisticFitKDiv, logisticFitKFigId, logisticFitKTableId = createRegionsDiv("Logi
 logisticFitRSquaredDiv, logisticFitRSquaredFigId, logisticFitRSquaredTableId = createRegionsDiv("Logistic fit for all responsive units: R squared", allSiteNames)
 logisticFitRDiffDiv, logisticFitRDiffFigId, logisticFitRDiffTableId = createRegionsDiv("Diff of R squared between logistic and step fit", allSiteNames)
 #gaussianFitRDiffDiv, gaussianFitRDiffFigId, gaussianFitRDiffTableId = createRegionsDiv("Diff of R squared between gaussian and step fit", allSiteNames)
-slopeDiv, slopeFigId, slopeTableId = createRegionsDiv("Deepest slope of log fit of firing rate to similarity", allSiteNames)
+slopeDiv, slopeFigId, slopeTableId = createRegionsDiv("Steepest slope of log fit of firing rate to similarity", allSiteNames)
 
 external_stylesheets = ['https://codepen.io/chriddyp/pen/bWLwgP.css']
 app = dash.Dash(__name__, external_stylesheets=external_stylesheets)
