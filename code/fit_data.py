@@ -14,17 +14,21 @@ class Fitter :
     stepSize : float = 0.01
     numSteps : int = 0 # is initialized
     stepSlope : float = 0.01
-    func = lambda : fitLogisticFunc
-    funcParams = lambda : fitLogisticFuncParams
+    func = lambda : logFunc
+    funcParams = lambda : logFuncParams
     p0 : List = field (default_factory=lambda: [])
     bounds : List = field (default_factory=lambda: [[]])
     xFit : List = field (default_factory=lambda: [])
     yFit : List = field (default_factory=lambda: [[]])
+    x : List = field (default_factory=lambda: [[]])
+    y : List = field (default_factory=lambda: [[]])
 
     paramsNames : List = field (default_factory=lambda: [])
     params : List = field(default_factory=lambda: [[]])
     rSquared : List = field (default_factory=lambda: [])
     steepestSlopes : List = field (default_factory=lambda: [])
+
+    plotDetails : List = field (default_factory=lambda: [])
 
     def getFitter(func, funcParams, paramsNames, p0, bounds, stepSize=0.02) : 
         newFitter = Fitter()
@@ -41,19 +45,19 @@ class Fitter :
 
         return newFitter
 
-    def calculateRSquared(self, y, yFitted) : 
-        ssRes = np.sum((y - yFitted)**2)
-        ssTot = np.sum((y - statistics.mean(y))**2)
-        return 1 - ssRes/ssTot
+    #def calculateRSquared(self, y, yFitted) : 
+    #    ssRes = np.sum((y - yFitted)**2)
+    #    ssTot = np.sum((y - statistics.mean(y))**2)
+    #    return 1 - ssRes/ssTot
 
-    def addFit(self, xToFit, yToFit) :
+    def addFit(self, xToFit, yToFit, plotDetails="") :
         try : 
             popt, pcov = curve_fit(self.func, xToFit, yToFit, p0=self.p0, bounds=self.bounds)
         except Exception as e : 
             print("WARNING: No logistic curve fitting found: " + str(e))
             return -1
         
-        rSquared = self.calculateRSquared(yToFit, self.funcParams(xToFit, popt))
+        rSquared = calculateRSquared(yToFit, self.funcParams(xToFit, popt))
         self.rSquared.append(rSquared)
 
         for i in range(len(popt)):
@@ -61,6 +65,14 @@ class Fitter :
         
         #xFitTmp = self.xFit - popt[0]
         #popt[0] = 0
+        if len(self.x[0]) == 0 and len(self.x) == 1 : 
+            self.x[0] = xToFit
+            self.y[0] = yToFit
+        else: 
+            self.x.append(xToFit)
+            self.y.append(yToFit)
+
+        self.plotDetails.append(plotDetails)
 
         yFit = self.funcParams(self.xFit, popt)
         for i in range(len(yFit)) :
@@ -150,10 +162,14 @@ class Fitter :
         self.rSquared.extend(input.rSquared)
 
 
+def calculateRSquared(y, yFitted) : 
+        ssRes = np.sum((y - yFitted)**2)
+        ssTot = np.sum((y - statistics.mean(y))**2)
+        return 1 - ssRes/ssTot
+
 def sortByX(x, y) :
     sortedIndices = np.argsort(x)
     return np.sort(x), y[sortedIndices]
-
 
 def mirrorInputAtMax(x, y) : 
     maxIndex = np.amax(np.where(y > 0)) + 1
@@ -168,17 +184,15 @@ def mirrorInputAtMax(x, y) :
 
     return xOut, yOut, maxIndex
 
-
 def smooth(y, numPoints):
     if len(y) == 0 : 
         return y 
     else : 
         return np.convolve(y, np.ones(numPoints)/numPoints, mode='same')
 
-
 def fitPartialGaussian(x, y, plotStep=0.01) : 
     if len(y) <= 2 or not np.any(np.asarray(y) > 0): 
-        return x, y
+        return x, y, 1
 
     x, y = sortByX(x, y)
 
@@ -196,15 +210,15 @@ def fitPartialGaussian(x, y, plotStep=0.01) :
 
 def fitLog(x, y, plotStep=0.01) : 
     try : 
-        popt, pcov = curve_fit(fitLogisticFunc, x, y, p0=[0.5, 1, 0, 1], bounds=[[0, -1000, 0, 0], [1, 1000, 1, 1]])  
+        popt, pcov = curve_fit(logFunc, x, y, p0=[0.5, 1, 0, 1], bounds=[[0, -1000, 0, 0], [1, 1000, 1, 1]])  
         xPlot = np.arange(min(x), max(x) + plotStep, plotStep) #
-        yLog = fitLogisticFuncParams(xPlot, popt)
-        return xPlot, yLog
+        yLog = logFuncParams(xPlot, popt)
+        rSquared = calculateRSquared(y, logFuncParams(x, popt))
+        return xPlot, yLog, rSquared
 
     except Exception as e : 
         print("Error fitting logistic function: " + str(e))
-        return [], []
-
+        return [], [], []
 
 def fitGauss(x, y, plotStep = 0.01, minX = 0.0, maxX = 1.0) : 
     mean = sum(x * y) / sum(y)
@@ -216,12 +230,13 @@ def fitGauss(x, y, plotStep = 0.01, minX = 0.0, maxX = 1.0) :
         popt,pcov = curve_fit(Gauss, x, y, p0=[0.5, max(y), 0, 5], bounds=[[0, 0, 0, 0.1], [10, 5000, 10, 5000]]) #p0=[mean, max(y), 0, sigma]
     except Exception as e: 
         print("WARNING: Error fitting gauss" + str(e))
-        return [], []
+        return [], [], []
 
     xPlot = np.arange(minX, maxX, plotStep)
     yGauss = Gauss(xPlot, *popt)
+    rSquared = calculateRSquared(y, Gauss(x, *popt))
 
-    return xPlot, yGauss
+    return xPlot, yGauss, rSquared
 
 def Gauss(x, x0, a, b, sigma):
     return b + a * np.exp(-(x - x0)**2 / (2 * sigma**2))
@@ -238,20 +253,20 @@ def halfGauss(x, x0, a, b, sigma) :
     yGauss = yGauss[:int(len(xDoubled) / 2)]
     return yGauss
 
-def fitLogisticFuncParams(x, params) : 
-    return fitLogisticFunc(x, params[0], params[1], params[2], params[3])
+def logFuncParams(x, params) : 
+    return logFunc(x, params[0], params[1], params[2], params[3])
 
-def fitLogisticFunc(x, x0, k, a, c) :
+def logFunc(x, x0, k, a, c) :
     return a + (c - a) * scipy.special.expit((x-x0)*(-k))
 
-def fitStepParams(x, params) :
-    return fitStep(x, params[0], params[1], params[2])
+def stepParams(x, params) :
+    return step(x, params[0], params[1], params[2])
 
-def fitStep(x, x0, a, b) :
+def step(x, x0, a, b) :
     y = np.zeros(len(x))
     y[np.where(x <= x0)[0]] = a
     y[np.where(x > x0)[0]] = b
-    return fitLogisticFunc(x, x0, 10000, a, b)  #a * (np.heaviside(x-x0, 0) + b) #a * (np.sign(x-x0) + b)
+    return logFunc(x, x0, 10000, a, b)  #a * (np.heaviside(x-x0, 0) + b) #a * (np.sign(x-x0) + b)
 
 
 

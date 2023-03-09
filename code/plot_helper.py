@@ -158,7 +158,7 @@ def createBoxPlot(values, xNames, title, boxpoints='all') :
     )
     return fig
 
-def createStepBoxPlot(similaritiesArray, title, yLabel="", alpha=0.001, boxpoints=False, addLog=False, addPartialGaussian=True, stepBox=0.1) :   
+def createStepBoxPlot(similaritiesArray, title, yLabel="", alpha=0.001, boxpoints='all', addLog=True, addPartialGaussian=True, stepBox=0.1) :   
     
     x = np.asarray(similaritiesArray.similarities)
     values = np.asarray(similaritiesArray.values)
@@ -236,7 +236,7 @@ def createStepBoxPlot(similaritiesArray, title, yLabel="", alpha=0.001, boxpoint
     yFit = values
 
     if addLog and len(yFit) > 0: 
-        xFitted, yFitted = fitLog(xFit, yFit)#, x[1]-x[0])
+        xFitted, yFitted, rSquared = fitLog(xFit, yFit)#, x[1]-x[0])
         #fig.add_trace(
         #    go.Scatter(
         #        x=xFitted,
@@ -244,14 +244,24 @@ def createStepBoxPlot(similaritiesArray, title, yLabel="", alpha=0.001, boxpoint
         #        y=yFitted,
         #        mode='lines',
         #    ))
+        try : 
+            rSquared = round(rSquared, 4)
+        except : 
+            rSquared = 0.0
+        title = title + ". R squared for logistic fit: " + str(rSquared)
         addPlot(fig, xFitted, yFitted, 'lines', 'Logistic fit')
         
     if addPartialGaussian and len(yFit) > 0: 
-        xFitted, yFitted = fitPartialGaussian(xFit, yFit)#, x[1]-x[0])
+        xFitted, yFitted, rSquared = fitPartialGaussian(xFit, yFit)#, x[1]-x[0])
+        try : 
+            rSquared = round(rSquared, 4)
+        except : 
+            rSquared = 0.0
+        title = title + ". R squared for Gaussian fit: " + str(rSquared) 
         addPlot(fig, xFitted, yFitted, 'lines', 'Gaussian fit')
 
     fig.update_layout(
-        #title_text=title, ###
+        title_text=title, ###
         xaxis_title='Semantic similarity',
         yaxis_title=yLabel,
         showlegend=False,
@@ -286,7 +296,7 @@ def createPlot(x, y, yLabel, title, plotHalfGaussian, ticktext=[], plotStep=0.01
         xGauss = xWithoutOutliers
         yGauss = yWithoutOutliers
     else : 
-        xGauss, yGauss = fitGauss(xWithoutOutliers, yWithoutOutliers, plotStep)
+        xGauss, yGauss, rSquaredGauss = fitGauss(xWithoutOutliers, yWithoutOutliers, plotStep)
 
     try : 
         yFitted = savgol_filter(yWithoutOutliers, 15, 3) # window size 51, polynomial order 3
@@ -294,7 +304,7 @@ def createPlot(x, y, yLabel, title, plotHalfGaussian, ticktext=[], plotStep=0.01
         #print("WARNING: Error applying filter")
         yFitted = yWithoutOutliers
 
-    xLog, yLog = fitLog(xWithoutOutliers, yWithoutOutliers, plotStep)
+    xLog, yLog, rSquared = fitLog(xWithoutOutliers, yWithoutOutliers, plotStep)
 
     fig = go.Figure()
 
@@ -305,8 +315,8 @@ def createPlot(x, y, yLabel, title, plotHalfGaussian, ticktext=[], plotStep=0.01
     #addPlot(fig, xWithoutOutliers, yFitted, 'lines', 'Savgol filter')
     
     if plotHalfGaussian : 
-        xPartialGauss, yPartialGauss = fitPartialGaussian(xWithoutOutliers, yWithoutOutliers, plotStep)
-        addPlot(fig, xPartialGauss, yPartialGauss, 'lines', 'Half gaussian fit')
+        xPartialGauss, yPartialGauss, rSquared = fitPartialGaussian(xWithoutOutliers, yWithoutOutliers, plotStep)
+        addPlot(fig, xPartialGauss, yPartialGauss, 'lines', 'Half gaussian fit. R squared = ' + str(rSquared))
 
     fig.update_layout(
         title_text=title,
@@ -443,7 +453,8 @@ def addPlot(fig, x, y, mode, name) :
             x=x,
             y=y,
             mode=mode,
-            name=name
+            name=name, 
+            #hoverinfo='text'
         ))
 
 def addPlotColor(fig, x, y, mode, name, color) : 

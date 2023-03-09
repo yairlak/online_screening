@@ -32,6 +32,8 @@ from data_manip import get_mean_firing_rate_normalized
 
 parser = argparse.ArgumentParser()
 
+# 88_1_aos (great TC), 88_3, 89_1 (.8 lower), 89_2 (.7 and .9 lower), 89_3 (maybe .8), 89_5 (bad!), 
+# 90_1_aos (.7 lower), 90_2_aos, 90_3_aos, 90_4 (0.7 lower), 90_5 (0.7 and 0.8 lower), 94_1, 95_1, 96_1, 97_1, 97_2 (0.8 lower), 98_1
 # SESSION/UNIT
 parser.add_argument('--session', default=None, type=str, #"90_1_aos" / None ; 90_3_aos, channel 68 cluster 1
                     #"88_1_aos", "88_3_aos", .. 89_3
@@ -50,6 +52,8 @@ parser.add_argument('--dont_plot', action='store_true', default=True,
                     help='If True, plotting to figures folder is supressed')
 parser.add_argument('--only_SU', default=True, 
                     help='If True, only single units are considered')
+parser.add_argument('--only_responses', default=False, 
+                    help='If True, only stimuli ecliciting responses are considered')
 parser.add_argument('--load_cat2object', default=False, 
                     help='If True, cat2object is loaded')
 
@@ -57,7 +61,7 @@ parser.add_argument('--load_cat2object', default=False,
 parser.add_argument('--alpha', type=float, default=0.001,
                     help='Alpha for responses') 
 parser.add_argument('--alpha_box', type=float, default=0.001,
-                    help='Alpha for box significance')
+                    help='Alpha for box plot significance')
 
 # PLOT
 parser.add_argument('--step', type=float, default=0.1,
@@ -132,9 +136,9 @@ class Region:
     pearsonCorSteps : SimilaritiesArray = field(default_factory=lambda: SimilaritiesArray())
 
     logisticFit : Fitter = field(default_factory=lambda: 
-        Fitter.getFitter(fitLogisticFunc, fitLogisticFuncParams, ["x0", "K", "A", "C"], p0=[0.5, 1, 0, 1], bounds=[[0, -1000, 0, 0], [1, 1000, 1, 1]]))
+        Fitter.getFitter(logFunc, logFuncParams, ["x0", "K", "A", "C"], p0=[0.5, 1, 0, 1], bounds=[[0, -1000, 0, 0], [1, 1000, 1, 1]]))
     stepFit : Fitter = field(default_factory=lambda: 
-        Fitter.getFitter(fitStep, fitStepParams, ["x0", "a", "b"], p0=[0.5, 0, 1], bounds=[[0, 0, 0], [1, 1, 1]]))
+        Fitter.getFitter(step, stepParams, ["x0", "a", "b"], p0=[0.5, 0, 1], bounds=[[0, 0, 0], [1, 1, 1]]))
     gaussFit : Fitter = field(default_factory=lambda: 
         Fitter.getFitter(halfGauss, halfGaussParams, ["x0", "a", "b", "sigma"], p0=[0.5, 1, 0, 1], bounds=[[0, 0, 0, 0], [1, 100, 1, 100]]))
     rDiffLog : List = field (default_factory=lambda: [])
@@ -211,6 +215,7 @@ alphaBestResponse = []
 sitesToExclude = ["LFa", "LTSA", "LTSP"]
 
 unitCounter = 0
+responsiveUnitCounter = 0
 sessionCounter = 0
 for session in sessions:
 
@@ -264,7 +269,7 @@ for session in sessions:
         if not unitData['kind'] == 'SU' or unitData['site'] in sitesToExclude :
             continue
         pvals = unitData['p_vals']
-        zscores = unitData['zscores']
+        zscores = unitData['zscores'] 
         site = unitData['site']
         trials = unitData['trial']
         channel = unitData['channel_num']
@@ -293,6 +298,7 @@ for session in sessions:
                 regions[site].coactivationNorm.y[similarityMatrixToIndex[i1, i2]] += 1
 
         if len(responses) > 0 :
+            responsiveUnitCounter += 1 
             regions[allRegionsName].numResponsesHist.append(len(responses))
             regions[site].numResponsesHist.append(len(responses))
 
@@ -314,6 +320,13 @@ for session in sessions:
                 #if i == bestResponse and not includeSelfSimilarity : 
                 #    continue
                 index = thingsIndices[i]
+
+                if index == indexBest and not includeSelfSimilarity : 
+                    continue
+
+                if not index in responses and args.only_responses: 
+                    continue
+
                 similarity = data.similarity_matrix[index][indexBest]
                 similarityIndex = similarityMatrixToIndex[index, indexBest]
                 ## regions[allRegionsName].zScoresNorm.addValue(similarity, zscores[i])
@@ -342,11 +355,14 @@ for session in sessions:
 
                 if not i == bestResponse : ##and index in responses: ###
                     corStep = int(similarity / corStepSize)
-                    similaritiesCorSteps[corStep].append(similarity)
-                    valuesCorSteps[corStep].append(firingRates[i])
-
                     similaritiesCor.append(similarity)
                     valuesCor.append(firingRates[i])
+
+                    for j in range(0, corStep) : 
+                        similaritiesCorSteps[j].append(similarity)
+                        valuesCorSteps[j].append(firingRates[i])
+
+                        
 
             
             # Baselines (for response strength)
@@ -390,6 +406,8 @@ for session in sessions:
             for stimNum in range(numStimuliSession) : 
 
                 index = thingsIndices[stimNum]
+                similarity = data.similarity_matrix[index][indexBest]
+                similarityIndex = similarityMatrixToIndex[index, indexBest]
                 #if indexBest == index and not includeSelfSimilarity :
                 #    continue
         
@@ -400,7 +418,7 @@ for session in sessions:
                     print('stddev is 0')
                     
                 cohensDResult = (mean1 - meanAll) / stddevNorm
-                similarityIndex = similarityMatrixToIndex[indexBest, index]
+
                 regions[allRegionsName].cohensD.addValue(similarity, cohensDResult)
                 regions[site].cohensD.addValue(similarity, cohensDResult)
 
@@ -444,9 +462,10 @@ for session in sessions:
             
             ## fit step function
             if len(valuesCor) >= 3 : 
-                rSquaredLog = regions[site].logisticFit.addFit(similaritiesCor, valuesCor)
-                rSquaredStep = regions[site].stepFit.addFit(similaritiesCor, valuesCor)
-                rSquaredGauss = regions[site].gaussFit.addFit(similaritiesCor, valuesCor)
+                plotDetails = session + "_ch" + str(channel) + "_cluster" + str(cluster)
+                rSquaredLog = regions[site].logisticFit.addFit(similaritiesCor, valuesCor, plotDetails)
+                rSquaredStep = regions[site].stepFit.addFit(similaritiesCor, valuesCor, plotDetails)
+                rSquaredGauss = regions[site].gaussFit.addFit(similaritiesCor, valuesCor, plotDetails)
                 if rSquaredLog >= 0 and rSquaredStep >= 0 : 
                     regions[site].rDiffLog.append(rSquaredLog - rSquaredStep)
                 if rSquaredGauss >= 0 and rSquaredStep >= 0 : 
@@ -468,6 +487,7 @@ for session in sessions:
 print("\nTime preparing data: " + str(time.time() - startPrepareDataTime) + " s\n")
 print("\nNum sessions: " + str(sessionCounter) + " \n")
 print("\nNum units: " + str(unitCounter) + " \n")
+print("\nNum responsive units: " + str(responsiveUnitCounter) + " \n")
 
 
 allRegionCoactivationPlots = []
@@ -538,25 +558,37 @@ for site in allSiteNames :
 
     totalNumResponseStrengthHist = max(1.0, len(siteData.responseStrengthHistResp) + len(siteData.responseStrengthHistNoResp)) #numRespUnitStimuli
 
-    if len(regions[site].logisticFit.yFit[0]) > 0 :
+    logFit = regions[site].logisticFit
+
+    if len(regions[site].logisticFit.yFit[0]) > 0 and not site == 'All':
 
         pTmp = regions[site].logisticFit.params
         
         for i in range(len(pTmp[0])) :
             logisticFitFigSingle = go.Figure(
                 go.Scatter(
-                    x=regions[site].logisticFit.xFit,
-                    y=fitLogisticFunc(regions[site].logisticFit.xFit, pTmp[0][i], pTmp[1][i], pTmp[2][i], pTmp[3][i]),
+                    x=logFit.xFit,
+                    y=logFunc(logFit.xFit, pTmp[0][i], pTmp[1][i], pTmp[2][i], pTmp[3][i]),
                 )
             )
 
+            logisticFitFigSingle.add_trace(
+                go.Scatter(
+                    x=logFit.x[i],
+                    y=logFit.y[i],
+                    mode='markers',
+                    marker_color='blue'
+                )
+            )
+            rStr = str(round(logFit.rSquared[i],2))
+
             logisticFitFigSingle.update_layout(
-                title_text="Logistic fit. R: " + str(round(regions[site].logisticFit.rSquared[i],2)) + ", X0: " + str(round(pTmp[0][i],2)) + ", K: " + str(round(pTmp[1][i],2)) + ", a: " + str(round(pTmp[2][i],2)) + ", c: " + str(round(pTmp[3][i],2)),
+                title_text="Logistic fit. R: " + rStr + ", X0: " + str(round(pTmp[0][i],2)) + ", K: " + str(round(pTmp[1][i],2)) + ", a: " + str(round(pTmp[2][i],2)) + ", c: " + str(round(pTmp[3][i],2)),
                 xaxis_title='Semantic similarity',
                 yaxis_title='Normalized firing rate',
                 showlegend=False 
             )
-            saveImg(logisticFitFigSingle, "fit" + os.sep + "logistic_fit_single" + os.sep + fileDescription + "_" + str(i))
+            saveImg(logisticFitFigSingle, "fit" + os.sep + "logistic_fit_single" + os.sep + fileDescription + "_" + str(i) + "_r" + rStr + "_" + logFit.plotDetails[i])
 
         #for i in range(len(regions[site].logisticFitK)) : 
         #    logisticFitFig.add_trace(go.Scatter(
@@ -601,7 +633,7 @@ for site in allSiteNames :
         createHist(siteData.responseStrengthHistNoResp, np.arange(0,1.02,0.01), 100.0 / float(totalNumResponseStrengthHist), 'Normalized firing rate', 'Stimuli in %', "red"),
         "response_strength_hist_no" + os.sep + fileDescription))
     allRegionNumResponsesPlots.append(createAndSave(
-        createHist(siteData.numResponsesHist, range(args.max_responses_unit + 1), 1, 'Number of units', 'Number of responses', "blue"),
+        createHist(siteData.numResponsesHist, range(args.max_responses_unit + 1), 1, 'Number of responses', 'Number of units', "blue"),
         "num_responses" + os.sep + fileDescription))
     allRegionCoactivationNormalizedPlots.append(createAndSave(
         createPlot(siteData.coactivationNorm.similarity[:-1], siteData.coactivationNorm.y * 100, "Normalized coactivation probability in %", "coactivation normalized", True, ticktextCoactivation), 
@@ -610,7 +642,7 @@ for site in allSiteNames :
         createStepBoxPlot(siteData.zScoresNorm, "Mean zscores", "zscores", args.alpha_box), 
         "zscores" + os.sep + fileDescription))
     allRegionFiringRatesPlots.append(createAndSave(
-        createStepBoxPlot(siteData.firingRatesNorm, "Normalized firing rates", "Normalized firing rates", args.alpha_box, 'all'), #False, True), 
+        createStepBoxPlot(siteData.firingRatesNorm, "Normalized firing rates", "Normalized firing rates", args.alpha_box, 'all', False, True), 
         "firing_rates" + os.sep + fileDescription))
     allRegionCohensDPlots.append(createAndSave(
         createStepBoxPlot(siteData.cohensD, "Mean cohens d", "cohensd", args.alpha_box), 
@@ -690,18 +722,18 @@ app.layout = html.Div(children=[
     responseStrengthHistDivNo, 
     slopeDiv,
     logisticFitDiv,
-    logisticFitAlignedDiv,
-    gaussianFitDiv,
-    gaussianFitAlignedDiv,
-    logisticFitX0Div,
-    logisticFitKDiv,
     logisticFitRSquaredDiv,
     logisticFitRDiffDiv,
+    logisticFitKDiv,
+    logisticFitX0Div,
     #gaussianFitRDiffDiv,
     zscoresDiv, 
     cohensDDiv,
     responseStrengthDiv, 
     numRespDiv, 
+    logisticFitAlignedDiv,
+    gaussianFitDiv,
+    gaussianFitAlignedDiv,
 ])
 
 
