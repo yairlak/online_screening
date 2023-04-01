@@ -25,6 +25,7 @@ from dash import html
 from dash.dependencies import Input, Output
 
 # utilility modules
+from utils import *
 from plot_helper import *
 from data_manip import DataHandler
 #from data_manip import get_THINGS_indices
@@ -46,9 +47,11 @@ parser.add_argument('--metric', default='cosine',
                     help='Distance metric')
 parser.add_argument('--similarity_matrix_delimiter', default=',', type=str,
                     help='Similarity metric delimiter')
+parser.add_argument('--response_metric', default='zscores', # or pvalues or firing_rates
+                    help='Metric to rate responses')
 
 # FLAGS
-parser.add_argument('--dont_plot', action='store_true', default=True, 
+parser.add_argument('--dont_plot', action='store_true', default=False, 
                     help='If True, plotting to figures folder is supressed')
 parser.add_argument('--only_SU', default=True, 
                     help='If True, only single units are considered')
@@ -82,7 +85,7 @@ parser.add_argument('--path2semanticdata',
 parser.add_argument('--path2data', 
                     default='../data/aos_after_manual_clustering/') 
 parser.add_argument('--path2images', 
-                    default='../figures/semantic_coactivation/') 
+                    default='../figures/semantic_coactivation') 
 
 args=parser.parse_args()
 
@@ -113,11 +116,43 @@ class NormArray:
 
 
 @dataclass
+class MedianSplit:
+    median: float = 0.0
+    xLower: List = field (default_factory=lambda: [])
+    xHigher: List = field (default_factory=lambda: [])
+    yLower: List = field (default_factory=lambda: [])
+    yHigher: List = field (default_factory=lambda: [])
+    
+    def createMedianSplitPlot(self, title, yLabel) :
+        if len(self.xLower) == 0 or len(self.xHigher) == 0: 
+            return createStdErrorMeanPlot([0], [[0]], title, yLabel)
+        
+        x = [statistics.mean(self.xLower), statistics.mean(self.xHigher)]
+        #y = [statistics.mean(self.yLower), statistics.mean(self.yHigher)]
+        #error=[sem(self.yLower), sem(self.yHigher)]
+
+        return createStdErrorMeanPlot(x, [self.yLower, self.yHigher], title + ". Median: " + str(self.median), yLabel)
+
+    def getMedianSplit(x, y) :
+        x = np.array(x)
+        y = np.array(y)
+        median = statistics.median(x)
+        lowerIndex = np.where(x <= median)[0]
+        higherIndex = np.where(x > median)[0]
+        xLower = x[lowerIndex]
+        xHigher = x[higherIndex]
+        yLower = y[lowerIndex]
+        yHigher = y[higherIndex]
+        return MedianSplit(median, xLower, xHigher, yLower, yHigher)
+    
+@dataclass
 class Region:
     sitename: str
     coactivationNorm : NormArray = field(default_factory=lambda: NormArray())
     numResponsesPerConcept : List = field (default_factory=lambda: np.zeros(len(data.df_metadata['uniqueID'])))
     zScoresNorm : SimilaritiesArray = field(default_factory=lambda: SimilaritiesArray())
+    zStatistics : SimilaritiesArray = field(default_factory=lambda: SimilaritiesArray())
+    pvalues : SimilaritiesArray = field(default_factory=lambda: SimilaritiesArray())
     cohensD : SimilaritiesArray = field(default_factory=lambda: SimilaritiesArray())
     responseStrength : SimilaritiesArray = field(default_factory=lambda: SimilaritiesArray())
     firingRatesNorm : SimilaritiesArray = field(default_factory=lambda: SimilaritiesArray())
@@ -127,10 +162,12 @@ class Region:
     firingRatesScatter : List = field (default_factory=lambda: [])
     responseStrengthHistResp : List = field (default_factory=lambda: [])
     responseStrengthHistNoResp : List = field (default_factory=lambda: [])
+    maxDistResp : List = field (default_factory=lambda: [])
 
     spearmanCor : List = field (default_factory=lambda: [])
     spearmanP : List = field (default_factory=lambda: [])
     spearmanCorSteps : SimilaritiesArray = field(default_factory=lambda: SimilaritiesArray())
+    spearmanCorMSplit : MedianSplit = MedianSplit()
     pearsonCor : List = field (default_factory=lambda: [])
     pearsonP : List = field (default_factory=lambda: [])
     pearsonCorSteps : SimilaritiesArray = field(default_factory=lambda: SimilaritiesArray())
@@ -153,7 +190,7 @@ def createAndSave(func, filename) :
 
 def saveImg(fig, filename) : 
 
-    file = args.path2images + filename 
+    file = args.path2images + "_" + args.response_metric + "/" + filename 
 
     if not args.dont_plot : 
         os.makedirs(os.path.dirname(file), exist_ok=True)
@@ -212,7 +249,7 @@ regions = {}
 
 regions[allRegionsName] = Region(allRegionsName)
 alphaBestResponse = []
-sitesToExclude = ["LFa", "LTSA", "LTSP"]
+sitesToExclude = ["LFa", "LTSA", "LTSP", "Fa", "TSA", "TSP"]
 
 unitCounter = 0
 responsiveUnitCounter = 0
@@ -266,7 +303,7 @@ for session in sessions:
     for unit in units:
         unitCounter += 1
         unitData = data.neural_data[session]['units'][unit]
-        if not unitData['kind'] == 'SU' or unitData['site'] in sitesToExclude :
+        if (not unitData['kind'] == 'SU' and args.only_SU) or unitData['site'] in sitesToExclude :
             continue
         pvals = unitData['p_vals']
         zscores = unitData['zscores'] 
@@ -274,15 +311,22 @@ for session in sessions:
         trials = unitData['trial']
         channel = unitData['channel_num']
         cluster = unitData['class_num']
-        firingRates, consider = get_mean_firing_rate_normalized(trials, stimuliIndices, startTimeAvgFiringRate, stopTimeAvgFiringRate, minRatioActiveTrials, minFiringRateConsider)
+        firingRates, consider, medianFiringRates = get_mean_firing_rate_normalized(trials, stimuliIndices, startTimeAvgFiringRate, stopTimeAvgFiringRate, minRatioActiveTrials, minFiringRateConsider)
         responseStimuliIndices = np.where((pvals < args.alpha) & (consider > 0))[0]
         responses = [thingsIndices[i] for i in responseStimuliIndices]
         similaritiesCor = []
         valuesCor = []
         similaritiesCorSteps = [[] for i in range(numCorSteps)]
         valuesCorSteps = [[] for i in range(numCorSteps)]
-
         zscores = zscores / max(zscores)
+
+        if args.response_metric == "zscores" : 
+            metric = zscores
+        else : 
+            if args.response_metric == "pvalues" : 
+                metric = pvals
+            else : 
+                metric = firingRates
         
         if not len(firingRates) == numStimuli or not len(zscores) == numStimuli : 
             print("ERROR: array length does not fit for zscores or firing rates!")
@@ -303,7 +347,11 @@ for session in sessions:
             regions[site].numResponsesHist.append(len(responses))
 
             # zscores
-            bestResponse = np.argmax(firingRates) # best Response = highest z? highest response strength?
+            if metric == "pvalues" : 
+                bestResponse = np.argmin(metric) # best Response = highest z? highest response strength?
+            else : 
+                bestResponse = np.argmax(metric) # best Response = highest z? highest response strength?
+            #bestResponse = np.argmax(firingRates) # best Response = highest z? highest response strength?
             #bestResponse = responseStimuliIndices[np.argmax(firingRates[responseStimuliIndices])] # best Response = highest z? highest response strength?
             #firingRates /= firingRates[bestResponse]
             indexBest = thingsIndices[bestResponse]
@@ -321,8 +369,8 @@ for session in sessions:
                 #    continue
                 index = thingsIndices[i]
 
-                if index == indexBest and not includeSelfSimilarity : 
-                    continue
+                #if index == indexBest and not includeSelfSimilarity : 
+                #    continue
 
                 if not index in responses and args.only_responses: 
                     continue
@@ -331,8 +379,15 @@ for session in sessions:
                 similarityIndex = similarityMatrixToIndex[index, indexBest]
                 ## regions[allRegionsName].zScoresNorm.addValue(similarity, zscores[i])
                 ## regions[site].zScoresNorm.addValue(similarity, zscores[i])
-                regions[allRegionsName].firingRatesNorm.addValue(similarity, firingRates[i])
-                regions[site].firingRatesNorm.addValue(similarity, firingRates[i])
+                if not (index == indexBest and args.response_metric == "firing_rates" ): 
+                    regions[allRegionsName].firingRatesNorm.addValue(similarity, firingRates[i])
+                    regions[site].firingRatesNorm.addValue(similarity, firingRates[i])
+                if not (index == indexBest and (args.response_metric == "pvalues" or args.response_metric == "zscores") ): 
+                    regions[allRegionsName].pvalues.addValue(similarity, pvals[i])
+                    regions[site].pvalues.addValue(similarity, pvals[i])
+                if not (index == indexBest and (args.response_metric == "pvalues" or args.response_metric == "zscores") ): 
+                    regions[allRegionsName].zStatistics.addValue(similarity, zscores[i])
+                    regions[site].zStatistics.addValue(similarity, zscores[i])
 
                 regions[allRegionsName].firingRatesScatterSimilarities.append(similarity)
                 regions[site].firingRatesScatterSimilarities.append(similarity)
@@ -353,15 +408,15 @@ for session in sessions:
                         regions[site].responseStrengthHistNoResp.append(firingRates[i])
                         numNoRespUnitStimuli += 1
 
-                if not i == bestResponse : ##and index in responses: ###
+                if not i == bestResponse and index in responses: ###
                     corStep = int(similarity / corStepSize)
                     similaritiesCor.append(similarity)
                     valuesCor.append(firingRates[i])
 
-                    for j in range(0, corStep) : 
+                    for j in range(corStep, len(similaritiesCorSteps)-1) : 
                         similaritiesCorSteps[j].append(similarity)
                         valuesCorSteps[j].append(firingRates[i])
-
+                
                         
 
             
@@ -393,14 +448,18 @@ for session in sessions:
                     responseFiringRates.append(firingRate)
                     allFiringRates[t] = firingRate
 
-                meanFiringRatesStimuli[stimNum] = statistics.mean(responseFiringRates)
-                stddevFiringRatesStimuli[stimNum] = statistics.stdev(responseFiringRates)
-                medianFiringRatesStimuli[stimNum] = statistics.median(responseFiringRates)
+                #meanFiringRatesStimuli[stimNum] = statistics.mean(responseFiringRates)
+                #stddevFiringRatesStimuli[stimNum] = statistics.stdev(responseFiringRates)
+                #medianFiringRatesStimuli[stimNum] = statistics.median(responseFiringRates) 
+
+                meanFiringRatesStimuli[stimNum] = statistics.mean(firingRates[stimNum]) ## TODO: cleanup
+                stddevFiringRatesStimuli[stimNum] = statistics.stdev(firingRates[stimNum])
+                medianFiringRatesStimuli[stimNum] = statistics.median(firingRates[stimNum]) 
 
 
-            meanAll = statistics.mean(allFiringRates)
-            stddevAll = statistics.stdev(allFiringRates)
-            maxMedianFiringRate = max(medianFiringRatesStimuli)
+            meanAll = statistics.mean(firingRates) # allFiringRates
+            stddevAll = statistics.stdev(firingRates) # allFiringRates
+            maxMedianFiringRate = max(medianFiringRates) # medianFiringRatesStimuli
 
             #for response in responses : 
             for stimNum in range(numStimuliSession) : 
@@ -431,20 +490,33 @@ for session in sessions:
                 regions[allRegionsName].zScoresNorm.addValue(similarity, zscore)
                 regions[site].zScoresNorm.addValue(similarity, zscore)
 
-        if len(valuesCor) > 0 : 
-            spearman = stats.spearmanr(valuesCor, similaritiesCor)
-
-            regions[site].spearmanCor.append(spearman.correlation)
-            regions[site].spearmanP.append(spearman.pvalue)
-            regions[allRegionsName].spearmanCor.append(spearman.correlation)
-            regions[allRegionsName].spearmanP.append(spearman.pvalue)
+        if len(responses) > 1 :
+            maxDist = 0
+            for i in responses : 
+                for j in responses : 
+                    dist = 1 - data.similarity_matrix[i][j]
+                    if dist > maxDist : 
+                        maxDist = dist
             
-            if len(valuesCor) >= 2 : 
-                pearson = stats.pearsonr(valuesCor, similaritiesCor)
-                regions[site].pearsonCor.append(pearson[0])
-                regions[site].pearsonP.append(pearson[1])
-                regions[allRegionsName].pearsonCor.append(pearson[0])
-                regions[allRegionsName].pearsonP.append(pearson[1])
+            regions[allRegionsName].maxDistResp.append(maxDist)
+            regions[site].maxDistResp.append(maxDist)
+
+        if len(valuesCor) >= 2 : 
+            regions[site].spearmanCorMSplit = MedianSplit.getMedianSplit(similaritiesCor, valuesCor)
+            regions[allRegionsName].spearmanCorMSplit = MedianSplit.getMedianSplit(similaritiesCor, valuesCor)
+            
+            spearman = stats.spearmanr(valuesCor, similaritiesCor)
+            if not math.isnan(spearman.correlation) : 
+                regions[site].spearmanCor.append(spearman.correlation)
+                regions[site].spearmanP.append(spearman.pvalue)
+                regions[allRegionsName].spearmanCor.append(spearman.correlation)
+                regions[allRegionsName].spearmanP.append(spearman.pvalue)
+
+            pearson = stats.pearsonr(valuesCor, similaritiesCor)
+            regions[site].pearsonCor.append(pearson[0])
+            regions[site].pearsonP.append(pearson[1])
+            regions[allRegionsName].pearsonCor.append(pearson[0])
+            regions[allRegionsName].pearsonP.append(pearson[1])
 
             for i in range(numCorSteps) : 
                 similarityCorStep = i * corStepSize
@@ -463,7 +535,7 @@ for session in sessions:
             ## fit step function
             if len(valuesCor) >= 3 : 
                 plotDetails = session + "_ch" + str(channel) + "_cluster" + str(cluster)
-                rSquaredLog = regions[site].logisticFit.addFit(similaritiesCor, valuesCor, plotDetails)
+                rSquaredLog = regions[site].logisticFit.addFit(similaritiesCor, valuesCor, plotDetails) ### TODO: all values, not only responses?
                 rSquaredStep = regions[site].stepFit.addFit(similaritiesCor, valuesCor, plotDetails)
                 rSquaredGauss = regions[site].gaussFit.addFit(similaritiesCor, valuesCor, plotDetails)
                 if rSquaredLog >= 0 and rSquaredStep >= 0 : 
@@ -494,11 +566,15 @@ allRegionCoactivationPlots = []
 allRegionCopresentationPlots = []
 allRegionCoactivationNormalizedPlots = []
 allRegionZScoresPlots = []
+allRegionZStatisticsPlots = []
+allRegionPValuesPlots = []
 allRegionFiringRatesPlots = []
 allRegionCohensDPlots = []
 allRegionResponseStrengthPlots = []
 allRegionNumResponsesPlots = []
+allRegionMaxDistPlots = []
 allRegionSpearmanPlots = []
+allRegionSpearmanMSplitPlots = []
 allRegionSpearmanPPlots = []
 allRegionPearsonPlots = []
 allRegionPearsonPPlots = []
@@ -517,7 +593,7 @@ allRegionSlopePlots = []
 
 figurePrepareTime = time.time()
 spearmanPPlot = go.Figure()
-spearmanPlot = go.Figure()
+spearmanPlot = createStdErrorMeanPlot([regions[site].sitename for site in allSiteNames], [regions[site].spearmanCor for site in allSiteNames], "Spearman correlation for responding units", "")
 pearsonPPlot = go.Figure()
 pearsonPlot = go.Figure()
 
@@ -538,7 +614,7 @@ for site in allSiteNames :
     siteData = regions[site]
     print("Create figures for " + site)
     
-    spearmanPlot.add_trace(createCorrelationPlot(siteData.sitename, siteData.spearmanCor))
+    #spearmanPlot.add_trace(createCorrelationPlot(siteData.sitename, siteData.spearmanCor))
     spearmanPPlot.add_trace(createCorrelationPlot(siteData.sitename, siteData.spearmanP))
     pearsonPlot.add_trace(createCorrelationPlot(siteData.sitename, siteData.pearsonCor))
     pearsonPPlot.add_trace(createCorrelationPlot(siteData.sitename, siteData.pearsonP))
@@ -635,12 +711,25 @@ for site in allSiteNames :
     allRegionNumResponsesPlots.append(createAndSave(
         createHist(siteData.numResponsesHist, range(args.max_responses_unit + 1), 1, 'Number of responses', 'Number of units', "blue"),
         "num_responses" + os.sep + fileDescription))
+    allRegionMaxDistPlots.append(createAndSave(
+        createHist(siteData.maxDistResp, np.arange(0.0, 1.001, 0.02), 1, 'Span of responses', 'Number of units', "blue"),
+        "span_responses" + os.sep + fileDescription))
+    
     allRegionCoactivationNormalizedPlots.append(createAndSave(
         createPlot(siteData.coactivationNorm.similarity[:-1], siteData.coactivationNorm.y * 100, "Normalized coactivation probability in %", "coactivation normalized", True, ticktextCoactivation), 
         "coactivation_normalized" + os.sep + fileDescription))
     allRegionZScoresPlots.append(createAndSave(
         createStepBoxPlot(siteData.zScoresNorm, "Mean zscores", "zscores", args.alpha_box), 
         "zscores" + os.sep + fileDescription))
+    allRegionPValuesPlots.append(createAndSave(
+        createStepBoxPlot(siteData.pvalues, "Mean pvalues", "pvalues", args.alpha_box), 
+        "pvalues" + os.sep + fileDescription))
+    allRegionZStatisticsPlots.append(createAndSave(
+        createStepBoxPlot(siteData.zStatistics, "Mean zstatistics", "zstatistics", args.alpha_box), 
+        "zstatistics" + os.sep + fileDescription))
+    #allRegionZStatisticsPlots.append(createAndSave(
+    #    createStepBoxPlot(siteData.zStatistics, "Mean zstatistics", "zstatistics", args.alpha_box), 
+    #    "zstatistics" + os.sep + fileDescription))
     allRegionFiringRatesPlots.append(createAndSave(
         createStepBoxPlot(siteData.firingRatesNorm, "Normalized firing rates", "Normalized firing rates", args.alpha_box, 'all', False, True), 
         "firing_rates" + os.sep + fileDescription))
@@ -653,9 +742,12 @@ for site in allSiteNames :
     allRegionSpearmanPlots.append(createAndSave(
         createStepBoxPlot(siteData.spearmanCorSteps, "Spearman correlation dependent on semantic similarity", "spearmanCorSteps", args.alpha_box, 'all', False, False), 
         "spearmanCorSteps" + os.sep + fileDescription)) 
+    allRegionSpearmanMSplitPlots.append(createAndSave(
+        siteData.spearmanCorMSplit.createMedianSplitPlot("Spearman correlation median split", "spearmanCor"), 
+        "spearmanCorMSplit" + os.sep + fileDescription)) 
     allRegionPearsonPlots.append(createAndSave(
-        createStepBoxPlot(siteData.pearsonCorSteps, "Pearson correlation dependent on semantic similarity", "spearmanCorSteps", args.alpha_box, 'all', False, False), 
-        "spearmanCorSteps" + os.sep + fileDescription)) 
+        createStepBoxPlot(siteData.pearsonCorSteps, "Pearson correlation dependent on semantic similarity", "pearsonCorSteps", args.alpha_box, 'all', False, False), 
+        "pearsonCorSteps" + os.sep + fileDescription)) 
     allRegionSlopePlots.append(createAndSave(
         createBoxPlot([regions[site].logisticFit.steepestSlopes], [""], "Steepest slope of fitted data per neuron"), 
         "fit" + os.sep + "slopes" + os.sep + fileDescription))
@@ -682,12 +774,16 @@ coactivationDiv, coactivationFigId, coactivationTableId = createRegionsDiv("Coac
 copresentationDiv, copresentationFigId, copresentationTableId = createRegionsDiv("Copresentation", allSiteNames)
 coactivationNormalizedDiv, coactivationNormalizedFigId, coactivationNormalizedTableId = createRegionsDiv("Coactivation - Normalized", allSiteNames)
 zscoresDiv, zscoresFigId, zscoresTableId = createRegionsDiv("Mean zscores dependent on semantic similarity to best response", allSiteNames)
+zstatisticsDiv, zstatisticsFigId, zstatisticsTableId = createRegionsDiv("Mean zstatistics dependent on semantic similarity to best response", allSiteNames)
+pValuesDiv, pValuesFigId, pValuesTableId = createRegionsDiv("Mean pValues dependent on semantic similarity to best response", allSiteNames)
 firingRatesDiv, firingRatesFigId, firingRatesTableId = createRegionsDiv("Normalized firing rates dependent on semantic similarity to best response", allSiteNames)
 cohensDDiv, cohensDFigId, cohensDTableId = createRegionsDiv("Mean cohens d dependent on semantic similarity to best response", allSiteNames)
 responseStrengthDiv, responseStrengthFigId, responseStrengthTableId = createRegionsDiv("Mean response strength dependent on semantic similarity to best response", allSiteNames)
+spearmanCorMSplitDiv, spearmanCorMSplitFigId, spearmanCorMSplitTableId = createRegionsDiv("Spearman correlation median split", allSiteNames)
 spearmanCorStepsDiv, spearmanCorStepsFigId, spearmanCorStepsTableId = createRegionsDiv("Spearman correlation dependent on semantic similarity to best response", allSiteNames)
 pearsonCorStepsDiv, pearsonCorStepsFigId, pearsonCorStepsTableId = createRegionsDiv("Pearson correlation dependent on semantic similarity to best response", allSiteNames)
 numRespDiv, numRespFigId, numRespTableId = createRegionsDiv("Number of units with respective response counts", allSiteNames)
+maxDistDiv, maxDistFigId, maxDistTableId = createRegionsDiv("Max span of responsive field of a neuron", allSiteNames)
 responseStrengthHistDiv, responseStrengthHistFigId, responseStrengthHistTableId = createRegionsDiv("Response strength histogram for responsive stimuli", allSiteNames)
 responseStrengthHistDivNo, responseStrengthHistFigIdNo, responseStrengthHistTableIdNo = createRegionsDiv("Response strength histogram for non responsive stimuli", allSiteNames)
 logisticFitDiv, logisticFitFigId, logisticFitTableId = createRegionsDiv("Logistic fit for all responsive units", allSiteNames)
@@ -710,6 +806,7 @@ app.layout = html.Div(children=[
     dcc.Graph(id='spearman-plot', figure=spearmanPlot),
     dcc.Graph(id='spearman-p-plot', figure=spearmanPPlot),
     spearmanCorStepsDiv,
+    spearmanCorMSplitDiv,
     html.H3('Pearson correlation'),
     dcc.Graph(id='pearson-plot', figure=pearsonPlot),
     dcc.Graph(id='pearson-p-plot', figure=pearsonPPlot),
@@ -727,9 +824,12 @@ app.layout = html.Div(children=[
     logisticFitKDiv,
     logisticFitX0Div,
     #gaussianFitRDiffDiv,
-    zscoresDiv, 
+    zscoresDiv,
+    zstatisticsDiv, 
+    pValuesDiv,
     cohensDDiv,
     responseStrengthDiv, 
+    maxDistDiv, 
     numRespDiv, 
     logisticFitAlignedDiv,
     gaussianFitDiv,
@@ -757,6 +857,13 @@ def getActivePlot(data, activeCell) :
 )
 def update_output_div(active_cell):
     return getActivePlot(allRegionSpearmanPlots, active_cell)
+
+@app.callback(
+    Output(component_id=spearmanCorMSplitFigId, component_property='figure'), 
+    Input(spearmanCorMSplitTableId, 'active_cell')
+)
+def update_output_div(active_cell):
+    return getActivePlot(allRegionSpearmanMSplitPlots, active_cell)
 
 @app.callback(
     Output(component_id=pearsonCorStepsFigId, component_property='figure'), 
@@ -878,6 +985,20 @@ def update_output_div(active_cell):
     return getActivePlot(allRegionZScoresPlots, active_cell)
 
 @app.callback(
+    Output(component_id=zstatisticsFigId, component_property='figure'), 
+    Input(zstatisticsTableId, 'active_cell')
+)
+def update_output_div(active_cell):
+    return getActivePlot(allRegionZStatisticsPlots, active_cell)
+
+@app.callback(
+    Output(component_id=pValuesFigId, component_property='figure'), 
+    Input(pValuesTableId, 'active_cell')
+)
+def update_output_div(active_cell):
+    return getActivePlot(allRegionPValuesPlots, active_cell)
+
+@app.callback(
     Output(component_id=firingRatesFigId, component_property='figure'), 
     Input(firingRatesTableId, 'active_cell')
 )
@@ -904,6 +1025,13 @@ def update_output_div(active_cell):
 )
 def update_output_div(active_cell):
     return getActivePlot(allRegionNumResponsesPlots, active_cell)
+
+@app.callback(
+    Output(component_id=maxDistFigId, component_property='figure'), 
+    Input(maxDistTableId, 'active_cell')
+)
+def update_output_div(active_cell):
+    return getActivePlot(allRegionMaxDistPlots, active_cell)
 
     
 if __name__ == '__main__':

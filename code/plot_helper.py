@@ -141,8 +141,42 @@ def createCorrelationPlot(sitename, correlation) :
         #boxmean='sd'
     )
 
+def createStdErrorMeanNamesPlot(values, xNames, title, boxpoints='all') :
+    fig = go.Figure()
+
+    for i in range(len(values)) : 
+        if len(values[i]) == 0 : 
+            values[i] = [0]
+
+    #sems = [sem(values[i]) for i in range(len(values))] 
+    #y = [statistics.mean(values[i]) for i in range(len(values))] 
+
+    #fig.add_trace(
+    #    go.Scatter(
+    #        name=xNames,
+    #        y=y, 
+    #        error_y=dict(type='data', array=sems, visible=True)
+   #     ))
+    for i in range(len(xNames)) : 
+        #stddev = statistics.stdev(values[i])
+        fig.add_trace(go.Scatter(
+            y=[statistics.mean(values[i])],
+            name=xNames[i],
+            error_y=dict(type='data', array=[sem(values[i])], visible=True)
+            #boxpoints=boxpoints,
+            #boxmean='sd'
+            #marker_color = 'blue'
+        ))
+
+    fig.update_layout(
+        title_text=title, 
+        showlegend=False
+    )
+    return fig
+
 def createBoxPlot(values, xNames, title, boxpoints='all') :
     fig = go.Figure()
+
     for i in range(len(xNames)) : 
         #stddev = statistics.stdev(values[i])
         fig.add_trace(go.Box(
@@ -152,11 +186,39 @@ def createBoxPlot(values, xNames, title, boxpoints='all') :
             #boxmean='sd'
             marker_color = 'blue'
         ))
+
     fig.update_layout(
-        #title_text=title, ###
+        title_text=title, 
         showlegend=False
     )
     return fig
+
+def createStdErrorMeanPlot(x, data, title, yLabel) : 
+    fig = go.Figure()
+
+    for i in range(len(data)) : 
+        if len(data[i]) == 0 : 
+            data[i] = [0]
+
+    sems = [sem(data[i]) for i in range(len(data))] 
+    y = [statistics.mean(data[i]) for i in range(len(data))] 
+
+    fig.add_trace(
+        go.Scatter(
+            x=x, 
+            y=y, 
+            error_y=dict(type='data', array=sems, visible=True)
+        ))
+    
+    fig.update_layout(
+        title_text=title, ###
+        xaxis_title='Semantic similarity',
+        yaxis_title=yLabel,
+        showlegend=False,
+    )
+
+    return fig
+
 
 def createStepBoxPlot(similaritiesArray, title, yLabel="", alpha=0.001, boxpoints='all', addLog=True, addPartialGaussian=True, stepBox=0.1) :   
     
@@ -169,12 +231,14 @@ def createStepBoxPlot(similaritiesArray, title, yLabel="", alpha=0.001, boxpoint
     lowerfences = []
     upperfences = []
     means = []
+    sems = []
     q1 = []
     q3 = []
 
     fig = go.Figure()
 
-    for step in np.arange(-0.01,1.001,stepBox) : # due to rounding errors
+    xPlot = np.arange(-0.0001,1.0001,stepBox)
+    for step in xPlot : # due to rounding errors
         indices = np.where((x >= step) & (x < step+stepBox))[0]
         if len(indices) == 0 : 
             continue
@@ -183,47 +247,35 @@ def createStepBoxPlot(similaritiesArray, title, yLabel="", alpha=0.001, boxpoint
             mean = statistics.mean(y)
             stddev = statistics.stdev(y)
             means.append(mean)
+            sems.append(sem(y))
             lowerfences.append(mean-stddev)
             upperfences.append(mean+stddev)
-            q1.append(np.percentile(y, 25))
-            q1.append(np.percentile(y, 75))
+            q1.append(np.percentile(y, 25)) #(mean-error)
+            q3.append(np.percentile(y, 75))
     
-        fig.add_trace(go.Box(
-            x0=step,
-            y=values[indices],
-            name="{:.2f} ({})".format(step, y),
-            boxpoints=boxpoints,
-            marker_color = 'blue'
-            #boxmean='sd'
+            
+            #go.Box(
+            #x0=step,
+            #y=values[indices],
+            #name="{:.2f} ({})".format(step, y),
+            #boxpoints=boxpoints,
+            #marker_color = 'blue'
+            ##boxmean='sd'
+        #))
+
+    
+    fig.add_trace(
+        go.Scatter(
+            x=xPlot,
+            y=means,
+            error_y=dict(type='data', array=sems, visible=True)
         ))
 
-    fig.update_traces(q1=q1, median=means,
-        q3=q3, lowerfence=lowerfences,
-        upperfence=upperfences )
+    #fig.update_traces(q1=q1, median=means,
+    #    q3=q3, lowerfence=lowerfences,
+    #    upperfence=upperfences )
+    #fig.update_traces(q1=q1, q3=q3, median=means)
 
-    """ for i in range(len(values)) : 
-        if(len(values[i]) >= 1) : 
-            fig.add_trace(go.Box(
-                #xaxis='x',
-                x0=x[i],
-                y=values[i],
-                name="{:.2f} ({})".format(x[i], len(values[i])),
-                boxpoints=boxpoints,
-                #boxpoints='all',
-            ))
-            xFit = np.concatenate((xFit, np.repeat(x[i], len(values[i]))))
-            yFit = np.concatenate((yFit, values[i]))
-        #if(len(values[i]) >= 10) : 
-        #    xFit.append(x[i])
-        #    yFit.append(statistics.median(values[i]))
-        else : 
-            fig.add_trace(go.Box(
-                xaxis='x',
-                x0=x[i],
-                y=[0.0],
-                name="{:.2f} ({})".format(x[i], len(values[i])),
-                boxpoints=boxpoints,
-            )) """
 
         #if i < len(values)-1 : 
         #    t_value, p_value = stats.ttest_ind(values[i], values[i+1]) 
@@ -335,13 +387,13 @@ def createPlot(x, y, yLabel, title, plotHalfGaussian, ticktext=[], plotStep=0.01
 
     return fig
 
-def addMeanStddevPlots(fig, x, meanFit, stddevFit) :
+def addMeanStddevPlots(fig, x, meanFit, error, title) :
     color="blue"
-    lower = meanFit - stddevFit
-    upper = meanFit + stddevFit
+    lower = meanFit - error
+    upper = meanFit + error
     colorBetweenLines(fig, x, meanFit, lower, color)
     colorBetweenLines(fig, x, meanFit, upper, color)
-    addPlotColor(fig, x, meanFit, "lines", "Mean over fits for all neurons", color)
+    addPlotColor(fig, x, meanFit, "lines", title, color)
     #addPlotColor(fig, x, lower, "lines", "Mean - stddev", [color, 0.1],)
     #addPlotColor(fig, x, upper, "lines", "Mean + stddev", [color, 0.1])
 
@@ -349,7 +401,7 @@ def createFitPlotAligned(regionFit, name) :
     fig = go.Figure()
     if len(regionFit.yFit[0]) > 0 :
         xAligned, meanFit, medianFit, paramsMedianFit, stddevFit = regionFit.getMeanStddevAligned()
-        addMeanStddevPlots(fig, xAligned, meanFit, stddevFit)
+        addMeanStddevPlots(fig, xAligned, meanFit, stddevFit, "Mean over fits for all neurons")
         addPlot(fig, xAligned, medianFit, "lines", "Median over fits for all neurons")
         addPlotColor(fig, xAligned, paramsMedianFit, "lines", "Median of fitted parameters", "red")
         #addPlot(fig, xAligned, meanFit, "lines", "Mean fit")
@@ -403,7 +455,7 @@ def createFitPlot(regionFit, name) :
         #y = medianSlope * (x-x0) + y0
         
         #addPlot(fig, regionFit.xFit, medianFit, "lines", "Median fit")
-        addMeanStddevPlots(fig, regionFit.xFit, meanFit, stddevFit)
+        addMeanStddevPlots(fig, regionFit.xFit, meanFit, stddevFit, "Mean over fits for all neurons")
         #addPlotColor(fig, regionFit.xFit, meanParams, "lines", "Mean params", "green")
         addPlotColor(fig, regionFit.xFit, medianParams, "lines", "Median of fitted parameters", "red")
         ##addPlot(fig, regionFit.xFit, meanFit, "lines", "Mean fit")

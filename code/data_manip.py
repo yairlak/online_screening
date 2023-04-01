@@ -71,6 +71,8 @@ class DataHandler(object):
                 if site == "LAH" or site == "LMH" :
                     site = "LH"
 
+                site = site[1:]
+
                 neural_data[subject_session_key]['units'][unit_num + 1] = {}
                 neural_data[subject_session_key]['units'][unit_num + 1]['site'] = site
                 neural_data[subject_session_key]['units'][unit_num + 1]['trial'] = cherries['cherries'][0, unit_num]['trial'][0, :]
@@ -183,7 +185,9 @@ def get_mean_firing_rate_normalized(all_trials, objectnumbers, min_t = 100, max_
 
     consider = np.ones(max(objectnumbers) + 1)
     firing_rates = np.zeros(max(objectnumbers) + 1) 
+    median_firing_rates = np.zeros(max(objectnumbers) + 1) 
     stimuli = np.unique(objectnumbers)
+    factor = 1000 / (max_t - min_t)
 
     for stim in stimuli : 
         stim_trials = all_trials[np.where(objectnumbers == stim)]
@@ -196,21 +200,23 @@ def get_mean_firing_rate_normalized(all_trials, objectnumbers, min_t = 100, max_
             trial_spikes = trial_spikes[np.where((trial_spikes >= min_t) & (trial_spikes < max_t))]
             #trial_spikes = trial_spikes[]
             firing_rates[stim] += len(trial_spikes)
-            firing_rates_for_median.append(len(trial_spikes))
+            firing_rates_for_median.append(len(trial_spikes) * factor)
             if len(trial_spikes) > 0 : 
                 num_active += 1
 
         total_firing_rate = 1000 * firing_rates[stim] / (max_t - min_t) #1000 * statistics.median(firing_rates_for_median) / (max_t - min_t)
+        #firing_rates_for_median = 1000 * firing_rates_for_median / (max_t - min_t) #1000 * statistics.median(firing_rates_for_median) / (max_t - min_t)
         if total_firing_rate < min_firing_rate or num_active / len(stim_trials) < min_ratio_active_trials or len(stim_trials) < 6: 
             consider[stim] = 0
 
         firing_rates[stim] = total_firing_rate
+        median_firing_rates[stim] = statistics.median(firing_rates_for_median)
 
         #object_trials = object_trials[np.where(object_trials >= min_t)]
         #object_trials = object_trials[np.where(object_trials <= max_t)]
         #firing_rates[object - 1] = np.count_nonzero(object_trials)
 
-    return firing_rates / max(firing_rates), consider
+    return firing_rates / max(firing_rates), consider, median_firing_rates
 
 
 def object2category(objectname, df_metadata, concept_source):
