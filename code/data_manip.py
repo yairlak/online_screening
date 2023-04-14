@@ -153,6 +153,10 @@ class DataHandler(object):
         self.similarity_matrix = pd.read_csv(self.path2semanticdata + 'similarityMatrix_' + self.metric + '.csv',
                                               delimiter=self.similarity_matrix_delimiter,
                                               header=None)
+        
+    def load_categories(self):
+        self.df_categories = pd.read_csv(self.path2categories,
+                                       delimiter='\t')
 
     def get_THINGS_indices(self, objects) : 
         return [np.where(object == self.df_metadata.uniqueID)[0][0] for object in objects]

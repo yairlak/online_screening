@@ -59,8 +59,8 @@ parser.add_argument('--max_t', default=800, type=int,
                         Max time offset of spike after stimulus onset.")
 
 # FLAGS
-parser.add_argument('--show_all', default=False,
-                    help='If True, all heatmaps are shown on dashboard')
+parser.add_argument('--show_all', default=True,
+                    help='If True, all heatmaps are shown on dashboard and saved')
 parser.add_argument('--dont_plot', action='store_true', default=False, 
                     help='If True, plotting to figures folder is supressed')
 parser.add_argument('--load_cat2object', default=False, 

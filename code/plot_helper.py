@@ -133,6 +133,10 @@ def createHist(x, inputBins, factorY, labelX, labelY, color="blue") :
     fig.update_traces(marker_color=color)
     return fig
 
+def createHistCompleteXTick(x, inputBins, factorY, labelX, labelY="count", color="blue") :
+    hist = createHist(x, inputBins, factorY, labelX, labelY, color)
+    return hist.update_xaxes(dtick=1)
+
 def createCorrelationPlot(sitename, correlation) : 
     return go.Box(
         y=correlation, 
