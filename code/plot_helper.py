@@ -211,6 +211,7 @@ def createStdErrorMeanPlot(x, data, title, yLabel) :
         go.Scatter(
             x=x, 
             y=y, 
+            mode='markers',
             error_y=dict(type='data', array=sems, visible=True)
         ))
     
@@ -222,7 +223,6 @@ def createStdErrorMeanPlot(x, data, title, yLabel) :
     )
 
     return fig
-
 
 def createStepBoxPlot(similaritiesArray, title, yLabel="", alpha=0.001, boxpoints='all', addLog=True, addPartialGaussian=True, stepBox=0.1) :   
     
@@ -304,7 +304,7 @@ def createStepBoxPlot(similaritiesArray, title, yLabel="", alpha=0.001, boxpoint
             rSquared = round(rSquared, 4)
         except : 
             rSquared = 0.0
-        title = title + ". R squared for logistic fit: " + str(rSquared)
+        title = title + "." + "<br>" + "Rsquared for logistic fit: " + str(rSquared)
         addPlot(fig, xFitted, yFitted, 'lines', 'Logistic fit')
         
     if addPartialGaussian and len(yFit) > 0: 
@@ -313,10 +313,21 @@ def createStepBoxPlot(similaritiesArray, title, yLabel="", alpha=0.001, boxpoint
             rSquared = round(rSquared, 4)
         except : 
             rSquared = 0.0
-        title = title + ". R squared for Gaussian fit: " + str(rSquared) 
+        title = title + "." + "<br>" + "R squared for Gaussian fit: " + str(rSquared) 
         addPlot(fig, xFitted, yFitted, 'lines', 'Gaussian fit')
 
+        
+    spearman = stats.spearmanr(x, values) 
+    #not math.isnan(spearman.correlation) : 
+    try : 
+        spearmanString = str(round(spearman.correlation, 3))
+    except : 
+        spearmanString = "could not be computed."
+    title = title + "." + "<br>" + "Spearman rho: " + spearmanString
+
     fig.update_layout(
+        width=600,
+        height=500,
         title_text=title, ###
         xaxis_title='Semantic similarity',
         yaxis_title=yLabel,
@@ -327,6 +338,9 @@ def createStepBoxPlot(similaritiesArray, title, yLabel="", alpha=0.001, boxpoint
         tickmode = 'array',
         tickvals = np.arange(0,1.05,0.1)
     )
+    
+    fig.update_yaxes(automargin=True)
+
 
     return fig
 

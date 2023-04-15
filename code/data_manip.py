@@ -64,17 +64,9 @@ class DataHandler(object):
             
             neural_data[subject_session_key]['units'] = {}
             for unit_num in range(cherries['cherries'].shape[1]):
-                
-                site = cherries['cherries'][0, unit_num]['site'][0]
-                if site == "RAH" or site == "RMH" :
-                    site = "RH"
-                if site == "LAH" or site == "LMH" :
-                    site = "LH"
-
-                site = site[1:]
 
                 neural_data[subject_session_key]['units'][unit_num + 1] = {}
-                neural_data[subject_session_key]['units'][unit_num + 1]['site'] = site
+                neural_data[subject_session_key]['units'][unit_num + 1]['site'] = cherries['cherries'][0, unit_num]['site'][0]
                 neural_data[subject_session_key]['units'][unit_num + 1]['trial'] = cherries['cherries'][0, unit_num]['trial'][0, :]
                 neural_data[subject_session_key]['units'][unit_num + 1]['class_num'] = cherries['cherries'][0, unit_num]['classno'][0, 0]
                 neural_data[subject_session_key]['units'][unit_num + 1]['channel_num'] = cherries['cherries'][0, unit_num]['channr'][0, 0]
@@ -190,6 +182,7 @@ def get_mean_firing_rate_normalized(all_trials, objectnumbers, min_t = 100, max_
     consider = np.ones(max(objectnumbers) + 1)
     firing_rates = np.zeros(max(objectnumbers) + 1) 
     median_firing_rates = np.zeros(max(objectnumbers) + 1) 
+    stddevs = np.zeros(max(objectnumbers) + 1) 
     stimuli = np.unique(objectnumbers)
     factor = 1000 / (max_t - min_t)
 
@@ -215,12 +208,13 @@ def get_mean_firing_rate_normalized(all_trials, objectnumbers, min_t = 100, max_
 
         firing_rates[stim] = total_firing_rate
         median_firing_rates[stim] = statistics.median(firing_rates_for_median)
+        stddevs[stim] = statistics.stdev(firing_rates_for_median)
 
         #object_trials = object_trials[np.where(object_trials >= min_t)]
         #object_trials = object_trials[np.where(object_trials <= max_t)]
         #firing_rates[object - 1] = np.count_nonzero(object_trials)
 
-    return firing_rates / max(firing_rates), consider, median_firing_rates
+    return firing_rates / max(firing_rates), consider, median_firing_rates, stddevs
 
 
 def object2category(objectname, df_metadata, concept_source):

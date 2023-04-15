@@ -73,6 +73,8 @@ parser.add_argument('--max_stdev_outliers', type=float, default=5,
                     help='Limit for excluding outliers')   
 parser.add_argument('--max_responses_unit', type=float, default=20,
                     help='Limit for counting responses per unit for histogram')      
+parser.add_argument('--plot_regions', default='collapse_hemispheres',
+                    help='"full"->all regions, "hemispheres"->split into hemispheres, "collapse_hemispheres"->regions of both hemispheres are collapsed')      
 
 # PATHS
 parser.add_argument('--path2metadata',
@@ -114,7 +116,6 @@ class NormArray:
         self.y[index] += value
         self.normalizer[index] += 1
 
-
 @dataclass
 class MedianSplit:
     median: float = 0.0
@@ -131,7 +132,14 @@ class MedianSplit:
         #y = [statistics.mean(self.yLower), statistics.mean(self.yHigher)]
         #error=[sem(self.yLower), sem(self.yHigher)]
 
-        return createStdErrorMeanPlot(x, [self.yLower, self.yHigher], title + ". Median: " + str(self.median), yLabel)
+
+        fig = createStdErrorMeanPlot(x, [self.yLower, self.yHigher], title + ". Median: " + str(round(self.median, 3)), yLabel)
+        fig.update_layout(
+            width=600,
+            height=600,
+        )
+
+        return fig
 
     def getMedianSplit(x, y) :
         x = np.array(x)
@@ -190,12 +198,26 @@ def createAndSave(func, filename) :
 
 def saveImg(fig, filename) : 
 
-    file = args.path2images + "_" + args.response_metric + "/" + filename 
+    file = args.path2images + "_" + args.response_metric + os.sep + args.plot_regions + os.sep + filename 
 
     if not args.dont_plot : 
         os.makedirs(os.path.dirname(file), exist_ok=True)
         fig.write_image(file + ".svg")
         fig.write_image(file + ".png")
+
+def getSite(site) : 
+    
+    if site == "RAH" or site == "RMH" :
+        site = "RH"
+    if site == "LAH" or site == "LMH" :
+        site = "LH"
+
+    if args.plot_regions == "collapse_hemispheres" : 
+        site = site[1:]
+    elif args.plot_regions == "hemispheres" : 
+        site = site[0]
+
+    return site
 
 
 #############
@@ -252,7 +274,11 @@ alphaBestResponse = []
 sitesToExclude = ["LFa", "LTSA", "LTSP", "Fa", "TSA", "TSP"]
 
 unitCounter = 0
+unitCounterLeft = 0
+unitCounterRight = 0
 responsiveUnitCounter = 0
+responsiveUnitCounterLeft = 0
+responsiveUnitCounterRight = 0
 sessionCounter = 0
 for session in sessions:
 
@@ -277,8 +303,13 @@ for session in sessions:
     allSitesSession = []
     for unit in units:
         site = data.neural_data[session]['units'][unit]['site']
+
         if site in sitesToExclude : 
             continue
+        
+        isLeftSite = True if site[0] == 'L' else False
+
+        site = getSite(site)
 
         if site not in allSitesSession : 
             allSitesSession.append(site)
@@ -302,16 +333,20 @@ for session in sessions:
 
     for unit in units:
         unitCounter += 1
+        if isLeftSite : 
+            unitCounterLeft += 1
+        else : 
+            unitCounterRight += 1
         unitData = data.neural_data[session]['units'][unit]
         if (not unitData['kind'] == 'SU' and args.only_SU) or unitData['site'] in sitesToExclude :
             continue
         pvals = unitData['p_vals']
         zscores = unitData['zscores'] 
-        site = unitData['site']
+        site = getSite(unitData['site'])
         trials = unitData['trial']
         channel = unitData['channel_num']
         cluster = unitData['class_num']
-        firingRates, consider, medianFiringRates = get_mean_firing_rate_normalized(trials, stimuliIndices, startTimeAvgFiringRate, stopTimeAvgFiringRate, minRatioActiveTrials, minFiringRateConsider)
+        firingRates, consider, medianFiringRates, stddevFiringRates = get_mean_firing_rate_normalized(trials, stimuliIndices, startTimeAvgFiringRate, stopTimeAvgFiringRate, minRatioActiveTrials, minFiringRateConsider)
         responseStimuliIndices = np.where((pvals < args.alpha) & (consider > 0))[0]
         responses = [thingsIndices[i] for i in responseStimuliIndices]
         similaritiesCor = []
@@ -343,6 +378,10 @@ for session in sessions:
 
         if len(responses) > 0 :
             responsiveUnitCounter += 1 
+            if isLeftSite :
+                responsiveUnitCounterLeft += 1 
+            else : 
+                responsiveUnitCounterRight += 1 
             regions[allRegionsName].numResponsesHist.append(len(responses))
             regions[site].numResponsesHist.append(len(responses))
 
@@ -369,8 +408,8 @@ for session in sessions:
                 #    continue
                 index = thingsIndices[i]
 
-                #if index == indexBest and not includeSelfSimilarity : 
-                #    continue
+                if index == indexBest and not includeSelfSimilarity : 
+                    continue
 
                 if not index in responses and args.only_responses: 
                     continue
@@ -408,17 +447,15 @@ for session in sessions:
                         regions[site].responseStrengthHistNoResp.append(firingRates[i])
                         numNoRespUnitStimuli += 1
 
-                if not i == bestResponse and index in responses: ###
+                if not i == bestResponse : ##and index in responses: ###
                     corStep = int(similarity / corStepSize)
                     similaritiesCor.append(similarity)
-                    valuesCor.append(firingRates[i])
+                    valuesCor.append(zscores[i])
 
                     for j in range(corStep, len(similaritiesCorSteps)-1) : 
                         similaritiesCorSteps[j].append(similarity)
-                        valuesCorSteps[j].append(firingRates[i])
+                        valuesCorSteps[j].append(zscores[i])
                 
-                        
-
             
             # Baselines (for response strength)
             baselineFrequencies = np.zeros((len(trials)))
@@ -438,23 +475,23 @@ for session in sessions:
         
             for stimNum in range(numStimuliSession) :
 
-                relevantTrials = np.where(np.asarray(objectNames) == stimlookup[stimNum])[0]
-                responseFiringRates = []
+                #relevantTrials = np.where(np.asarray(objectNames) == stimlookup[stimNum])[0]
+                #responseFiringRates = []
                 
-                for t in relevantTrials :
-                    relevantSpikes = trials[t]
-                    relevantSpikes = relevantSpikes[np.where(relevantSpikes >= startTimeAvgFiringRate) and np.where(relevantSpikes < stopTimeAvgFiringRate)]
-                    firingRate = float(len(relevantSpikes)) * firingRateFactor
-                    responseFiringRates.append(firingRate)
-                    allFiringRates[t] = firingRate
+                #for t in relevantTrials :
+                #    relevantSpikes = trials[t]
+                #    relevantSpikes = relevantSpikes[np.where(relevantSpikes >= startTimeAvgFiringRate) and np.where(relevantSpikes < stopTimeAvgFiringRate)]
+                #    firingRate = float(len(relevantSpikes)) * firingRateFactor
+                #    responseFiringRates.append(firingRate)
+                #    allFiringRates[t] = firingRate
 
                 #meanFiringRatesStimuli[stimNum] = statistics.mean(responseFiringRates)
                 #stddevFiringRatesStimuli[stimNum] = statistics.stdev(responseFiringRates)
                 #medianFiringRatesStimuli[stimNum] = statistics.median(responseFiringRates) 
 
-                meanFiringRatesStimuli[stimNum] = statistics.mean(firingRates[stimNum]) ## TODO: cleanup
-                stddevFiringRatesStimuli[stimNum] = statistics.stdev(firingRates[stimNum])
-                medianFiringRatesStimuli[stimNum] = statistics.median(firingRates[stimNum]) 
+                meanFiringRatesStimuli[stimNum] = firingRates[stimNum] ## TODO: cleanup
+                stddevFiringRatesStimuli[stimNum] = stddevFiringRates[stimNum]
+                medianFiringRatesStimuli[stimNum] = medianFiringRates[stimNum]
 
 
             meanAll = statistics.mean(firingRates) # allFiringRates
@@ -556,10 +593,14 @@ for session in sessions:
     if onlyTwoSessions and sessionCounter >= 2 : 
         break
 
-print("\nTime preparing data: " + str(time.time() - startPrepareDataTime) + " s\n")
-print("\nNum sessions: " + str(sessionCounter) + " \n")
-print("\nNum units: " + str(unitCounter) + " \n")
-print("\nNum responsive units: " + str(responsiveUnitCounter) + " \n")
+print("\nTime preparing data: " + str(time.time() - startPrepareDataTime) + " s")
+print("\nNum sessions: " + str(sessionCounter) )
+print("\nNum units: " + str(unitCounter))
+print("Num units left: " + str(unitCounterLeft))
+print("Num units right: " + str(unitCounterRight))
+print("\nNum responsive units: " + str(responsiveUnitCounter))
+print("Num responsive units left: " + str(responsiveUnitCounterLeft))
+print("Num responsive units right: " + str(responsiveUnitCounterRight))
 
 
 allRegionCoactivationPlots = []
