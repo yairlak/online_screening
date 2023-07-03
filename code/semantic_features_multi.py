@@ -69,7 +69,7 @@ args=parser.parse_args()
 start_time_avg_firing_rate = 100 #100 #should fit response interval, otherwise spikes of best response can be outside of this interval and normalization fails
 stop_time_avg_firing_rate = 800 #800 # 800 for rodrigo
 min_ratio_active_trials = 0.5
-min_firing_rate_consider = 0.6
+min_firing_rate_consider = 1
 paradigm = args.path2data.split(os.sep)[-1].split('/')[-2].split('_')[0]
 
 data = DataHandler(args) # class for handling neural and feature data

@@ -75,6 +75,8 @@ parser.add_argument('--max_responses_unit', type=float, default=20,
                     help='Limit for counting responses per unit for histogram')      
 parser.add_argument('--plot_regions', default='collapse_hemispheres',
                     help='"full"->all regions, "hemispheres"->split into hemispheres, "collapse_hemispheres"->regions of both hemispheres are collapsed')      
+parser.add_argument('--step_span', type=float, default=0.02,
+                    help='Plotting detail for span')
 
 # PATHS
 parser.add_argument('--path2metadata',
@@ -179,6 +181,7 @@ class Region:
     pearsonCor : List = field (default_factory=lambda: [])
     pearsonP : List = field (default_factory=lambda: [])
     pearsonCorSteps : SimilaritiesArray = field(default_factory=lambda: SimilaritiesArray())
+    copresentationSpan = np.zeros(int(math.ceil(1/args.step_span)))
 
     logisticFit : Fitter = field(default_factory=lambda: 
         Fitter.getFitter(logFunc, logFuncParams, ["x0", "K", "A", "C"], p0=[0.5, 1, 0, 1], bounds=[[0, -1000, 0, 0], [1, 1000, 1, 1]]))
@@ -256,6 +259,7 @@ numRespUnitStimuli = 0
 numNoRespUnitStimuli = 0
 logisticFitStepSize = 0.1
 numLogisticFit = math.ceil(1.0 / logisticFitStepSize) + 1
+#copresentationSpanX = np.arange(0.0, 1.0 + (1.0 % stepSpan), stepSpan)
 
 startBaseline = -500
 startTimeAvgFiringRate = 100 #100 #should fit response interval, otherwise spikes of best response can be outside of this interval and normalization fails
@@ -301,13 +305,12 @@ for session in sessions:
 
     # do it before to make it faster
     allSitesSession = []
+
     for unit in units:
         site = data.neural_data[session]['units'][unit]['site']
 
         if site in sitesToExclude : 
             continue
-        
-        isLeftSite = True if site[0] == 'L' else False
 
         site = getSite(site)
 
@@ -327,16 +330,14 @@ for session in sessions:
                 continue
             regions[allRegionsName].coactivationNorm.normalizer[similarityMatrixToIndex[i1, i2]] += len(units) # copresentation
             regions[site].coactivationNorm.normalizer[similarityMatrixToIndex[i1, i2]] += len(units)
+            distStep = int(1 - data.similarity_matrix[i1][i2] / args.step_span)
+            regions[allRegionsName].copresentationSpan[distStep] += len(units)
+            regions[site].copresentationSpan[distStep] += len(units)
 
     countBestResponseIsResponse = 0
     countBestResponseIsNoResponse = 0
 
     for unit in units:
-        unitCounter += 1
-        if isLeftSite : 
-            unitCounterLeft += 1
-        else : 
-            unitCounterRight += 1
         unitData = data.neural_data[session]['units'][unit]
         if (not unitData['kind'] == 'SU' and args.only_SU) or unitData['site'] in sitesToExclude :
             continue
@@ -354,6 +355,17 @@ for session in sessions:
         similaritiesCorSteps = [[] for i in range(numCorSteps)]
         valuesCorSteps = [[] for i in range(numCorSteps)]
         zscores = zscores / max(zscores)
+
+        unitCounter += 1
+        isLeftSite = True if unitData['site'][0] == 'L' else False
+        isRightSite = True if unitData['site'][0] == 'R' else False
+
+        if isLeftSite : 
+            unitCounterLeft += 1
+        if isRightSite : 
+            unitCounterRight += 1
+        if not isLeftSite and not isRightSite : 
+            print("No side: " + unitData['site'])
 
         if args.response_metric == "zscores" : 
             metric = zscores
@@ -380,7 +392,7 @@ for session in sessions:
             responsiveUnitCounter += 1 
             if isLeftSite :
                 responsiveUnitCounterLeft += 1 
-            else : 
+            if isRightSite : 
                 responsiveUnitCounterRight += 1 
             regions[allRegionsName].numResponsesHist.append(len(responses))
             regions[site].numResponsesHist.append(len(responses))
@@ -752,10 +764,14 @@ for site in allSiteNames :
     allRegionNumResponsesPlots.append(createAndSave(
         createHist(siteData.numResponsesHist, range(args.max_responses_unit + 1), 1, 'Number of responses', 'Number of units', "blue"),
         "num_responses" + os.sep + fileDescription))
+
+    #xSpan = np.arange(0.0, 0.99, args.span_step)
+    counts, bins = np.histogram(siteData.maxDistResp, bins = np.arange(0.0, 1.001, args.step_span))
+    #fig = px.bar(x=bins[:-1], y=counts / siteData.copresentationSpan, labels={'x':'Span of responses', 'y':'Number of units'})
     allRegionMaxDistPlots.append(createAndSave(
-        createHist(siteData.maxDistResp, np.arange(0.0, 1.001, 0.02), 1, 'Span of responses', 'Number of units', "blue"),
+        px.bar(x=bins[:-1], y=counts / siteData.copresentationSpan, labels={'x':'Span of responses', 'y':'Number of units'}),
         "span_responses" + os.sep + fileDescription))
-    
+
     allRegionCoactivationNormalizedPlots.append(createAndSave(
         createPlot(siteData.coactivationNorm.similarity[:-1], siteData.coactivationNorm.y * 100, "Normalized coactivation probability in %", "coactivation normalized", True, ticktextCoactivation), 
         "coactivation_normalized" + os.sep + fileDescription))
