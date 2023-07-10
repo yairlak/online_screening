@@ -21,10 +21,12 @@ from dash import dash_table
 from dash import dcc
 from dash import html
 
+import seaborn as sns
 import plotly.graph_objects as go
 import plotly.express as px
 import plotly.colors as pcolors
 from matplotlib import colors as mcolors
+import matplotlib.pyplot as plt
 
 
 
@@ -127,6 +129,15 @@ def createRegionsDiv(name, allSiteNames) :
     return createTableDiv(
         name, figureId, tableId, "Regions", columnId, columnData), figureId, tableId
 
+def createHistPlt(x, inputBins, factorY=1.0, labelX="", labelY="", color="blue") : 
+
+    if len(inputBins) == 0 :
+        print("WARNING: empty bins for histogram!")
+        return
+    counts, bins = np.histogram(x, bins=inputBins)
+    plot = sns.barplot(x=bins[:-1], y=counts.astype(float)*float(factorY), color=color)
+    plot.set(xlabel=labelX, ylabel=labelY)
+
 def createHist(x, inputBins, factorY, labelX, labelY, color="blue") : 
     counts, bins = np.histogram(x, bins=inputBins)
     fig = px.bar(x=bins[:-1], y=counts.astype(float)*float(factorY), labels={'x':labelX, 'y':labelY})
@@ -196,6 +207,18 @@ def createBoxPlot(values, xNames, title, boxpoints='all') :
         showlegend=False
     )
     return fig
+
+def createStdErrorMeanPlt(x, data, title, yLabel) :
+    for i in range(len(data)) : 
+        if len(data[i]) == 0 : 
+            data[i] = [0]
+
+    sems = [sem(data[i]) for i in range(len(data))] 
+    y = [statistics.mean(data[i]) for i in range(len(data))] 
+    plt.errorbar(x, y, sems, fmt='o', capsize=7)#, marker='s', mfc='red', mec='green', ms=20, mew=4)
+    plt.ylabel(yLabel)
+    plt.title(title)
+
 
 def createStdErrorMeanPlot(x, data, title, yLabel) : 
     fig = go.Figure()
