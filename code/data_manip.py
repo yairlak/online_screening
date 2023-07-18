@@ -177,7 +177,7 @@ def get_dict_cat2object(objectnames, df_metadata, concept_source):
     
     return dict_cat2object
 
-def get_mean_firing_rate_normalized(all_trials, objectnumbers, min_t = 100, max_t = 1000, min_ratio_active_trials = 0.5, min_firing_rate = 0.6) : 
+def get_mean_firing_rate_normalized(all_trials, objectnumbers, min_t = 100, max_t = 1000, min_ratio_active_trials = 0.5, min_firing_rate = 0.6, min_t_baseline = -500) : 
 
     consider = np.ones(max(objectnumbers) + 1)
     firing_rates = np.zeros(max(objectnumbers) + 1) 
@@ -185,6 +185,7 @@ def get_mean_firing_rate_normalized(all_trials, objectnumbers, min_t = 100, max_
     stddevs = np.zeros(max(objectnumbers) + 1) 
     stimuli = np.unique(objectnumbers)
     factor = 1000 / (max_t - min_t)
+    baseline_firing_rates = []
 
     for stim in stimuli : 
         stim_trials = all_trials[np.where(objectnumbers == stim)]
@@ -195,6 +196,8 @@ def get_mean_firing_rate_normalized(all_trials, objectnumbers, min_t = 100, max_
         for trial_spikes in stim_trials : 
             trial_spikes = trial_spikes[0]
             trial_spikes = trial_spikes[np.where((trial_spikes >= min_t) & (trial_spikes < max_t))]
+            baseline_spikes = trial_spikes[np.where((trial_spikes >= min_t_baseline) & (trial_spikes < 0))]
+            baseline_firing_rates.append(len(baseline_spikes))
             #trial_spikes = trial_spikes[]
             firing_rates[stim] += len(trial_spikes)
             firing_rates_for_median.append(len(trial_spikes) * factor)
@@ -214,7 +217,7 @@ def get_mean_firing_rate_normalized(all_trials, objectnumbers, min_t = 100, max_
         #object_trials = object_trials[np.where(object_trials <= max_t)]
         #firing_rates[object - 1] = np.count_nonzero(object_trials)
 
-    return firing_rates / max(firing_rates), consider, median_firing_rates, stddevs
+    return firing_rates / max(firing_rates), consider, median_firing_rates, stddevs, baseline_firing_rates
 
 
 def object2category(objectname, df_metadata, concept_source):

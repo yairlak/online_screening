@@ -83,7 +83,6 @@ def plotRaster(rasterInput, linewidth=1) :
 
     return fig
 
-
 def createTableDiv(title, figureId, tableId, columnName, columnId, columnData) : 
     
     return html.Div(children=[
@@ -129,12 +128,41 @@ def createRegionsDiv(name, allSiteNames) :
     return createTableDiv(
         name, figureId, tableId, "Regions", columnId, columnData), figureId, tableId
 
+def create2DhemispherePlt(valuesSites, sitenames) : 
+    left = []
+    right = []
+    sitename_r_squared = []
+    for site in sitenames:
+        if site.startswith("L") :
+            site_general_name = site[1:]
+            if "R" + site_general_name in sitenames : 
+                left.append(statistics.mean(valuesSites["L" + site_general_name]))
+                right.append(statistics.mean(valuesSites["R" + site_general_name]))
+                sitename_r_squared.append(site_general_name)
+
+    fig, ax = plt.subplots()
+    ax.scatter(left, right)
+    ax.set_aspect('equal')
+    for i, txt in enumerate(sitename_r_squared):
+        offset = 0.001
+        ax.annotate(txt + " (" + str(len(valuesSites["L" + txt])) + "/" + str(len(valuesSites["R" + txt])) + ")", (left[i], right[i]+ offset))
+
+    low = min(min(left), min(right)) - 0.005
+    high = max(max(left), max(right)) + 0.03
+
+    plt.plot([low,high], [low,high], color = 'b')
+    plt.xlim(low, high)
+    plt.ylim(low, high)
+    plt.xlabel("left hemisphere")
+    plt.ylabel("right hemisphere")
+
+
 def createHistPlt(x, inputBins, factorY=1.0, labelX="", labelY="", color="blue") : 
 
     if len(inputBins) == 0 :
         print("WARNING: empty bins for histogram!")
         return
-    counts, bins = np.histogram(x, bins=inputBins)
+    counts, bins = np.histogram(x, bins=np.append(np.asarray(inputBins), np.inf))
     plot = sns.barplot(x=bins[:-1], y=counts.astype(float)*float(factorY), color=color)
     plot.set(xlabel=labelX, ylabel=labelY)
 
