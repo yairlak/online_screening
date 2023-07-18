@@ -6,12 +6,15 @@ import pandas as pd
 from statistics import mean
 import matplotlib.pyplot as plt
 import scipy.stats as stats
-from sklearn.decomposition import PCA
 import seaborn as sns
 import statsmodels.api as sm
 import statsmodels.stats.multitest 
 import statsmodels.regression.linear_model as lm
-#import mne.stats.fdr_correction
+from sklearn.decomposition import PCA
+from sklearn.linear_model import Ridge
+from sklearn.model_selection import LeaveOneOut
+from sklearn.metrics import mean_squared_error
+from mne.stats import fdr_correction
 import time
 import argparse
 
@@ -47,15 +50,15 @@ parser.add_argument('--load_cat2object', default=False,
 parser.add_argument('--alpha', type=float, default=0.001,
                     help='Alpha for significance') 
 parser.add_argument('--alpha_categories', type=float, default=0.05,
-                    help='Alpha for significance for categories') 
+                    help='Alpha for significance for categories (only color)') 
 parser.add_argument('--threshold_p_value', type=float, default=0.05,
                     help='Threshold to only keep units where model makes sense') 
-parser.add_argument('--threshold_r_squared_categories', type=float, default=0.5,
-                    help='Threshold to only keep units where model makes sense') 
-parser.add_argument('--threshold_r_squared_pca', type=float, default=0.25,
-                    help='Threshold to only keep units where model makes sense') 
-parser.add_argument('--threshold_r_squared_embedding', type=float, default=0.25,
-                    help='Threshold to only keep units where model makes sense') 
+#parser.add_argument('--threshold_r_squared_categories', type=float, default=0.5,
+#                    help='Threshold to only keep units where model makes sense') 
+#parser.add_argument('--threshold_r_squared_pca', type=float, default=0.25,
+#                    help='Threshold to only keep units where model makes sense') 
+#parser.add_argument('--threshold_r_squared_embedding', type=float, default=0.25,
+#                    help='Threshold to only keep units where model makes sense') 
 parser.add_argument('--analyze', type=str, default="PCA", #"categories", "embedding", "PCA" --> use categories from things, all 300 features, or PCA
                     help='If True, categories are considered, if false word embedding')
 parser.add_argument('--pca_components', type=int, default=27,  
@@ -78,18 +81,6 @@ parser.add_argument('--path2images',
 
 
 
-def save_img(fig, filename) : 
-
-    file = args.path2images + os.sep + args.analyze + os.sep + filename 
-
-    if not args.dont_plot : 
-        os.makedirs(os.path.dirname(file), exist_ok=True)
-        #fig.write_image(file + ".svg")
-        fig.write_image(file + ".png")
-        #plt.savefig(file + ".png", bbox_inches="tight")
-        #plt.clf()
-
-
 def save_plt(filename) : 
 
     file = args.path2images + os.sep + args.analyze + os.sep + filename 
@@ -98,7 +89,6 @@ def save_plt(filename) :
         os.makedirs(os.path.dirname(file), exist_ok=True)
         plt.savefig(file + ".png", bbox_inches="tight")
         plt.clf()
-
 
 
 print("\n--- START ---")
@@ -117,6 +107,10 @@ data.load_neural_data() # -> data.neural_data
 data.load_categories() # -> data.df_categories
 data.load_word_embeddings() # -> data.df_word_embeddings
 
+#num_pcs = np.append(np.array(range(10, 220, 10)), args.pca_components)
+num_pcs = [args.pca_components]
+categories_pca = []
+
 # WHICH SESSION(S) TO RUN
 if args.session is None:
     sessions = list(data.neural_data.keys())
@@ -125,30 +119,38 @@ else:
 
 if args.analyze == "categories" : 
     categories = data.df_categories
-    threshold_rsquared = args.threshold_r_squared_categories
+    #threshold_rsquared = args.threshold_r_squared_categories
 else : 
     categories = data.df_word_embeddings
-    threshold_rsquared = args.threshold_r_squared_embedding
+    #threshold_rsquared = args.threshold_r_squared_embedding
     if args.analyze == "PCA" : 
-        categories = categories.fillna(0)
-        pca = PCA(n_components=args.pca_components)
-        principalComponents = pca.fit_transform(categories)
-        categories = pd.DataFrame(data = principalComponents)
-        threshold_rsquared = args.threshold_r_squared_pca
-        variance_fig = sns.barplot(x=categories.keys(), y=pca.explained_variance_, color='blue') 
-        save_plt("explained_variance")
-        variance_ratio_fig = sns.barplot(x=categories.keys(), y=pca.explained_variance_ratio_, color='blue') 
+        categories_copy = categories.fillna(0)
+        
+        pca = PCA(n_components=300)
+        principalComponents = pca.fit_transform(categories_copy)
+        variance_ratio_fig = sns.barplot(x=np.asarray(range(300)), y=pca.explained_variance_ratio_, color='blue') 
         save_plt("explained_variance_ratio")
+
+        for i in num_pcs : 
+            n_components = i
+            pca = PCA(n_components=n_components)
+            principalComponents = pca.fit_transform(categories_copy)
+            categories = pd.DataFrame(data = principalComponents)
+            #threshold_rsquared = args.threshold_r_squared_pca
+            categories_pca.append(categories)
+
+        variance_fig = sns.barplot(x=categories.keys(), y=pca.explained_variance_, color='blue') 
+        save_plt("explained_variance" + os.sep + str(n_components) + "_pcs")
 
         sorted_names = []
         for i in range(args.pca_components) : 
             column = categories.iloc[:,i]
-            sort_indices = np.argsort(column)
+            sort_indices = np.argsort(column)[::-1]
             sorted_names_pc = data.df_metadata.uniqueID[sort_indices].values
             sorted_names.append( sorted_names_pc)
-        
-        pd.DataFrame(sorted_names).transpose().to_csv(args.path2images + os.sep + args.analyze + os.sep + "stimuli_sorted_by_pcs.csv", index=False) # or without transpose and header=False
-        #pd.DataFrame(sorted_names).to_csv(args.path2images + os.sep + args.analyze + os.sep + "stimuli_sorted_by_pcs.csv", header=False) # or without transpose and header=False
+
+        #pd.DataFrame(sorted_names).transpose().to_csv()... # also switch booleans for index and header
+        pd.DataFrame(sorted_names).to_csv(args.path2images + os.sep + args.analyze + os.sep + "stimuli_sorted_by_pcs.csv", index=True, header=False) # or without transpose and header=False
     #categories = data.df_word_embeddings.dropna()
 
 print("\nTime loading data: " + str(time.time() - startLoadData) + " s\n")
@@ -163,9 +165,14 @@ entropies = []
 num_significant_weights = []
 num_categories_spanned = []
 num_responsive_stimuli = []
+pvalues = []
+#zscores = []
 rsquaredSites = {}
 rsquaredSites["all"] = []
-sites_to_exclude = ["LTSA"]
+pValueSites = {}
+pValueSites["all"] = []
+rsquaredPCA = []
+sites_to_exclude = ["LTSA", "LTSP"]
 
 
 for session in sessions:
@@ -173,6 +180,7 @@ for session in sessions:
     session_counter += 1
     subject_num = int(session.split("_")[0])
     session_num = int(session.split("_")[1])
+    print("subject " + str(subject_num) + ", session " + str(session_num))
     
     units = list(set(data.neural_data[session]['units'].keys()))
     stimuli_indices = data.neural_data[session]['objectindices_session']
@@ -183,14 +191,23 @@ for session in sessions:
         site = data.neural_data[session]['units'][unit]['site']
         if site in sites_to_exclude : 
             continue
+        
+        if site == "RAH" or site == "RMH" :
+            site = "RH"
+        if site == "LAH" or site == "LMH" :
+            site = "LH"
 
         unit_counter += 1
         unit_data = data.neural_data[session]['units'][unit]
         channel = unit_data['channel_num']
         cluster = unit_data['class_num']
-        firing_rates, consider, median_firing_rates, stddevs = get_mean_firing_rate_normalized(unit_data['trial'], stimuli_indices, start_time_avg_firing_rate, stop_time_avg_firing_rate, min_ratio_active_trials, min_firing_rate_consider)
-        
+        firing_rates, consider, median_firing_rates, stddevs, baseline_firing_rates = get_mean_firing_rate_normalized(unit_data['trial'], stimuli_indices, start_time_avg_firing_rate, stop_time_avg_firing_rate, min_ratio_active_trials, min_firing_rate_consider)
+        #normalize by baseline firing rate
+
         response_stimuli_indices = np.where((unit_data['p_vals'] < args.alpha) & (consider > 0))[0]
+        ##mean_firing_rates = mean(firing_rates)
+        ##stddev_firing_rates = statistics.stdev(firing_rates)
+        ##mean_baseline = mean(baseline_firing_rates) ## ?
 
         if len(response_stimuli_indices) > 0 :
             responsive_unit_counter += 1 
@@ -200,36 +217,70 @@ for session in sessions:
                 consider_indices = response_stimuli_indices
 
             consider_indices_THINGS = things_indices[consider_indices]        
-
             firing_rates_consider = firing_rates[consider_indices]
             #firing_rates_responses_df = pd.DataFrame(data=firing_rates_consider)
-            categories_consider_df = categories.iloc[consider_indices_THINGS]
+
+            if args.analyze == "PCA" : 
+                #categories_responses_df = category_pca[:-1].iloc[things_indices[response_stimuli_indices]]
+                count_cat = 0
+                for categories in categories_pca :
+                    categories_consider_df = categories.iloc[consider_indices_THINGS] ## categories_pca
+                    regression_model = sm.OLS(firing_rates_consider, categories_consider_df.values, missing='drop')               
+                    fitted_data = regression_model.fit() 
+                    if len(rsquaredPCA) < count_cat + 1 :
+                        rsquaredPCA.append([])
+                    rsquaredPCA[count_cat].append(fitted_data.rsquared)
+                    #print("Fitting model for " + str(num_pcs[count_cat]) + " pcs")
+                    count_cat += 1
+
             categories_responses_df = categories.iloc[things_indices[response_stimuli_indices]]
+            categories_consider_df = categories.iloc[consider_indices_THINGS] ## categories_pca
 
             regression_model = sm.OLS(firing_rates_consider, categories_consider_df.values, missing='drop')
 
-
             if args.analyze == "embedding" : 
-                fitted_data = regression_model.fit_regularized(L1_wt=0) # ridge
-                fdr_corrected = [[False for i in range(len(fitted_data.params))], np.ones(len(fitted_data.params))]
-                fitted_data.rsquared = 0
+                X = np.nan_to_num(categories_consider_df.values)
+                y = firing_rates_consider
+                ridge = Ridge()
+                loo = LeaveOneOut()
+                y_pred = np.zeros_like(y)
+
+                for train_index, test_index in loo.split(X):
+                    X_train, X_test = X[train_index], X[test_index]
+                    y_train, y_test = y[train_index], y[test_index]
+                
+                    ridge.fit(X_train, y_train)
+                    y_pred[test_index] = ridge.predict(X_test)
+
+                corr = stats.spearmanr(y, y_pred)
+                params = ridge.coef_
+                pvalue = corr.pvalue
+                rsquared = 0
+                fdr_corrected = [[False for i in range(len(params))], np.ones(len(params))]
             else :                                                   
                 fitted_data = regression_model.fit() 
                 fdr_corrected = statsmodels.stats.multitest.fdrcorrection(fitted_data.pvalues, alpha=args.alpha)
+                #fdr_corrected = fdr_correction(fitted_data.pvalues, alpha=args.alpha)
+                
+                pvalue = fitted_data.f_pvalue
+                params = fitted_data.params
+                rsquared = fitted_data.rsquared
 
-                #fitted_data.pvalues
-                #fdr_corrected_mne = mne.stats.fdr_correction(fitted_data.pvalues, alpha=args.alpha)
-                #np.nan_to_num(fdr_corrected.pvalues, 100)
+                
+            if site in rsquaredSites : 
+                pValueSites[site].append(pvalue)
+                rsquaredSites[site].append(rsquared)
+            else :
+                pValueSites[site] = [pvalue]
+                rsquaredSites[site] = [rsquared]
+            pValueSites["all"].append(pvalue)
+            rsquaredSites["all"].append(rsquared)
 
-                #lm.RegressionResults(regression_model)
-                if site in rsquaredSites : 
-                    rsquaredSites[site].append(fitted_data.rsquared)
-                else :
-                    rsquaredSites[site] = [fitted_data.rsquared]
-                rsquaredSites["all"].append(fitted_data.rsquared)
+            pvalues.append(pvalue)
 
-            if args.analyze == "embedding" or fitted_data.rsquared > threshold_rsquared : #(fitted_data.f_pvalue > args.threshold_p_value)
+            if pvalue < args.threshold_p_value : #args.analyze == "embedding" and (pvalue > args.threshold_p_value) or rsquared > threshold_rsquared : #(fitted_data.f_pvalue > args.threshold_p_value)
                 r_squared_counter += 1
+                ##zscores = np.concatenate(zscores, ((firing_rates_consider - mean_firing_rates) / stddev_firing_rates / mean_baseline))
                 num_significant_weights.append(np.count_nonzero(fdr_corrected[0]))
                 num_responsive_stimuli.append(len(response_stimuli_indices))
                 #if len(response_stimuli_indices) > 1 : 
@@ -239,16 +290,15 @@ for session in sessions:
                 else: 
                     num_categories_spanned.append(responsive_categories.value_counts()[True])
 
-
-            entropy = stats.entropy(fitted_data.params)
+            entropy = stats.entropy(params)
             entropies.append(entropy)
 
             fileDescription = paradigm + '_pat' + str(subject_num) + '_s' + str(session_num) + '_ch' + '{:02d}'.format(channel)  + '_cl' + str(cluster) + '_' + site 
             color_sequence = ['red' if fdr_corrected[1][i] < args.alpha_categories else 'blue' for i in range(len(fdr_corrected[1])) ]
             text_categories = np.array([str(categories_consider_df.keys()[i]) + ", p: " + str(round(fdr_corrected[1][i], 5)) for i in range(len(categories_consider_df.keys()))])
-            coef_fig = sns.barplot(x=text_categories, y=fitted_data.params, palette=color_sequence)
+            coef_fig = sns.barplot(x=text_categories, y=params, palette=color_sequence)
             coef_fig.set_xticklabels(coef_fig.get_xticklabels(), rotation=270)
-            plt.title("rsquared = " + str(fitted_data.rsquared) +  ", Entropy = " + str(entropy))
+            plt.title("rsquared = " + str(rsquared) + ", pvalue: " + str(pvalue) + ", Entropy = " + str(entropy))
             save_plt("coef_regression" + os.sep + fileDescription)
 
 
@@ -257,65 +307,39 @@ sites = list(rsquaredSites.keys())
 sites.remove('all')
 sites = ['all'] + sorted(sites)
 
-# plot left right hemisphere r squared 
-left_r_squared = []
-right_r_squared = []
-sitename_r_squared = []
-for site in sites:
-    if site.startswith("L") :
-        site_general_name = site[1:]
-        if  "R" + site_general_name in sites : 
-            left_r_squared.append(mean(rsquaredSites["L" + site_general_name]))
-            right_r_squared.append(mean(rsquaredSites["R" + site_general_name]))
-            sitename_r_squared.append(site_general_name)
-
-fig, ax = plt.subplots()
-ax.scatter(left_r_squared, right_r_squared)
-ax.set_aspect('equal')
-for i, txt in enumerate(sitename_r_squared):
-    offset = 0.001
-    if args.analyze == "PCA" :
-        if txt == 'MH' :
-            offset = 0.002
-        if txt == 'PIC' :
-            offset = -0.005
-        if txt == 'EC' : 
-            offset = -0.002
-    ax.annotate(txt + " (" + str(len(rsquaredSites["L" + txt])) + "/" + str(len(rsquaredSites["R" + txt])) + ")", (left_r_squared[i], right_r_squared[i]+ offset))
-
-if args.analyze == "PCA" :
-    low=0.2
-    high=0.36
-if args.analyze == "categories" : 
-    low=0.3
-    high=0.6
-if args.analyze != "embedding" : 
-    plt.plot([low,high], [low,high], color = 'b')
-    plt.xlim(low, high)
-    plt.ylim(low, high)
-plt.xlabel("left hemisphere")
-plt.ylabel("right hemisphere")
+create2DhemispherePlt(rsquaredSites, sites)
 save_plt(semantic_fields_path + "rsquared_hemispheres")
 
-plt.figure(figsize=(10,4)) # this creates a figure 8 inch wide, 4 inch high
+create2DhemispherePlt(pValueSites, sites)
+save_plt(semantic_fields_path + "pvalue_hemispheres")
+
+plt.figure(figsize=(10,4))
 sitesTitles = [site + " (" + str(len(rsquaredSites[site])) + ")" for site in sites]
 createStdErrorMeanPlt(sitesTitles, [rsquaredSites[site] for site in sites], "r squared of regression of unit activation based on category / feature", "r squared")
 plt.xticks(rotation=45, ha='right')
-#rsquaredPlot.set_xticklabels(rsquaredPlot.get_xticklabels(), rotation=45)
-save_plt(semantic_fields_path + "rsquared")
+save_plt(semantic_fields_path + "rsquared_sites")
+
+plt.figure(figsize=(10,4)) 
+sitesTitles = [site + " (" + str(len(pValueSites[site])) + ")" for site in sites]
+createStdErrorMeanPlt(sitesTitles, [pValueSites[site] for site in sites], "pvalue of regression of unit activation based on category / feature", "r squared")
+plt.xticks(rotation=45, ha='right')
+save_plt(semantic_fields_path + "pvalues_sites")
+
+if args.analyze == "PCA" : 
+    createStdErrorMeanPlt([str(cat) for cat in num_pcs], rsquaredPCA, "r squared of regression for different pcs", "r squared")
+    save_plt(semantic_fields_path + "rsquared_pcs")
 
 sns.histplot(x=entropies)
 save_plt(semantic_fields_path + "entropy_distibution")
 
-createHistPlt(num_significant_weights, range(0,27), 1.0, "Number of significant weights", "", color="blue")
+createHistPlt(pvalues, [0.0, 0.0001, 0.001, 0.01, 0.05, 0.1, 1.0], 1.0, "Number of units with pvalue lower than x; total num: " + str(len(pvalues)))
+save_plt(semantic_fields_path + "pvalues")
+
+createHistPlt(num_significant_weights, range(0,28), 1.0, "Number of significant weights")
 save_plt(semantic_fields_path + "num_significant_weights")
 
-#sns.histplot(x=num_categories_spanned)
 if len(num_categories_spanned) > 0 : 
     createHistPlt(num_categories_spanned, range(0,max(num_categories_spanned)))
-    #sns.displot(x=num_categories_spanned, discrete=True)
-    #createHistPlt(num_categories_spanned, range(0,max(num_categories_spanned)), 1.0, "Number of responsive categories", "", color="blue")
-    #sns.barplot(x=range(0,27), y=num_categories_spanned, color='blue') ###
     save_plt(semantic_fields_path + "num_responsive_categories")
 
 plt.figure(figsize=(10,4)) 

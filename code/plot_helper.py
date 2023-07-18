@@ -149,7 +149,9 @@ def create2DhemispherePlt(valuesSites, sitenames) :
 
     low = min(min(left), min(right)) - 0.005
     high = max(max(left), max(right)) + 0.03
+    #corr = stats.spearmanr(left, right)
 
+    #plt.title("corr: " + str(corr.statistic) + ", pvalue: " + str(corr.pvalue))
     plt.plot([low,high], [low,high], color = 'b')
     plt.xlim(low, high)
     plt.ylim(low, high)
@@ -163,7 +165,7 @@ def createHistPlt(x, inputBins, factorY=1.0, labelX="", labelY="", color="blue")
         print("WARNING: empty bins for histogram!")
         return
     counts, bins = np.histogram(x, bins=np.append(np.asarray(inputBins), np.inf))
-    plot = sns.barplot(x=bins[:-1], y=counts.astype(float)*float(factorY), color=color)
+    plot = sns.barplot(x=bins[:-1].astype(int), y=counts.astype(float)*float(factorY), color=color)
     plot.set(xlabel=labelX, ylabel=labelY)
 
 def createHist(x, inputBins, factorY, labelX, labelY, color="blue") : 
