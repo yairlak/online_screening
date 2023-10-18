@@ -43,13 +43,15 @@ parser.add_argument('--dont_plot', action='store_true', default=False,
                     help='If True, plotting to figures folder is supressed')
 parser.add_argument('--consider_only_responses', default=False, 
                     help='If True, only stimuli eliciting responses are analyzed')
+parser.add_argument('--only_SU', default=False, 
+                    help='If True, only single units are considered')
 parser.add_argument('--load_cat2object', default=False, 
                     help='If True, cat2object is loaded')
 
 # STATS
 parser.add_argument('--alpha', type=float, default=0.001,
                     help='Alpha for significance') 
-parser.add_argument('--alpha_categories', type=float, default=0.05,
+parser.add_argument('--alpha_categories', type=float, default=0.01,
                     help='Alpha for significance for categories (only color)') 
 parser.add_argument('--threshold_p_value', type=float, default=0.05,
                     help='Threshold to only keep units where model makes sense') 
@@ -59,7 +61,7 @@ parser.add_argument('--threshold_p_value', type=float, default=0.05,
 #                    help='Threshold to only keep units where model makes sense') 
 #parser.add_argument('--threshold_r_squared_embedding', type=float, default=0.25,
 #                    help='Threshold to only keep units where model makes sense') 
-parser.add_argument('--analyze', type=str, default="PCA", #"categories", "embedding", "PCA" --> use categories from things, all 300 features, or PCA
+parser.add_argument('--analyze', type=str, default="embedding", #"categories", "embedding", "PCA" --> use categories from things, all 300 features, or PCA
                     help='If True, categories are considered, if false word embedding')
 parser.add_argument('--pca_components', type=int, default=27,  
                     help='Number of components for PCA')
@@ -172,8 +174,9 @@ rsquaredSites["all"] = []
 pValueSites = {}
 pValueSites["all"] = []
 rsquaredPCA = []
-sites_to_exclude = ["LTSA", "LTSP"]
-
+sites_to_exclude = ["LFa", "LTSA", "LTSP", "Fa", "TSA", "TSP", "LTP", "LTB", "RMC", "RAI", "RAC", "RAT", "RFO", "RFa", "RFb", "RFc"] 
+#"RT": pat 102 session 1: anteater unit
+#LPL: pat 102 session 3, channel 36, cluster1: mug, teapot
 
 for session in sessions:
 
@@ -187,9 +190,11 @@ for session in sessions:
     things_indices = np.array(data.get_THINGS_indices(data.neural_data[session]['stimlookup']))
     
     for unit in units:
-
+        
         site = data.neural_data[session]['units'][unit]['site']
-        if site in sites_to_exclude : 
+        unit_data = data.neural_data[session]['units'][unit]
+        
+        if (not unit_data['kind'] == 'SU' and args.only_SU) or site in sites_to_exclude :
             continue
         
         if site == "RAH" or site == "RMH" :
@@ -198,7 +203,6 @@ for session in sessions:
             site = "LH"
 
         unit_counter += 1
-        unit_data = data.neural_data[session]['units'][unit]
         channel = unit_data['channel_num']
         cluster = unit_data['class_num']
         firing_rates, consider, median_firing_rates, stddevs, baseline_firing_rates = get_mean_firing_rate_normalized(unit_data['trial'], stimuli_indices, start_time_avg_firing_rate, stop_time_avg_firing_rate, min_ratio_active_trials, min_firing_rate_consider)
@@ -315,13 +319,13 @@ save_plt(semantic_fields_path + "pvalue_hemispheres")
 
 plt.figure(figsize=(10,4))
 sitesTitles = [site + " (" + str(len(rsquaredSites[site])) + ")" for site in sites]
-createStdErrorMeanPlt(sitesTitles, [rsquaredSites[site] for site in sites], "r squared of regression of unit activation based on category / feature", "r squared")
+createStdErrorMeanPlt(sitesTitles, [rsquaredSites[site] for site in sites], "r squared of regression of unit activation based on category / feature", "r squared", [0,1])
 plt.xticks(rotation=45, ha='right')
 save_plt(semantic_fields_path + "rsquared_sites")
 
 plt.figure(figsize=(10,4)) 
 sitesTitles = [site + " (" + str(len(pValueSites[site])) + ")" for site in sites]
-createStdErrorMeanPlt(sitesTitles, [pValueSites[site] for site in sites], "pvalue of regression of unit activation based on category / feature", "r squared")
+createStdErrorMeanPlt(sitesTitles, [pValueSites[site] for site in sites], "pvalue of regression of unit activation based on category / feature", "p value", [-0.005,0.15])
 plt.xticks(rotation=45, ha='right')
 save_plt(semantic_fields_path + "pvalues_sites")
 
@@ -332,7 +336,7 @@ if args.analyze == "PCA" :
 sns.histplot(x=entropies)
 save_plt(semantic_fields_path + "entropy_distibution")
 
-createHistPlt(pvalues, [0.0, 0.0001, 0.001, 0.01, 0.05, 0.1, 1.0], 1.0, "Number of units with pvalue lower than x; total num: " + str(len(pvalues)))
+createHistPlt(pvalues, [0.0, 0.0001, 0.001, 0.01, 0.05, 0.1, 1.0], 1.0, "Number of units with pvalue of model lower than x; total num: " + str(len(pvalues)), "", "blue", True)
 save_plt(semantic_fields_path + "pvalues")
 
 createHistPlt(num_significant_weights, range(0,28), 1.0, "Number of significant weights")

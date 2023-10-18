@@ -185,6 +185,7 @@ def get_mean_firing_rate_normalized(all_trials, objectnumbers, min_t = 100, max_
     stddevs = np.zeros(max(objectnumbers) + 1) 
     stimuli = np.unique(objectnumbers)
     factor = 1000 / (max_t - min_t)
+    factor_baselines = 1000 / (0 - min_t_baseline)
     baseline_firing_rates = []
 
     for stim in stimuli : 
@@ -197,21 +198,21 @@ def get_mean_firing_rate_normalized(all_trials, objectnumbers, min_t = 100, max_
             trial_spikes = trial_spikes[0]
             trial_spikes = trial_spikes[np.where((trial_spikes >= min_t) & (trial_spikes < max_t))]
             baseline_spikes = trial_spikes[np.where((trial_spikes >= min_t_baseline) & (trial_spikes < 0))]
-            baseline_firing_rates.append(len(baseline_spikes))
+            baseline_firing_rates.append(len(baseline_spikes) * factor_baselines)
             #trial_spikes = trial_spikes[]
-            firing_rates[stim] += len(trial_spikes)
+            firing_rates[stim] += len(trial_spikes) * factor
             firing_rates_for_median.append(len(trial_spikes) * factor)
             if len(trial_spikes) > 0 : 
                 num_active += 1
 
-        total_firing_rate = 1000 * firing_rates[stim] / (max_t - min_t) #1000 * statistics.median(firing_rates_for_median) / (max_t - min_t)
+        #total_firing_rate = firing_rates[stim] * factor #1000 * statistics.median(firing_rates_for_median) / (max_t - min_t)
         #firing_rates_for_median = 1000 * firing_rates_for_median / (max_t - min_t) #1000 * statistics.median(firing_rates_for_median) / (max_t - min_t)
-        if total_firing_rate < min_firing_rate or num_active / len(stim_trials) < min_ratio_active_trials or len(stim_trials) < 6: 
+        if firing_rates[stim] < min_firing_rate or num_active / len(stim_trials) < min_ratio_active_trials or len(stim_trials) < 5: 
             consider[stim] = 0
 
-        firing_rates[stim] = total_firing_rate
-        median_firing_rates[stim] = statistics.median(firing_rates_for_median)
-        stddevs[stim] = statistics.stdev(firing_rates_for_median)
+        #firing_rates[stim] = total_firing_rate
+        median_firing_rates[stim] = statistics.median(firing_rates_for_median) # basically only relevant for cohensD
+        stddevs[stim] = statistics.stdev(firing_rates_for_median) # basically only relevant for cohensD
 
         #object_trials = object_trials[np.where(object_trials >= min_t)]
         #object_trials = object_trials[np.where(object_trials <= max_t)]

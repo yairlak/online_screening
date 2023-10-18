@@ -52,7 +52,7 @@ parser.add_argument('--end_time_fr', default=800, type=int,
 # FLAGS
 parser.add_argument('--load_cat2object', default=False, 
                     help='If True, cat2object is loaded')
-parser.add_argument('--dont_plot', action='store_true', default=True, 
+parser.add_argument('--dont_plot', action='store_true', default=False, 
                     help='If True, plotting to figures folder is supressed')
 
 # PATHS

@@ -159,13 +159,24 @@ def create2DhemispherePlt(valuesSites, sitenames) :
     plt.ylabel("right hemisphere")
 
 
-def createHistPlt(x, inputBins, factorY=1.0, labelX="", labelY="", color="blue") : 
+def createHistPlt(x, inputBins, factorY=1.0, labelX="", labelY="", color="blue", pvalues=False) : 
 
     if len(inputBins) == 0 :
         print("WARNING: empty bins for histogram!")
         return
-    counts, bins = np.histogram(x, bins=np.append(np.asarray(inputBins), np.inf))
-    plot = sns.barplot(x=bins[:-1].astype(int), y=counts.astype(float)*float(factorY), color=color)
+    bins = np.asarray(inputBins)
+    if not pvalues : 
+        bins = np.append(np.asarray(bins), np.inf)
+
+    counts, bins = np.histogram(x, bins=bins)
+    if pvalues : 
+        xPlot=bins[1:] # because it is "less than"
+        yPlot=counts.astype(float)*float(factorY)
+    else : 
+        xPlot = bins[:-1].astype(int)
+        yPlot=counts.astype(float)*float(factorY)
+        
+    plot = sns.barplot(x=xPlot, y=yPlot, color=color) # .astype(int) TODO
     plot.set(xlabel=labelX, ylabel=labelY)
 
 def createHist(x, inputBins, factorY, labelX, labelY, color="blue") : 
@@ -238,7 +249,7 @@ def createBoxPlot(values, xNames, title, boxpoints='all') :
     )
     return fig
 
-def createStdErrorMeanPlt(x, data, title, yLabel) :
+def createStdErrorMeanPlt(x, data, title, yLabel, ylim = []) :
     for i in range(len(data)) : 
         if len(data[i]) == 0 : 
             data[i] = [0]
@@ -249,8 +260,11 @@ def createStdErrorMeanPlt(x, data, title, yLabel) :
     plt.ylabel(yLabel)
     plt.title(title)
 
+    if len(ylim) > 0 : 
+        plt.ylim(ylim)
 
-def createStdErrorMeanPlot(x, data, title, yLabel) : 
+
+def createStdErrorMeanPlot(x, data, title, yLabel, minZero=True) : 
     fig = go.Figure()
 
     for i in range(len(data)) : 
@@ -274,6 +288,9 @@ def createStdErrorMeanPlot(x, data, title, yLabel) :
         yaxis_title=yLabel,
         showlegend=False,
     )
+
+    if minZero: 
+        fig.add_hline(y=0.0, line_color="rgba(0,0,0,0)") # hack: set transparent line at y = 0 to have lower limit of y-axis
 
     return fig
 
@@ -444,7 +461,8 @@ def createPlot(x, y, yLabel, title, plotHalfGaussian, ticktext=[], plotStep=0.01
     fig.update_layout(
         title_text=title,
         xaxis_title='Semantic similarity',
-        yaxis_title=yLabel
+        yaxis_title=yLabel, 
+        showlegend=False
     )
 
     if len(ticktext) > 0 : 

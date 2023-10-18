@@ -322,6 +322,7 @@ print("\nTime loading data: " + str(time.time() - startLoadData) + " s\n")
 
 tuners = [ # clusters might not fit (manual clustering took place)
     #Tuner("088e03aos1", 17, 1, "Pacifier", "aos", [], [], [], [], []),
+    Tuner("103_1", 70, 1, [], "Unknown", "aos", [], [], [], [], [], []),
     Tuner("88_1", 77, 1, [], "Engine", "aos", [], [], [], [], [], []),
     Tuner("88_1", 75, 2, [], "Lizard", "aos", [], [], [], [], [], []), 
     Tuner("88_1", 87, 2, [], "Zucchini", "aos", [], [], [], [], [], []), 
@@ -347,6 +348,12 @@ tuners = [ # clusters might not fit (manual clustering took place)
     Tuner("90_5", 56, 1, [], "Hamburger1", "aos",  [], [], [], [], [], []),
     Tuner("90_5", 56, 3, [], "Hamburger2", "aos",  [], [], [], [], [], []),
     Tuner("90_5", 67, 1, [], "Donkey - Petfood - Carrot", "aos",  [], [], [], [], [], []),
+    Tuner("101_4", 28, 1, [], "Rocket", "aos",  [], [], [], [], [], []),
+    Tuner("102_1", 51, 1, [], "Food", "aos",  [], [], [], [], [], []),
+    Tuner("103_1", 57, 1, [], "Car1", "aos",  [], [], [], [], [], []),
+    Tuner("103_1", 58, 2, [], "Car2", "aos",  [], [], [], [], [], []),
+    Tuner("100_1", 107, 1, [], "Animals and clothing", "aos",  [], [], [], [], [], []),
+    Tuner("103_3", 64, 1, [], "Sea animals and dolly", "aos",  [], [], [], [], [], []),
 ]
 
 figureHeight = 600
@@ -426,9 +433,9 @@ for session in sessions:
                 tuner.responses = responses
                 tuner.unitType = kind
 
-        if all(pval >= args.alpha for pval in pvals) : 
+        #if all(pval >= args.alpha for pval in pvals) : 
             #print("Skipping " + subjectSession + ", cell " + str(cellNum))
-            continue
+            #continue
 
         allUnits.append(Tuner(session, channel, cluster, kind, name, "aos", 
             stimuliNums, stimuliX, stimuliY, stimuliNames, zscores, firingRates, responses))
