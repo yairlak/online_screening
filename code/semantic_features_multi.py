@@ -130,7 +130,7 @@ for session in sessions:
         unit_counter += 1
 
         unit_data = data.neural_data[session]['units'][unit]
-        firing_rates, consider, median_firing_rates = get_mean_firing_rate_normalized(unit_data['trial'], stimuli_indices, start_time_avg_firing_rate, stop_time_avg_firing_rate, min_ratio_active_trials, min_firing_rate_consider)
+        firing_rates, consider, median_firing_rates, stddevFiringRates, baselineFiringRates = get_mean_firing_rate_normalized(unit_data['trial'], stimuli_indices, start_time_avg_firing_rate, stop_time_avg_firing_rate, min_ratio_active_trials, min_firing_rate_consider)
         
         response_stimuli_indices = np.where((unit_data['p_vals'] < args.alpha) & (consider > 0))[0]
 
