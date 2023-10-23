@@ -22,7 +22,7 @@ class DataHandler(object):
             
     
     
-    def load_neural_data(self):
+    def load_neural_data(self, alpha=0.001, min_t = 0, max_t = 1000, min_ratio_active_trials = 0.5, min_firing_rate = 1, min_active_trials = 5, min_t_baseline = -500):
         neural_data = {}
     
         # Get all session files in target folder
@@ -37,7 +37,7 @@ class DataHandler(object):
 
             # Load cherries (contains also condition info), zscores and pvalues
             cherries = load_matlab_file(fn_cherrie)# sio.loadmat(fn_cherrie)
-            zscores = load_matlab_file(subject_session_path + '_zscores.mat')["zscores_rs"] 
+            #zscores = load_matlab_file(subject_session_path + '_zscores.mat')["zscores_rs"] 
             pvals = load_matlab_file(subject_session_path + '_os_responses.mat')["pvals_rs"]
             stimlookup = load_matlab_file(subject_session_path + '_stimlookup.mat')["stimlookup"][0]
 
@@ -51,9 +51,10 @@ class DataHandler(object):
             neural_data[subject_session_key] = {}
             objectnames = [e[0] for e in cherries['conditions']['objectname'][0][0][0]]
             objectnumbers = [int(e) for e in cherries['conditions']['objectnumber'][0][0][0]]
+            objectindices = [np.where(stimlookup == objectname)[0][0] for objectname in objectnames]
             neural_data[subject_session_key]['objectnames'] = objectnames
             neural_data[subject_session_key]['objectnumbers'] = objectnumbers
-            neural_data[subject_session_key]['objectindices_session'] = [np.where(stimlookup == objectname)[0][0] for objectname in objectnames]
+            neural_data[subject_session_key]['objectindices_session'] = objectindices
             neural_data[subject_session_key]['stimlookup'] = [stim[0] for stim in stimlookup]
             
             if self.load_cat2object : 
@@ -61,20 +62,27 @@ class DataHandler(object):
                     get_dict_cat2object(objectnames,
                                         self.df_metadata, self.concept_source)
             
-            
+
             neural_data[subject_session_key]['units'] = {}
             for unit_num in range(cherries['cherries'].shape[1]):
+                trial_data = cherries['cherries'][0, unit_num]['trial'][0, :]
+                firing_rates, zscores, consider = get_mean_firing_rate_normalized(
+                    trial_data, objectindices, min_t, max_t, min_ratio_active_trials, min_firing_rate, min_active_trials, min_t_baseline)
 
                 neural_data[subject_session_key]['units'][unit_num + 1] = {}
                 neural_data[subject_session_key]['units'][unit_num + 1]['site'] = cherries['cherries'][0, unit_num]['site'][0]
-                neural_data[subject_session_key]['units'][unit_num + 1]['trial'] = cherries['cherries'][0, unit_num]['trial'][0, :]
+                neural_data[subject_session_key]['units'][unit_num + 1]['trial'] = trial_data
                 neural_data[subject_session_key]['units'][unit_num + 1]['class_num'] = cherries['cherries'][0, unit_num]['classno'][0, 0]
                 neural_data[subject_session_key]['units'][unit_num + 1]['channel_num'] = cherries['cherries'][0, unit_num]['channr'][0, 0]
                 neural_data[subject_session_key]['units'][unit_num + 1]['channel_name'] = cherries['cherries'][0, unit_num]['chnname'][0]
                 neural_data[subject_session_key]['units'][unit_num + 1]['kind'] = cherries['cherries'][0, unit_num]['kind'][0]
-                neural_data[subject_session_key]['units'][unit_num + 1]['zscores'] = zscores[unit_num]
                 neural_data[subject_session_key]['units'][unit_num + 1]['p_vals'] = pvals[unit_num]
-    
+                neural_data[subject_session_key]['units'][unit_num + 1]['zscores'] = zscores
+                neural_data[subject_session_key]['units'][unit_num + 1]['consider'] = consider
+                neural_data[subject_session_key]['units'][unit_num + 1]['firing_rates'] = firing_rates
+                neural_data[subject_session_key]['units'][unit_num + 1]['responses'] = np.where((pvals[unit_num] < alpha) & (consider > 0))[0]
+                
+   
         self.neural_data = neural_data
 
     def calculate_responses(self, alpha, alpha_unit, start_time_fr, end_time_fr, include_self = False) :
@@ -105,7 +113,7 @@ class DataHandler(object):
                     response_data_unit['session'] = int(session.split("_")[1])
                     response_data_unit['paradigm'] = session.split("_")[2]
                     
-                    firing_rates_all = get_mean_firing_rate_normalized(unit_data['trial'], stimuli_indices, start_time_fr, end_time_fr)
+                    firing_rates_all = get_mean_firing_rate_normalized(unit_data['trial'], stimuli_indices, start_time_fr, end_time_fr)[0]
                     response_data_unit['firing_rates'] = firing_rates_all[response_indices]
                     response_data_unit['p_vals'] = unit_data['p_vals'][response_indices]
                     response_data_unit['zscores'] = unit_data['zscores'][response_indices]
@@ -177,48 +185,48 @@ def get_dict_cat2object(objectnames, df_metadata, concept_source):
     
     return dict_cat2object
 
-def get_mean_firing_rate_normalized(all_trials, objectnumbers, min_t = 100, max_t = 1000, min_ratio_active_trials = 0.5, min_firing_rate = 0.6, min_t_baseline = -500) : 
+def get_mean_firing_rate_normalized(all_trials, objectnumbers, min_t = 0, max_t = 1000, min_ratio_active_trials = 0.5, min_firing_rate = 1, min_active_trials = 5, min_t_baseline = -500) : 
 
     consider = np.ones(max(objectnumbers) + 1)
     firing_rates = np.zeros(max(objectnumbers) + 1) 
-    median_firing_rates = np.zeros(max(objectnumbers) + 1) 
-    stddevs = np.zeros(max(objectnumbers) + 1) 
+    zscores = np.zeros(max(objectnumbers) + 1) 
     stimuli = np.unique(objectnumbers)
     factor = 1000 / (max_t - min_t)
     factor_baselines = 1000 / (0 - min_t_baseline)
-    baseline_firing_rates = []
+    baseline_firing_rates = np.zeros(max(objectnumbers) + 1) 
 
     for stim in stimuli : 
         stim_trials = all_trials[np.where(objectnumbers == stim)]
         num_active = 0
 
-        firing_rates_for_median = []
+        #firing_rates_for_median = []
 
         for trial_spikes in stim_trials : 
-            trial_spikes = trial_spikes[0]
-            trial_spikes = trial_spikes[np.where((trial_spikes >= min_t) & (trial_spikes < max_t))]
-            baseline_spikes = trial_spikes[np.where((trial_spikes >= min_t_baseline) & (trial_spikes < 0))]
-            baseline_firing_rates.append(len(baseline_spikes) * factor_baselines)
-            #trial_spikes = trial_spikes[]
-            firing_rates[stim] += len(trial_spikes) * factor
-            firing_rates_for_median.append(len(trial_spikes) * factor)
-            if len(trial_spikes) > 0 : 
+            trial_spikes_all = trial_spikes[0]
+            trial_spikes_stim = trial_spikes_all[np.where((trial_spikes_all >= min_t) & (trial_spikes_all < max_t))]
+            baseline_spikes = trial_spikes_all[np.where((trial_spikes_all >= min_t_baseline) & (trial_spikes_all < 0))]
+            baseline_firing_rates[stim] += len(baseline_spikes) * factor_baselines
+            firing_rates[stim] += len(trial_spikes_stim) * factor
+            #firing_rates_for_median.append(firing_rate)
+            if len(trial_spikes_all) > 0 : 
                 num_active += 1
 
-        #total_firing_rate = firing_rates[stim] * factor #1000 * statistics.median(firing_rates_for_median) / (max_t - min_t)
-        #firing_rates_for_median = 1000 * firing_rates_for_median / (max_t - min_t) #1000 * statistics.median(firing_rates_for_median) / (max_t - min_t)
-        if firing_rates[stim] < min_firing_rate or num_active / len(stim_trials) < min_ratio_active_trials or len(stim_trials) < 5: 
+        if firing_rates[stim] < min_firing_rate or num_active / len(stim_trials) < min_ratio_active_trials or len(stim_trials) < min_active_trials: 
             consider[stim] = 0
+    
+    mean_baselines = statistics.mean(baseline_firing_rates)
+    if mean_baselines == 0 : 
+        print("WARNING! Baseline is 0 for this unit. Mean firing rate after onset: " + str(statistics.mean(firing_rates)))
+    else : 
+        firing_rates = firing_rates / mean_baselines
 
-        #firing_rates[stim] = total_firing_rate
-        median_firing_rates[stim] = statistics.median(firing_rates_for_median) # basically only relevant for cohensD
-        stddevs[stim] = statistics.stdev(firing_rates_for_median) # basically only relevant for cohensD
+    mean_firing_rates = statistics.mean(firing_rates)
+    stddev = statistics.stdev(firing_rates)
 
-        #object_trials = object_trials[np.where(object_trials >= min_t)]
-        #object_trials = object_trials[np.where(object_trials <= max_t)]
-        #firing_rates[object - 1] = np.count_nonzero(object_trials)
+    for stim in stimuli : 
+        zscores[stim] = (firing_rates[stim] - mean_firing_rates) / stddev
 
-    return firing_rates / max(firing_rates), consider, median_firing_rates, stddevs, baseline_firing_rates
+    return firing_rates / max(firing_rates), zscores, consider
 
 
 def object2category(objectname, df_metadata, concept_source):

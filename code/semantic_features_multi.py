@@ -6,6 +6,10 @@ import pandas as pd
 import time
 import argparse
 
+import seaborn as sns
+import statsmodels.api as sm
+import statsmodels.stats.multitest 
+
 from utils import *
 from plot_helper import *
 from data_manip import *
@@ -33,6 +37,8 @@ parser.add_argument('--load_cat2object', default=False,
 # STATS
 parser.add_argument('--alpha', type=float, default=0.001,
                     help='Alpha for responses') 
+parser.add_argument('--alpha_colors', type=float, default=0.01,
+                    help='Alpha for coloring') 
 
 # PATHS
 parser.add_argument('--path2metadata',
@@ -45,21 +51,22 @@ parser.add_argument('--path2semanticdata',
 parser.add_argument('--path2categories',
                     default='../data/THINGS/category_mat_manual.tsv')
 parser.add_argument('--path2data', 
-                    default='../data/aos_after_manual_clustering/') 
+                    default='../data/aos_after_manual_clustering/') #aos_after_manual_clustering or aos_one_session
 parser.add_argument('--path2images', 
                     default='../figures/semantic_features_multi') 
 
 
 
-def save_img(fig, filename) : 
+def save_img(filename) : 
 
     file = args.path2images + "/" + filename 
 
     if not args.dont_plot : 
         os.makedirs(os.path.dirname(file), exist_ok=True)
-        fig.write_image(file + ".svg")
-        fig.write_image(file + ".png")
-
+        plt.savefig(file + ".png", bbox_inches="tight")
+        plt.clf()
+        #fig.write_image(file + ".svg")
+        #fig.write_image(file + ".png")
 
 
 print("\n--- START ---")
@@ -90,6 +97,13 @@ start_prepare_data_time = time.time()
 unit_counter = 0
 responsive_unit_counter = 0
 session_counter = 0
+neural_responses_all = []
+
+regression_categories_p = {}
+regression_categories_params = {}
+#regression_categories_names =[]
+
+#regression_categories = {}
 
 for session in sessions:
 
@@ -98,31 +112,13 @@ for session in sessions:
     session_num = int(session.split("_")[1])
     
     units = list(set(data.neural_data[session]['units'].keys()))
-    stimuli_indices = data.neural_data[session]['objectindices_session']
-    #object_names = data.neural_data[session]['objectnames']
+    stim_names = data.neural_data[session]['stimlookup']
     things_indices = np.array(data.get_THINGS_indices(data.neural_data[session]['stimlookup']))
+    #stim_combination_matrix = np.array(np.meshgrid(object_names, object_names)).T.reshape(-1, 2)
 
-    #dissimilarity_matrix_concepts = np.zeros((len(things_indices), len(things_indices)))
     session_categories = data.df_categories.iloc[things_indices]
-    dissimilarity_matrix_concepts = scipy.spatial.distance_matrix(session_categories,session_categories)
-
-    # for i in range(len(things_indices)) : 
-    #     cat1 = np.where(data.df_categories.iloc[things_indices[i]] == 1)[0]
-        
-    #     for j in range(len(things_indices)) : 
-    #         dissimilarity_matrix_concepts[i,j] = np.linalg.norm(cat1 - cat2)
-    #         cat2 = np.where(data.df_categories.iloc[things_indices[j]] == 1)[0]
-    #         any_equal = False
-    #         for c in cat1 : 
-    #             if np.any(cat2 == c) :
-    #                 any_equal = True
-
-    #         #if len(cat1) > 1 :
-    #         #    print("More than one category possible: " + object_names[i])
-    #         #if len(cat2) > 1 :
-    #         #    print("More than one category possible: " + object_names[j])
-    #         if not any_equal : 
-    #             dissimilarity_matrix_concepts[i,j] = 1
+    num_stimuli = len(stim_names)
+    print(session)
 
     neural_responses = []
     
@@ -130,31 +126,94 @@ for session in sessions:
         unit_counter += 1
 
         unit_data = data.neural_data[session]['units'][unit]
-        firing_rates, consider, median_firing_rates, stddevFiringRates, baselineFiringRates = get_mean_firing_rate_normalized(unit_data['trial'], stimuli_indices, start_time_avg_firing_rate, stop_time_avg_firing_rate, min_ratio_active_trials, min_firing_rate_consider)
-        
-        response_stimuli_indices = np.where((unit_data['p_vals'] < args.alpha) & (consider > 0))[0]
+        response_stimuli_indices = unit_data['responses']
+        firing_rates = unit_data['firing_rates'] 
+        zscores_things = np.arange(1854).astype(float)
+        zscores_things[:] = np.nan
+        zscores_things[things_indices] = unit_data['zscores'] 
+        neural_responses_all.append(zscores_things)
 
-        if len(response_stimuli_indices) > 0 :
+        if len(response_stimuli_indices) > 0 : # TODO: also non-responsive?
             responsive_unit_counter += 1 
             neural_responses.append(firing_rates)
 
-    distance_matrix = scipy.spatial.distance_matrix(np.transpose(neural_responses), np.transpose(neural_responses))
+    #distance_matrix = scipy.spatial.distance_matrix(np.transpose(neural_responses), np.transpose(neural_responses))
+    neural_responses_df = pd.DataFrame(neural_responses, columns=stim_names)
+    
+    dissimilarity_matrix_responses = np.zeros((len(stim_names), len(stim_names)))
+    stim_concept_table = []
 
-    regression_model = linear_model.LinearRegression()
-    regression_model.fit(pd.DataFrame(dissimilarity_matrix_concepts), pd.DataFrame(distance_matrix))
-    #category_names = data.df_categories.keys()[things_indices]
+    for column in session_categories : #?--> 27
+        stim_to_category_list = np.outer(session_categories[column], session_categories[column]) #np.zeros(num_categories*(num_categories-1) /2)
+        stim_to_category_list_triangular = stim_to_category_list[np.triu_indices(num_stimuli, k = 1)]
+        stim_concept_table.append(stim_to_category_list_triangular)
+                    
         
 
-    fileDescription = paradigm + '_pat' + str(subject_num) + '_s' + str(session_num)  
-    coef_fig = px.bar(x=data.neural_data[session]['stimlookup'], y=regression_model.coef_[0], labels={'x':"concepts", 'y':"coef"})
-    coef_fig.update_xaxes(dtick=1)
-    coef_fig.update_layout(width=int(2000))
-    save_img(coef_fig, "coef_regression" + os.sep + fileDescription)
+    for i in range(num_stimuli) : 
+        for j in range(i+1, num_stimuli) : 
+            pearson = stats.pearsonr(neural_responses_df.get(stim_names[i]), neural_responses_df.get(stim_names[j]))
+            dissimilarity_matrix_responses[i,j] = 1-pearson[0]
+            #stim_names_combined.append([stim_names[i], stim_names[j]])
 
+    dissimilarity_matrix_responses_triangular = dissimilarity_matrix_responses[np.triu_indices(len(stim_names), k = 1)]
+
+    #regression_model = linear_model.LinearRegression()
+    #regression_model.fit(pd.DataFrame(dissimilarity_matrix_concepts), pd.DataFrame(distance_matrix))
+    #category_names = data.df_categories.keys()[things_indices]
+
+    regression_model = sm.OLS(pd.DataFrame(dissimilarity_matrix_responses_triangular), pd.DataFrame(np.transpose(stim_concept_table)))                #, missing='drop'     
+    fitted_data = regression_model.fit() 
+    #fdr_corrected = statsmodels.stats.multitest.fdrcorrection(np.nan_to_num(fitted_data.pvalues.values), alpha=args.alpha_colors)
     
+    pvalue = fitted_data.f_pvalue
+    params = fitted_data.params
+    rsquared = fitted_data.rsquared 
+    pvalues = fitted_data.pvalues.values 
 
+
+    for i in range(len(session_categories.columns)):
+        category = session_categories.columns[i]
+        if(category in regression_categories_p) : 
+            regression_categories_p[category].append(pvalues[i])
+            regression_categories_params[category].append(params[i])
+        else : 
+            regression_categories_p[category] = [pvalues[i]]
+            regression_categories_params[category] = [params[i]]
+
+    fileDescription = paradigm + '_pat' + str(subject_num) + '_s' + str(session_num)  
+    color_sequence = ['red' if pvalues[i] < args.alpha_colors else 'blue' for i in range(len(pvalues)) ]
+    text_categories = np.array([str(session_categories.columns[i]) + ", p: " + str(round(pvalues[i], 5)) for i in range(len(session_categories.columns))])
+    coef_fig = sns.barplot(x=text_categories, y=params, palette=color_sequence)
+    coef_fig.set_xticklabels(coef_fig.get_xticklabels(), rotation=270)
+    plt.title("rsquared = " + str(rsquared) + ", pvalue: " + str(pvalue))
+
+        
+    save_img("coef_regression" + os.sep + fileDescription)
+
+
+columns_with_nans = np.isnan(neural_responses_all).any(axis=0)   
+
+
+
+
+plt.figure(figsize=(10,4)) 
+categories = regression_categories_p.keys()
+categories_text = [category + ", p: " + str(round(statistics.median(regression_categories_p[category]), 5)) for category in categories]
+createStdErrorMeanPlt(categories_text, [regression_categories_p[category] for category in categories], "pvalue of linear regression", "p value")
+plt.xticks(rotation=45, ha='right')
+plt.xlabel("p: median pvalue")
+plt.ylabel("pvalue")
+save_img("regression_p")
+
+plt.figure(figsize=(10,4)) 
+categories = regression_categories_params.keys()
+createStdErrorMeanPlt(categories, [regression_categories_params[category] for category in categories], "params of linear regression", "p value", [-0.05, 1.0])
+plt.ylabel("param")
+plt.xticks(rotation=45, ha='right')
+save_img("regression_params")
 
 print("\nTime plotting data: " + str(time.time() - start_prepare_data_time) + " s\n")
-print("\nNum sessions: " + str(session_counter) + " \n")
-print("\nNum units: " + str(unit_counter) + " \n")
-print("\nNum responsive units: " + str(responsive_unit_counter) + " \n")
+print("Num sessions: " + str(session_counter) + " \n")
+print("Num units: " + str(unit_counter) + " \n")
+print("Num responsive units: " + str(responsive_unit_counter) + " \n")

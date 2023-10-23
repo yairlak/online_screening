@@ -61,7 +61,7 @@ parser.add_argument('--threshold_p_value', type=float, default=0.05,
 #                    help='Threshold to only keep units where model makes sense') 
 #parser.add_argument('--threshold_r_squared_embedding', type=float, default=0.25,
 #                    help='Threshold to only keep units where model makes sense') 
-parser.add_argument('--analyze', type=str, default="embedding", #"categories", "embedding", "PCA" --> use categories from things, all 300 features, or PCA
+parser.add_argument('--analyze', type=str, default="PCA", #"categories", "embedding", "PCA" --> use categories from things, all 300 features, or PCA
                     help='If True, categories are considered, if false word embedding')
 parser.add_argument('--pca_components', type=int, default=27,  
                     help='Number of components for PCA')
@@ -205,13 +205,8 @@ for session in sessions:
         unit_counter += 1
         channel = unit_data['channel_num']
         cluster = unit_data['class_num']
-        firing_rates, consider, median_firing_rates, stddevs, baseline_firing_rates = get_mean_firing_rate_normalized(unit_data['trial'], stimuli_indices, start_time_avg_firing_rate, stop_time_avg_firing_rate, min_ratio_active_trials, min_firing_rate_consider)
-        #normalize by baseline firing rate
-
-        response_stimuli_indices = np.where((unit_data['p_vals'] < args.alpha) & (consider > 0))[0]
-        ##mean_firing_rates = mean(firing_rates)
-        ##stddev_firing_rates = statistics.stdev(firing_rates)
-        ##mean_baseline = mean(baseline_firing_rates) ## ?
+        firing_rates = unit_data['firing_rates']
+        response_stimuli_indices = consider = unit_data['responses'] 
 
         if len(response_stimuli_indices) > 0 :
             responsive_unit_counter += 1 

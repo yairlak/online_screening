@@ -167,7 +167,6 @@ for responding_cell in data.response_data :
 
 
 for session in sessions:
-    break
 
     subjectNum = int(session.split("_")[0])
     sessionNum = int(session.split("_")[1])
@@ -185,7 +184,7 @@ for session in sessions:
         channel = unitData['channel_num']
         cluster = unitData['class_num']
 
-        firingRates = get_mean_firing_rate_normalized(trials, stimuliIndices, args.start_time_fr, args.end_time_fr)
+        firingRates = get_mean_firing_rate_normalized(trials, stimuliIndices, args.start_time_fr, args.end_time_fr)[0]
 
         tunerIndex = getTunerIndex(subjectNum, sessionNum, channel, cluster, sessionParadigm) 
         if tunerIndex >= 0 :
