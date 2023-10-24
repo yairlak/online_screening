@@ -15,6 +15,9 @@ from plot_helper import *
 from data_manip import *
 
 from sklearn import linear_model
+from sklearn import manifold
+from sklearn.decomposition import PCA
+from sklearn.metrics import euclidean_distances
 
 
 parser = argparse.ArgumentParser()
@@ -26,11 +29,15 @@ parser.add_argument('--session', default=None, type=str, #"90_1_aos" / None ; 90
                         Otherwise, format should be '{subject}_{session}, \
                             e.g., '90_1'.")
 
+# DATA AND MODEL
+parser.add_argument('--metric', default='zscores', # zscores, or pvalues or firing_rates
+                    help='Metric to rate responses') # best firing_rates = best zscore ?!
+
 # FLAGS
 parser.add_argument('--dont_plot', action='store_true', default=False, 
                     help='If True, plotting to figures folder is supressed')
 parser.add_argument('--consider_only_responses', default=False, 
-                    help='If True, only stimuli eliciting responses are analyzed')
+                    help='If True, only units responding to at least one stimulus are analyzed')
 parser.add_argument('--load_cat2object', default=False, 
                     help='If True, cat2object is loaded')
 
@@ -58,8 +65,12 @@ parser.add_argument('--path2images',
 
 
 def save_img(filename) : 
+    response_string = "_all_units"
 
-    file = args.path2images + "/" + filename 
+    if args.consider_only_responses : 
+        response_string = "_only_responses"
+
+    file = args.path2images + os.sep + args.metric + response_string + os.sep + filename 
 
     if not args.dont_plot : 
         os.makedirs(os.path.dirname(file), exist_ok=True)
@@ -127,26 +138,31 @@ for session in sessions:
         unit_data = data.neural_data[session]['units'][unit]
         response_stimuli_indices = unit_data['responses']
         firing_rates = unit_data['firing_rates'] 
+        zscores = unit_data['zscores']
         zscores_things = np.arange(num_things).astype(float)
         zscores_things[:] = np.nan
         zscores_things[things_indices] = unit_data['zscores'] 
         neural_responses_all.append(zscores_things)
 
-        if len(response_stimuli_indices) > 0 : # TODO: also non-responsive?
+        if len(response_stimuli_indices) > 0 or not args.consider_only_responses: # TODO: also non-responsive?
             responsive_unit_counter += 1 
-            neural_responses.append(firing_rates)
+
+            if args.metric == "firing_rates" : 
+                neural_responses.append(firing_rates)
+            else : 
+                neural_responses.append(zscores) 
 
     #neural_responses_df = pd.DataFrame(neural_responses, columns=stim_names)
+    neural_responses = np.transpose(neural_responses)
     
     stim_category_table = []
     stimuli_per_category = {}
     category_list_rsa = []
     stim_names_list_rsa = []     
     stim_indices_list_rsa = []        
-    dissimilarity_matrix_responses = np.zeros((len(stim_names), len(stim_names)))
-    dissimilarity_matrix_responses = 1.0 - np.corrcoef(np.transpose(neural_responses)) #np.zeros((len(stim_names), len(stim_names)))
+    dissimilarity_matrix_responses = 1.0 - np.corrcoef(neural_responses) #np.zeros((len(stim_names), len(stim_names)))
     #dissimilarity_matrix_responses = scipy.spatial.distance_matrix(np.transpose(neural_responses), np.transpose(neural_responses))
-    #neural_responses_transposed = np.transpose(neural_responses)
+    #dissimilarity_matrix_responses = np.zeros((len(stim_names), len(stim_names)))
 
     #for i in range(num_stimuli) : 
     #    for j in range(i+1, num_stimuli) : 
@@ -155,6 +171,7 @@ for session in sessions:
     #        dissimilarity_matrix_responses[j,i] = 1-pearson.correlation
             #stim_names_combined.append([stim_names[i], stim_names[j]])
 
+    #dissimilarity_matrix_responses = dissimilarity_matrix_responses + dissimilarity_matrix_responses.T - np.diag(np.diag(dissimilarity_matrix_responses)) ## fill lower triangle
     dissimilarity_matrix_responses_triangular = dissimilarity_matrix_responses[np.triu_indices(len(stim_names), k = 1)]
 
     for column in session_categories : #?--> 27
@@ -169,17 +186,12 @@ for session in sessions:
         stim_names_list_rsa.extend(np.array(stim_names)[stim_indices_in_category])
         stim_indices_list_rsa.extend(stim_indices_in_category)
 
-    #categories_rsa = []
     dissimilarities_rsa = np.zeros((len(stim_indices_list_rsa), len(stim_indices_list_rsa)))  #dissimilarity_matrix_responses[stim_indices_list_rsa,stim_indices_list_rsa] 
-    #stim_names_rsa = []
-    #stim_indices_rsa = []
 
     for i in range(len(stim_indices_list_rsa)) : 
         for j in range(len(stim_indices_list_rsa)) :
             dissimilarities_rsa[i,j] = dissimilarity_matrix_responses[stim_indices_list_rsa[i],stim_indices_list_rsa[j]]
 
-
-               
 
     #regression_model = linear_model.LinearRegression()
     #regression_model.fit(pd.DataFrame(dissimilarity_matrix_concepts), pd.DataFrame(distance_matrix))
@@ -212,24 +224,59 @@ for session in sessions:
     plt.title("rsquared = " + str(rsquared) + ", pvalue: " + str(pvalue))
     save_img("coef_regression" + os.sep + fileDescription)
 
-
     f, ax = plt.subplots(1,1, figsize=(10, 8))
-    plt.imshow(dissimilarities_rsa, cmap='jet', vmin=0.0,vmax=1)
+    plt.imshow(dissimilarities_rsa, cmap='jet', vmin=0.3,vmax=1)
     plt.colorbar()
     binsize = [ len([iterator for iterator in category_list_rsa if iterator == category]) for category in session_categories.columns]#np.histogram(category_list_rsa, num_categories)[0]
     edges = np.concatenate([np.asarray([0]), np.cumsum(binsize)])[:-1]
-    #diff_to_next = np.diff(binsize)
-    #diff_to_next = np.append(diff_to_next, binsize[-1])
     diff_to_next = np.asarray(binsize).astype(float) / 2.0
-    ax.set_xticks(list(np.array(edges)) + diff_to_next)#+binsize[-1]
-    ax.set_xticklabels(session_categories.columns, rotation = 30)
+    ax.set_xticks(list(np.array(edges)) + diff_to_next)
     ax.set_yticks(list(np.array(edges)) + diff_to_next)
+    ax.set_xticklabels(session_categories.columns, rotation = 30)
     ax.set_yticklabels(session_categories.columns)
     ax.vlines(edges,0,len(category_list_rsa)-1)
     ax.hlines(edges,0,len(category_list_rsa)-1)
     ax.set_title('Stimuli sorted by categories')
-
     save_img("rsa" + os.sep + fileDescription)
+
+    
+    mds = manifold.MDS(n_components=2, random_state=1, dissimilarity='precomputed', normalized_stress='auto')
+    pos = mds.fit(dissimilarity_matrix_responses).embedding_
+    pos *= np.sqrt((neural_responses**2).sum()) / np.sqrt((pos**2).sum())
+    distance_mds = euclidean_distances(pos)
+    #stress = 0.5 * np.sum((distance_mds - dissimilarity_matrix_responses)**2)
+
+    #clf = PCA(n_components=2)
+    #X_mds = clf.fit_transform(neural_responses)
+    #pos = clf.fit_transform(pos)
+
+    categories_stimuli_list_array = session_categories.dot(session_categories.columns + ',').str.rstrip(',').str.split(',').to_numpy()
+    categories_stimuli_list = ['; '.join(categories) for categories in categories_stimuli_list_array]
+
+    mds_df = pd.DataFrame(pos, columns=('x', 'y'))
+    mds_df["categories"] = categories_stimuli_list
+
+    mds_plot = sns.scatterplot(x="x", y="y", data=mds_df, hue="categories")
+    sns.move_legend(mds_plot, "upper left", bbox_to_anchor=(1, 1))
+    plt.title("MDS for " + session + "; stress: " + str(mds.stress_))
+    #plt.legend(loc='center left')
+    save_img("mds_seaborn" + os.sep + fileDescription)
+
+
+    #fig = plt.figure(1)
+    #ax = plt.axes([0.0, 0.0, 1.0, 1.0])
+
+    #plt.scatter(X_mds[:, 0], X_mds[:, 1], color="navy", s=s, lw=0, label="True Position")
+
+    #groups = mds_df.groupby('categories')
+    #for name, group in groups:
+    #    ax.plot(group.x, group.y, marker='o', linestyle='', ms=12, label=name)
+    #ax.legend()
+
+    #plt.scatter(pos[:, 0], pos[:, 1], label=categories_stimuli_list)
+    #plt.legend(scatterpoints=1, loc="best", shadow=False)
+    #save_img("mds" + os.sep + fileDescription)
+
 
 #columns_with_nans = np.isnan(neural_responses_all).any(axis=0)   
 
