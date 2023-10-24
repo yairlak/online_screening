@@ -51,7 +51,7 @@ parser.add_argument('--path2semanticdata',
 parser.add_argument('--path2categories',
                     default='../data/THINGS/category_mat_manual.tsv')
 parser.add_argument('--path2data', 
-                    default='../data/aos_after_manual_clustering/') #aos_after_manual_clustering or aos_one_session
+                    default='../data/aos_after_manual_clustering/') #aos_after_manual_clustering or aos_one_session or aos_two_sessions
 parser.add_argument('--path2images', 
                     default='../figures/semantic_features_multi') 
 
@@ -98,12 +98,10 @@ unit_counter = 0
 responsive_unit_counter = 0
 session_counter = 0
 neural_responses_all = []
+num_things = len(data.df_metadata.uniqueID)
 
 regression_categories_p = {}
 regression_categories_params = {}
-#regression_categories_names =[]
-
-#regression_categories = {}
 
 for session in sessions:
 
@@ -117,6 +115,7 @@ for session in sessions:
     #stim_combination_matrix = np.array(np.meshgrid(object_names, object_names)).T.reshape(-1, 2)
 
     session_categories = data.df_categories.iloc[things_indices]
+    num_categories = len(session_categories)
     num_stimuli = len(stim_names)
     print(session)
 
@@ -128,7 +127,7 @@ for session in sessions:
         unit_data = data.neural_data[session]['units'][unit]
         response_stimuli_indices = unit_data['responses']
         firing_rates = unit_data['firing_rates'] 
-        zscores_things = np.arange(1854).astype(float)
+        zscores_things = np.arange(num_things).astype(float)
         zscores_things[:] = np.nan
         zscores_things[things_indices] = unit_data['zscores'] 
         neural_responses_all.append(zscores_things)
@@ -137,32 +136,56 @@ for session in sessions:
             responsive_unit_counter += 1 
             neural_responses.append(firing_rates)
 
-    #distance_matrix = scipy.spatial.distance_matrix(np.transpose(neural_responses), np.transpose(neural_responses))
-    neural_responses_df = pd.DataFrame(neural_responses, columns=stim_names)
+    #neural_responses_df = pd.DataFrame(neural_responses, columns=stim_names)
     
+    stim_category_table = []
+    stimuli_per_category = {}
+    category_list_rsa = []
+    stim_names_list_rsa = []     
+    stim_indices_list_rsa = []        
     dissimilarity_matrix_responses = np.zeros((len(stim_names), len(stim_names)))
-    stim_concept_table = []
+    dissimilarity_matrix_responses = 1.0 - np.corrcoef(np.transpose(neural_responses)) #np.zeros((len(stim_names), len(stim_names)))
+    #dissimilarity_matrix_responses = scipy.spatial.distance_matrix(np.transpose(neural_responses), np.transpose(neural_responses))
+    #neural_responses_transposed = np.transpose(neural_responses)
+
+    #for i in range(num_stimuli) : 
+    #    for j in range(i+1, num_stimuli) : 
+    #        pearson = stats.pearsonr(neural_responses_transposed[i], neural_responses_transposed[j])
+    #        dissimilarity_matrix_responses[i,j] = 1-pearson.correlation
+    #        dissimilarity_matrix_responses[j,i] = 1-pearson.correlation
+            #stim_names_combined.append([stim_names[i], stim_names[j]])
+
+    dissimilarity_matrix_responses_triangular = dissimilarity_matrix_responses[np.triu_indices(len(stim_names), k = 1)]
 
     for column in session_categories : #?--> 27
         stim_to_category_list = np.outer(session_categories[column], session_categories[column]) #np.zeros(num_categories*(num_categories-1) /2)
         stim_to_category_list_triangular = stim_to_category_list[np.triu_indices(num_stimuli, k = 1)]
-        stim_concept_table.append(stim_to_category_list_triangular)
-                    
-        
+        stim_category_table.append(stim_to_category_list_triangular)
 
-    for i in range(num_stimuli) : 
-        for j in range(i+1, num_stimuli) : 
-            pearson = stats.pearsonr(neural_responses_df.get(stim_names[i]), neural_responses_df.get(stim_names[j]))
-            dissimilarity_matrix_responses[i,j] = 1-pearson[0]
-            #stim_names_combined.append([stim_names[i], stim_names[j]])
+        stim_indices_in_category = np.where(session_categories[column])[0]
+        #stim_names_in_category = stim_names[stim_indices_in_category]
 
-    dissimilarity_matrix_responses_triangular = dissimilarity_matrix_responses[np.triu_indices(len(stim_names), k = 1)]
+        category_list_rsa.extend(np.asarray([column] * len(stim_indices_in_category)))
+        stim_names_list_rsa.extend(np.array(stim_names)[stim_indices_in_category])
+        stim_indices_list_rsa.extend(stim_indices_in_category)
+
+    #categories_rsa = []
+    dissimilarities_rsa = np.zeros((len(stim_indices_list_rsa), len(stim_indices_list_rsa)))  #dissimilarity_matrix_responses[stim_indices_list_rsa,stim_indices_list_rsa] 
+    #stim_names_rsa = []
+    #stim_indices_rsa = []
+
+    for i in range(len(stim_indices_list_rsa)) : 
+        for j in range(len(stim_indices_list_rsa)) :
+            dissimilarities_rsa[i,j] = dissimilarity_matrix_responses[stim_indices_list_rsa[i],stim_indices_list_rsa[j]]
+
+
+               
 
     #regression_model = linear_model.LinearRegression()
     #regression_model.fit(pd.DataFrame(dissimilarity_matrix_concepts), pd.DataFrame(distance_matrix))
     #category_names = data.df_categories.keys()[things_indices]
 
-    regression_model = sm.OLS(pd.DataFrame(dissimilarity_matrix_responses_triangular), pd.DataFrame(np.transpose(stim_concept_table)))                #, missing='drop'     
+    regression_model = sm.OLS(pd.DataFrame(dissimilarity_matrix_responses_triangular), pd.DataFrame(np.transpose(stim_category_table)))                #, missing='drop'     
     fitted_data = regression_model.fit() 
     #fdr_corrected = statsmodels.stats.multitest.fdrcorrection(np.nan_to_num(fitted_data.pvalues.values), alpha=args.alpha_colors)
     
@@ -187,12 +210,28 @@ for session in sessions:
     coef_fig = sns.barplot(x=text_categories, y=params, palette=color_sequence)
     coef_fig.set_xticklabels(coef_fig.get_xticklabels(), rotation=270)
     plt.title("rsquared = " + str(rsquared) + ", pvalue: " + str(pvalue))
-
-        
     save_img("coef_regression" + os.sep + fileDescription)
 
 
-columns_with_nans = np.isnan(neural_responses_all).any(axis=0)   
+    f, ax = plt.subplots(1,1, figsize=(10, 8))
+    plt.imshow(dissimilarities_rsa, cmap='jet', vmin=0.0,vmax=1)
+    plt.colorbar()
+    binsize = [ len([iterator for iterator in category_list_rsa if iterator == category]) for category in session_categories.columns]#np.histogram(category_list_rsa, num_categories)[0]
+    edges = np.concatenate([np.asarray([0]), np.cumsum(binsize)])[:-1]
+    #diff_to_next = np.diff(binsize)
+    #diff_to_next = np.append(diff_to_next, binsize[-1])
+    diff_to_next = np.asarray(binsize).astype(float) / 2.0
+    ax.set_xticks(list(np.array(edges)) + diff_to_next)#+binsize[-1]
+    ax.set_xticklabels(session_categories.columns, rotation = 30)
+    ax.set_yticks(list(np.array(edges)) + diff_to_next)
+    ax.set_yticklabels(session_categories.columns)
+    ax.vlines(edges,0,len(category_list_rsa)-1)
+    ax.hlines(edges,0,len(category_list_rsa)-1)
+    ax.set_title('Stimuli sorted by categories')
+
+    save_img("rsa" + os.sep + fileDescription)
+
+#columns_with_nans = np.isnan(neural_responses_all).any(axis=0)   
 
 
 
@@ -200,7 +239,7 @@ columns_with_nans = np.isnan(neural_responses_all).any(axis=0)
 plt.figure(figsize=(10,4)) 
 categories = regression_categories_p.keys()
 categories_text = [category + ", p: " + str(round(statistics.median(regression_categories_p[category]), 5)) for category in categories]
-createStdErrorMeanPlt(categories_text, [regression_categories_p[category] for category in categories], "pvalue of linear regression", "p value")
+createStdErrorMeanPlt(categories_text, [regression_categories_p[category] for category in categories], "pvalue of linear regression", "p value", [-0.05, 1.0])
 plt.xticks(rotation=45, ha='right')
 plt.xlabel("p: median pvalue")
 plt.ylabel("pvalue")
@@ -208,7 +247,7 @@ save_img("regression_p")
 
 plt.figure(figsize=(10,4)) 
 categories = regression_categories_params.keys()
-createStdErrorMeanPlt(categories, [regression_categories_params[category] for category in categories], "params of linear regression", "p value", [-0.05, 1.0])
+createStdErrorMeanPlt(categories, [regression_categories_params[category] for category in categories], "params of linear regression", "coef")
 plt.ylabel("param")
 plt.xticks(rotation=45, ha='right')
 save_img("regression_params")
