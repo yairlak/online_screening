@@ -32,6 +32,8 @@ parser.add_argument('--session', default=None, type=str, #"90_1_aos" / None ; 90
 # DATA AND MODEL
 parser.add_argument('--metric', default='zscores', # zscores, or pvalues or firing_rates
                     help='Metric to rate responses') # best firing_rates = best zscore ?!
+parser.add_argument('--region', default='All', # "All, "AM", "HC", "EC", "PHC"
+                    help='Which region to consider') # 
 
 # FLAGS
 parser.add_argument('--dont_plot', action='store_true', default=False, 
@@ -70,7 +72,7 @@ def save_img(filename) :
     if args.consider_only_responses : 
         response_string = "_only_responses"
 
-    file = args.path2images + os.sep + args.metric + response_string + os.sep + filename 
+    file = args.path2images + os.sep + args.metric + response_string + os.sep + args.region + os.sep + filename 
 
     if not args.dont_plot : 
         os.makedirs(os.path.dirname(file), exist_ok=True)
@@ -108,11 +110,33 @@ start_prepare_data_time = time.time()
 unit_counter = 0
 responsive_unit_counter = 0
 session_counter = 0
-neural_responses_all = []
 num_things = len(data.df_metadata.uniqueID)
 
 regression_categories_p = {}
 regression_categories_params = {}
+
+region_dict = {
+    "AM" : ["LA", "RA"],
+    "HC" : ["LMH", "RMH", "LAH", "RAH"],
+    "EC" : ["LEC", "REC"],
+    "PHC" : ["LPHC", "RPHC"]
+}
+
+#map_categories = {
+#    "animal; bird" : "animal", 
+#    "animal; food" : "animal", 
+#    "animal; insect" : "animal",
+#    "clothing; clothing accessory" : "clothing", 
+#    "container; home decor" : "container", 
+#    "electronic device; tool" : "tool", 
+#    "electronic device; kitchen appliance" : "electronic device", 
+#    "food; vegetables" : "food", 
+#    "office supply; tool" : "tool", 
+#    "sports equipment; weapon" : "sports equipment", 
+#    "tool; weapon" : "tool", 
+#}
+
+sites_to_exclude = ["LFa", "LTSA", "LTSP", "Fa", "TSA", "TSP", "LTP", "LTB", "RMC", "RAI", "RAC", "RAT", "RFO", "RFa", "RFb", "RFc"] 
 
 for session in sessions:
 
@@ -133,24 +157,29 @@ for session in sessions:
     neural_responses = []
     
     for unit in units:
-        unit_counter += 1
 
         unit_data = data.neural_data[session]['units'][unit]
-        response_stimuli_indices = unit_data['responses']
-        firing_rates = unit_data['firing_rates'] 
-        zscores = unit_data['zscores']
-        zscores_things = np.arange(num_things).astype(float)
-        zscores_things[:] = np.nan
-        zscores_things[things_indices] = unit_data['zscores'] 
-        neural_responses_all.append(zscores_things)
+        site = unit_data["site"]
 
-        if len(response_stimuli_indices) > 0 or not args.consider_only_responses: # TODO: also non-responsive?
+        if site in sites_to_exclude : 
+            continue
+
+        if not args.region == "All" and site not in region_dict[args.region] : 
+            continue
+
+        unit_counter += 1
+
+        if len(unit_data['responses']) > 0 or not args.consider_only_responses: # TODO: also non-responsive?
             responsive_unit_counter += 1 
 
             if args.metric == "firing_rates" : 
-                neural_responses.append(firing_rates)
+                neural_responses.append(unit_data['firing_rates'] )
             else : 
-                neural_responses.append(zscores) 
+                neural_responses.append(unit_data['zscores']) 
+
+    if len(neural_responses) == 0 : 
+        print("No units for session " + session + ", region: " + args.region)
+        continue
 
     #neural_responses_df = pd.DataFrame(neural_responses, columns=stim_names)
     neural_responses = np.transpose(neural_responses)
@@ -251,7 +280,8 @@ for session in sessions:
     #pos = clf.fit_transform(pos)
 
     categories_stimuli_list_array = session_categories.dot(session_categories.columns + ',').str.rstrip(',').str.split(',').to_numpy()
-    categories_stimuli_list = ['; '.join(categories) for categories in categories_stimuli_list_array]
+    categories_stimuli_list = [categories[0] for categories in categories_stimuli_list_array]
+    #categories_stimuli_list = ['; '.join(categories) for categories in categories_stimuli_list_array] ##all categories separated by ;
 
     mds_df = pd.DataFrame(pos, columns=('x', 'y'))
     mds_df["categories"] = categories_stimuli_list
@@ -259,28 +289,7 @@ for session in sessions:
     mds_plot = sns.scatterplot(x="x", y="y", data=mds_df, hue="categories")
     sns.move_legend(mds_plot, "upper left", bbox_to_anchor=(1, 1))
     plt.title("MDS for " + session + "; stress: " + str(mds.stress_))
-    #plt.legend(loc='center left')
-    save_img("mds_seaborn" + os.sep + fileDescription)
-
-
-    #fig = plt.figure(1)
-    #ax = plt.axes([0.0, 0.0, 1.0, 1.0])
-
-    #plt.scatter(X_mds[:, 0], X_mds[:, 1], color="navy", s=s, lw=0, label="True Position")
-
-    #groups = mds_df.groupby('categories')
-    #for name, group in groups:
-    #    ax.plot(group.x, group.y, marker='o', linestyle='', ms=12, label=name)
-    #ax.legend()
-
-    #plt.scatter(pos[:, 0], pos[:, 1], label=categories_stimuli_list)
-    #plt.legend(scatterpoints=1, loc="best", shadow=False)
-    #save_img("mds" + os.sep + fileDescription)
-
-
-#columns_with_nans = np.isnan(neural_responses_all).any(axis=0)   
-
-
+    save_img("mds" + os.sep + fileDescription)
 
 
 plt.figure(figsize=(10,4)) 
@@ -300,6 +309,6 @@ plt.xticks(rotation=45, ha='right')
 save_img("regression_params")
 
 print("\nTime plotting data: " + str(time.time() - start_prepare_data_time) + " s\n")
-print("Num sessions: " + str(session_counter) + " \n")
-print("Num units: " + str(unit_counter) + " \n")
-print("Num responsive units: " + str(responsive_unit_counter) + " \n")
+print("Num sessions: " + str(session_counter))
+print("Num units: " + str(unit_counter))
+print("Num responsive units: " + str(responsive_unit_counter))
