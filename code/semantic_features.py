@@ -61,7 +61,7 @@ parser.add_argument('--threshold_p_value', type=float, default=0.05,
 #                    help='Threshold to only keep units where model makes sense') 
 #parser.add_argument('--threshold_r_squared_embedding', type=float, default=0.25,
 #                    help='Threshold to only keep units where model makes sense') 
-parser.add_argument('--analyze', type=str, default="PCA", #"categories", "embedding", "PCA" --> use categories from things, all 300 features, or PCA
+parser.add_argument('--analyze', type=str, default="categories", #"categories", "embedding", "PCA" --> use categories from things, all 300 features, or PCA
                     help='If True, categories are considered, if false word embedding')
 parser.add_argument('--pca_components', type=int, default=27,  
                     help='Number of components for PCA')
@@ -206,7 +206,7 @@ for session in sessions:
         channel = unit_data['channel_num']
         cluster = unit_data['class_num']
         firing_rates = unit_data['firing_rates']
-        response_stimuli_indices = consider = unit_data['responses'] 
+        response_stimuli_indices = unit_data['responses'] 
 
         if len(response_stimuli_indices) > 0 :
             responsive_unit_counter += 1 
@@ -255,15 +255,17 @@ for session in sessions:
                 params = ridge.coef_
                 pvalue = corr.pvalue
                 rsquared = 0
-                fdr_corrected = [[False for i in range(len(params))], np.ones(len(params))]
+                pvalues_fit = np.ones(len(params))
+                #fdr_corrected = [[False for i in range(len(params))], np.ones(len(params))]
             else :                                                   
                 fitted_data = regression_model.fit() 
-                fdr_corrected = statsmodels.stats.multitest.fdrcorrection(fitted_data.pvalues, alpha=args.alpha)
+                #fdr_corrected = statsmodels.stats.multitest.fdrcorrection(fitted_data.pvalues, alpha=args.alpha)
                 #fdr_corrected = fdr_correction(fitted_data.pvalues, alpha=args.alpha)
                 
                 pvalue = fitted_data.f_pvalue
                 params = fitted_data.params
                 rsquared = fitted_data.rsquared
+                pvalues_fit = fitted_data.pvalues
 
                 
             if site in rsquaredSites : 
@@ -280,8 +282,8 @@ for session in sessions:
             if pvalue < args.threshold_p_value : #args.analyze == "embedding" and (pvalue > args.threshold_p_value) or rsquared > threshold_rsquared : #(fitted_data.f_pvalue > args.threshold_p_value)
                 r_squared_counter += 1
                 ##zscores = np.concatenate(zscores, ((firing_rates_consider - mean_firing_rates) / stddev_firing_rates / mean_baseline))
-                num_significant_weights.append(np.count_nonzero(fdr_corrected[0]))
                 num_responsive_stimuli.append(len(response_stimuli_indices))
+                num_significant_weights.append(np.count_nonzero(np.where(pvalues_fit < args.alpha)[0]))
                 #if len(response_stimuli_indices) > 1 : 
                 responsive_categories = categories_responses_df.any(axis='rows')
                 if not responsive_categories.value_counts().keys().any() : 
@@ -293,8 +295,8 @@ for session in sessions:
             entropies.append(entropy)
 
             fileDescription = paradigm + '_pat' + str(subject_num) + '_s' + str(session_num) + '_ch' + '{:02d}'.format(channel)  + '_cl' + str(cluster) + '_' + site 
-            color_sequence = ['red' if fdr_corrected[1][i] < args.alpha_categories else 'blue' for i in range(len(fdr_corrected[1])) ]
-            text_categories = np.array([str(categories_consider_df.keys()[i]) + ", p: " + str(round(fdr_corrected[1][i], 5)) for i in range(len(categories_consider_df.keys()))])
+            color_sequence = ['red' if pvalues_fit[i] < args.alpha_categories else 'blue' for i in range(len(pvalues_fit)) ]
+            text_categories = np.array([str(categories_consider_df.keys()[i]) + ", p: " + str(round(pvalues_fit[i], 5)) for i in range(len(categories_consider_df.keys()))])
             coef_fig = sns.barplot(x=text_categories, y=params, palette=color_sequence)
             coef_fig.set_xticklabels(coef_fig.get_xticklabels(), rotation=270)
             plt.title("rsquared = " + str(rsquared) + ", pvalue: " + str(pvalue) + ", Entropy = " + str(entropy))

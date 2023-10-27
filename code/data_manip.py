@@ -211,16 +211,20 @@ def get_mean_firing_rate_normalized(all_trials, objectnumbers, min_t = 0, max_t 
             if len(trial_spikes_all) > 0 : 
                 num_active += 1
 
+        firing_rates[stim] /= float(len(stim_trials))
+        baseline_firing_rates[stim] /= float(len(stim_trials))
+
         if firing_rates[stim] < min_firing_rate or num_active / len(stim_trials) < min_ratio_active_trials or len(stim_trials) < min_active_trials: 
             consider[stim] = 0
     
+
     mean_baselines = statistics.mean(baseline_firing_rates)
     if mean_baselines == 0 : 
         print("WARNING! Baseline is 0 for this unit. Mean firing rate after onset: " + str(statistics.mean(firing_rates)))
         stddev = 1.0
     else : 
         stddev = statistics.stdev(baseline_firing_rates)
-        firing_rates = firing_rates / mean_baselines
+        #firing_rates = firing_rates / mean_baselines
 
     mean_firing_rates = statistics.mean(firing_rates)
     zscores = (firing_rates - mean_baselines) / stddev
