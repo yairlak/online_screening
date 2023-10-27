@@ -90,7 +90,6 @@ def mds(categories, dissimilarity_matrix, file_description) :
     save_img("pca" + os.sep + file_description)
 
 
-
 def rsa(neural_responses, stimuli_names, categories, file_description, vmin = 0.0, vmax = 1.0) : 
 
     try : 
@@ -134,6 +133,14 @@ def rsa(neural_responses, stimuli_names, categories, file_description, vmin = 0.
 
     return dissimilarity_matrix
 
+def rsa_indexed(neural_responses_all, indices, file_description, vmin=0.0, vmax=1.0) : 
+    neural_responses_reduced = np.array(neural_responses_all)[:,(indices.astype(int))]
+    stim_names_reduced = data.df_metadata.uniqueID[indices]
+    categories_reduced = data.df_categories.iloc[indices]
+    dissimilarity_matrix_reduced = rsa(neural_responses_reduced, stim_names_reduced, categories_reduced, file_description, vmin, vmax)
+    return dissimilarity_matrix_reduced
+
+
 def save_img(filename) : 
     response_string = "_all_units"
 
@@ -148,6 +155,8 @@ def save_img(filename) :
         plt.clf()
         #fig.write_image(file + ".svg")
         #fig.write_image(file + ".png")
+
+    plt.close()
 
 
 print("\n--- START ---")
@@ -182,6 +191,7 @@ num_things = len(data.df_metadata.uniqueID)
 num_presented_things = np.zeros(len(data.df_metadata.uniqueID))
 
 neural_responses_all = []
+neural_responses_patients = {}
 regression_categories_p = {}
 regression_categories_params = {}
 
@@ -227,6 +237,7 @@ for session in sessions:
     print(session)
 
     neural_responses = []
+    neural_responses_patient =[]
     
     for unit in units:
 
@@ -250,6 +261,11 @@ for session in sessions:
             responsive_unit_counter += 1 
             neural_responses.append(score)
             neural_responses_all.append(score_things)
+
+            if subject_num in neural_responses_patients : 
+                neural_responses_patients[subject_num].append(score_things)
+            else : 
+                neural_responses_patients[subject_num] = [score_things]
 
 
     if len(neural_responses) < 5 : 
@@ -316,6 +332,14 @@ file_description = "all"
 dissimilarity_matrix_all = rsa(neural_responses_all, data.df_metadata.uniqueID, data.df_categories, file_description, vmin = -0.1, vmax = 0.5) 
 #mds(data.df_categories, dissimilarity_matrix_all, file_description)
 
+for patient in neural_responses_patients : 
+    file_description_patient = "pat_" + str(patient)
+    neural_responses_patient_np = np.asarray(neural_responses_patients[patient])
+    dissimilarity_matrix_patient = rsa(neural_responses_patients[patient], data.df_metadata.uniqueID, data.df_categories, file_description_patient, vmin = -0.1, vmax = 0.5)
+    #mds(data.df_categories, dissimilarity_matrix_patient, patient) 
+    stimuli_without_nan_patient = np.where(np.asarray([np.count_nonzero(np.isnan(neural_responses_patient_np[:,i])) for i in range(num_things)]) <= num_things * 0.05 )[0]
+    dissimilarity_matrix_reduced_no_nan = rsa_indexed(neural_responses_all, stimuli_without_nan_patient, file_description_patient + "_mostly_no_nan", vmin=0.5)
+
 #never_presented = np.where(num_presented_things == 0)[0]
 thresh_frequently_presented = len(sessions) / 3.0
 frequently_presented = np.where(num_presented_things >= thresh_frequently_presented)[0]
@@ -323,16 +347,12 @@ print("Frequently presented threshold: " + str(thresh_frequently_presented))
 
 neural_responses_reduced = np.array(neural_responses_all)[:,(frequently_presented.astype(int))]
 stim_names_reduced = data.df_metadata.uniqueID[frequently_presented]
-categories_reduced = data.df_categories.iloc[frequently_presented]
-dissimilarity_matrix_reduced = rsa(neural_responses_reduced, stim_names_reduced, categories_reduced, file_description + "_reduced", vmin = -0.1)
-
-stimuli_without_nan = np.where(np.asarray([np.count_nonzero(np.isnan(neural_responses_reduced[:,i])) for i in range(len(stim_names_reduced))]) <= len(neural_responses_reduced) )[0]
-neural_responses_no_nan = np.array(neural_responses_reduced)[:,(stimuli_without_nan.astype(int))]
-stim_names_no_nan = stim_names_reduced.iloc[stimuli_without_nan]
-categories_no_nan = categories_reduced.iloc[stimuli_without_nan]
-dissimilarity_matrix_reduced_no_nan = rsa(neural_responses_no_nan, stim_names_no_nan, categories_no_nan, file_description + "_mostly_no_nan", vmin = 0.5)
+dissimilarity_matrix_reduced = rsa_indexed(neural_responses_all, frequently_presented, file_description + "_reduced", vmin=0.5, vmax=1.0)
 
 neural_responses_all_np = np.asarray(neural_responses_all)
+stimuli_without_nan = np.where(np.asarray([np.count_nonzero(np.isnan(neural_responses_all_np[:,i])) for i in range(num_things)]) <= num_things * 0.8 )[0]
+dissimilarity_matrix_reduced_no_nan = rsa_indexed(neural_responses_all, stimuli_without_nan, file_description + "_mostly_no_nan", vmin=0.7)
+
 num_non_nan_units = [np.count_nonzero(~np.isnan(neural_responses_reduced[i,:])) for i in range(len(neural_responses_reduced))]
 num_non_nan_stimuli = [np.count_nonzero(~np.isnan(neural_responses_reduced[:,i])) for i in range(len(stim_names_reduced))]
 
