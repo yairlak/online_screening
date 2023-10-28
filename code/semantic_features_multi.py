@@ -60,19 +60,24 @@ parser.add_argument('--path2semanticdata',
 parser.add_argument('--path2categories',
                     default='../data/THINGS/category_mat_manual.tsv')
 parser.add_argument('--path2data', 
-                    default='../data/aos_after_manual_clustering/') #aos_after_manual_clustering or aos_one_session or aos_selected_sessions
+                    default='../data/aos_one_session/') #aos_after_manual_clustering or aos_one_session or aos_selected_sessions
 parser.add_argument('--path2images', 
                     default='../figures/semantic_features_multi') 
 
+def get_categories_for_stimuli(categories) : 
+    categories_stimuli_list_array = categories.dot(categories.columns + ',').str.rstrip(',').str.split(',').to_numpy()
+    return [categories[0] for categories in categories_stimuli_list_array]
+
+
 def mds(categories, dissimilarity_matrix, file_description) : 
     
-    categories_stimuli_list_array = categories.dot(categories.columns + ',').str.rstrip(',').str.split(',').to_numpy()
+    categories_stimuli_list_array = get_categories_for_stimuli(categories)
     #categories_stimuli_list = ['; '.join(categories) for categories in categories_stimuli_list_array] ##all categories separated by ;
 
     mds_model = manifold.MDS(n_components=2, random_state=0, dissimilarity='precomputed', normalized_stress='auto')
     mds = mds_model.fit_transform(dissimilarity_matrix)
     mds_df = pd.DataFrame(mds, columns=('x', 'y'))
-    mds_df["categories"] = [categories[0] for categories in categories_stimuli_list_array]
+    mds_df["categories"] = categories_stimuli_list_array
 
     mds_plot = sns.scatterplot(x="x", y="y", data=mds_df, hue="categories")
     sns.move_legend(mds_plot, "upper left", bbox_to_anchor=(1, 1))
@@ -82,7 +87,7 @@ def mds(categories, dissimilarity_matrix, file_description) :
     pca = PCA(n_components=2)
     principalComponents = pca.fit_transform(dissimilarity_matrix)
     pca_df = pd.DataFrame(principalComponents, columns=('x', 'y'))
-    pca_df["categories"] = [categories[0] for categories in categories_stimuli_list_array]
+    pca_df["categories"] = categories_stimuli_list_array
     
     pca_plot = sns.scatterplot(x="x", y="y", data=pca_df, hue="categories")
     sns.move_legend(pca_plot, "upper left", bbox_to_anchor=(1, 1))
@@ -90,7 +95,7 @@ def mds(categories, dissimilarity_matrix, file_description) :
     save_img("pca" + os.sep + file_description)
 
 
-def rsa(neural_responses, stimuli_names, categories, file_description, vmin = 0.0, vmax = 1.0) : 
+def rsa(neural_responses, stimuli_names, categories, file_description, vmin = 0.0, vmax = 1.0, median_dissimilarity = -1) : 
 
     try : 
         dissimilarity_matrix = 1.0-pd.DataFrame(neural_responses).corr(min_periods=4).to_numpy() #min_periods = min number of observations
@@ -114,6 +119,27 @@ def rsa(neural_responses, stimuli_names, categories, file_description, vmin = 0.
     categories_copy = categories.copy()
     categories_copy = categories_copy.drop(columns=empty_columns)
 
+    categories_for_stimuli = get_categories_for_stimuli(categories)
+    dissimilarity_df = pd.DataFrame(dissimilarity_matrix, columns = categories_for_stimuli)
+    dissimilarity_df["categories"] = categories_for_stimuli
+    dissimilarity_df = dissimilarity_df.groupby(['categories'])
+
+    if not median_dissimilarity == -1 :
+        for column1 in categories_copy : 
+            for column2 in categories_copy : 
+                if column1 not in categories_for_stimuli or column2 not in categories_for_stimuli or column2 > column1 : 
+                    continue
+                dissimilarities_median = dissimilarity_df.get_group(column1)[column2].median()
+                #if column1 <= column2 :
+                combined = column1 + "; " + column2
+                #else : 
+                #    combined = column2 + "; " + column1
+                if combined in median_dissimilarity : 
+                    median_dissimilarity.append(dissimilarities_median)
+                else : 
+                    median_dissimilarity[combined] = [dissimilarities_median]
+
+
     dissimilarities_rsa_all  = [[dissimilarity_matrix[i,j] for j in stim_indices_list_rsa] for i in stim_indices_list_rsa]
 
     f, ax = plt.subplots(1,1, figsize=(10, 8))
@@ -131,7 +157,7 @@ def rsa(neural_responses, stimuli_names, categories, file_description, vmin = 0.
     ax.set_title('Stimuli sorted by categories')
     save_img("rsa" + os.sep + file_description)
 
-    return dissimilarity_matrix
+    return dissimilarity_matrix, median_dissimilarity
 
 def rsa_indexed(neural_responses_all, indices, file_description, vmin=0.0, vmax=1.0) : 
     neural_responses_reduced = np.array(neural_responses_all)[:,(indices.astype(int))]
@@ -194,6 +220,9 @@ neural_responses_all = []
 neural_responses_patients = {}
 regression_categories_p = {}
 regression_categories_params = {}
+
+dissimilarities_categories = {}
+median_dissimilarity_categories = {}
 
 region_dict = {
     "AM" : ["LA", "RA"],
@@ -273,7 +302,7 @@ for session in sessions:
         continue
 
     stim_category_table = []
-    dissimilarity_matrix_responses = rsa(neural_responses, stim_names, session_categories, file_description, vmin = 0.3)
+    dissimilarity_matrix_responses = rsa(neural_responses, stim_names, session_categories, file_description, vmin=0.3, median_dissimilarity=median_dissimilarity_categories)
     dissimilarity_matrix_responses_triangular = dissimilarity_matrix_responses[np.triu_indices(len(stim_names), k = 1)]
 
     for column in session_categories : #?--> 27
