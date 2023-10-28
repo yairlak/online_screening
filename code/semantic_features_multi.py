@@ -95,7 +95,7 @@ def mds(categories, dissimilarity_matrix, file_description) :
     save_img("pca" + os.sep + file_description)
 
 
-def rsa(neural_responses, stimuli_names, categories, file_description, vmin = 0.0, vmax = 1.0, median_dissimilarity = -1) : 
+def rsa(neural_responses, stimuli_names, categories, file_description, vmin = 0.0, vmax = 1.0) : 
 
     try : 
         dissimilarity_matrix = 1.0-pd.DataFrame(neural_responses).corr(min_periods=4).to_numpy() #min_periods = min number of observations
@@ -118,29 +118,59 @@ def rsa(neural_responses, stimuli_names, categories, file_description, vmin = 0.
 
     categories_copy = categories.copy()
     categories_copy = categories_copy.drop(columns=empty_columns)
-
-    categories_for_stimuli = get_categories_for_stimuli(categories)
-    dissimilarity_df = pd.DataFrame(dissimilarity_matrix, columns = categories_for_stimuli)
-    dissimilarity_df["categories"] = categories_for_stimuli
-    dissimilarity_df = dissimilarity_df.groupby(['categories'])
-
-    if not median_dissimilarity == -1 :
-        for column1 in categories_copy : 
-            for column2 in categories_copy : 
-                if column1 not in categories_for_stimuli or column2 not in categories_for_stimuli or column2 > column1 : 
-                    continue
-                dissimilarities_median = dissimilarity_df.get_group(column1)[column2].median()
-                #if column1 <= column2 :
-                combined = column1 + "; " + column2
-                #else : 
-                #    combined = column2 + "; " + column1
-                if combined in median_dissimilarity : 
-                    median_dissimilarity.append(dissimilarities_median)
-                else : 
-                    median_dissimilarity[combined] = [dissimilarities_median]
-
-
+    
     dissimilarities_rsa_all  = [[dissimilarity_matrix[i,j] for j in stim_indices_list_rsa] for i in stim_indices_list_rsa]
+
+    categories_for_stimuli = category_list_rsa# get_categories_for_stimuli(categories)
+    dissimilarity_df = pd.DataFrame(dissimilarities_rsa_all, columns = categories_for_stimuli)
+    np.fill_diagonal(dissimilarity_df.values, np.nan)
+    #dissimilarity_df.values[[np.arange(dissimilarity_df.shape[0])]*2] = 6.0
+    dissimilarity_df["categories"] = categories_for_stimuli
+    dissimilarity_group = dissimilarity_df.groupby(['categories']).mean().transpose().groupby(level=0)
+    #d1 = dissimilarity_df.stack().dropna()
+    #d2 = dissimilarity_group.mean().transpose().groupby(level=0)
+    diss_mean = dissimilarity_group.mean()
+    diss_sem = dissimilarity_group.sem()
+    #d3 = d2.copy()
+    #d2["categories"] = categories_for_stimuli
+    #d4 = d2.groupby(['categories'])
+    #d5 = d4.mean()
+    #d6 = d4.sem()
+
+
+    #plt.figure(figsize=(600,70))
+    f = plt.figure()
+    diss_mean.plot(kind="bar", yerr=diss_sem.values, figsize=(100,10), width=0.75)
+    plt.legend(loc='center left', bbox_to_anchor=(1.0, 0.5))
+    #sns.move_legend(mds_plot, "upper left", bbox_to_anchor=(1, 1))
+    save_img("sem_diss" + os.sep + file_description)
+    #dissimilarity_df.reset_index().plot(x="index", y=categories_copy.columns, kind="bar")
+
+    #if not median_dissimilarity == -1 :
+    #for column1 in categories_copy : 
+    #    group = dissimilarity_df.get_group(column1).stack().dropna()
+        #group_transposed = group.transpose()
+        #group = group.melt(id_vars=[0], value_vars=[range(len(group.columns))[1:]])
+
+    #    plt.figure(figsize=(14, 8))
+    #    ax = sns.barplot(group)
+    #    save_img("sem_diss" + os.sep + file_description)
+
+
+        #for column2 in categories_copy : 
+        #    if column1 not in categories_for_stimuli or column2 not in categories_for_stimuli or column2 > column1 : 
+        #        continue
+        #    dissimilarities_median = dissimilarity_df.get_group(column1)[column2].median()
+            #if column1 <= column2 :
+        #    combined = column1 + "; " + column2
+            #else : 
+            #    combined = column2 + "; " + column1
+        #    if combined in median_dissimilarity : 
+        #        median_dissimilarity.append(dissimilarities_median)
+        #    else : 
+        #        median_dissimilarity[combined] = [dissimilarities_median]
+
+
 
     f, ax = plt.subplots(1,1, figsize=(10, 8))
     plt.imshow(np.nan_to_num(dissimilarities_rsa_all, 1.0), cmap='jet', vmin=vmin,vmax=vmax)
@@ -157,7 +187,7 @@ def rsa(neural_responses, stimuli_names, categories, file_description, vmin = 0.
     ax.set_title('Stimuli sorted by categories')
     save_img("rsa" + os.sep + file_description)
 
-    return dissimilarity_matrix, median_dissimilarity
+    return dissimilarity_matrix#, median_dissimilarity
 
 def rsa_indexed(neural_responses_all, indices, file_description, vmin=0.0, vmax=1.0) : 
     neural_responses_reduced = np.array(neural_responses_all)[:,(indices.astype(int))]
@@ -302,7 +332,7 @@ for session in sessions:
         continue
 
     stim_category_table = []
-    dissimilarity_matrix_responses = rsa(neural_responses, stim_names, session_categories, file_description, vmin=0.3, median_dissimilarity=median_dissimilarity_categories)
+    dissimilarity_matrix_responses = rsa(neural_responses, stim_names, session_categories, file_description, vmin=0.3)
     dissimilarity_matrix_responses_triangular = dissimilarity_matrix_responses[np.triu_indices(len(stim_names), k = 1)]
 
     for column in session_categories : #?--> 27
