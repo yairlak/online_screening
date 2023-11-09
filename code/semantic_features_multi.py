@@ -60,28 +60,37 @@ parser.add_argument('--path2semanticdata',
 parser.add_argument('--path2categories',
                     default='../data/THINGS/category_mat_manual.tsv')
 parser.add_argument('--path2data', 
-                    default='../data/aos_one_session/') #aos_after_manual_clustering or aos_one_session or aos_selected_sessions
+                    default='../data/aos_after_manual_clustering/') #aos_after_manual_clustering or aos_one_session or aos_selected_sessions
 parser.add_argument('--path2images', 
                     default='../figures/semantic_features_multi') 
+
 
 def get_categories_for_stimuli(categories) : 
     categories_stimuli_list_array = categories.dot(categories.columns + ',').str.rstrip(',').str.split(',').to_numpy()
     return [categories[0] for categories in categories_stimuli_list_array]
 
 
-def mds(categories, dissimilarity_matrix, file_description) : 
+def mds(dissimilarity_matrix, categories, file_description) :
+    
+    if np.any(np.isnan(dissimilarity_matrix)):
+        print("WARNING: mds not possible due to nan for " + file_description)
+        return
     
     categories_stimuli_list_array = get_categories_for_stimuli(categories)
     #categories_stimuli_list = ['; '.join(categories) for categories in categories_stimuli_list_array] ##all categories separated by ;
 
     mds_model = manifold.MDS(n_components=2, random_state=0, dissimilarity='precomputed', normalized_stress='auto')
     mds = mds_model.fit_transform(dissimilarity_matrix)
+
+    #clf = PCA(n_components=2)
+    #mds = clf.fit_transform(mds)
+
     mds_df = pd.DataFrame(mds, columns=('x', 'y'))
     mds_df["categories"] = categories_stimuli_list_array
 
     mds_plot = sns.scatterplot(x="x", y="y", data=mds_df, hue="categories")
     sns.move_legend(mds_plot, "upper left", bbox_to_anchor=(1, 1))
-    plt.title("MDS for " + session)
+    plt.title("MDS for " + file_description)
     save_img("mds" + os.sep + file_description)
 
     pca = PCA(n_components=2)
@@ -91,8 +100,32 @@ def mds(categories, dissimilarity_matrix, file_description) :
     
     pca_plot = sns.scatterplot(x="x", y="y", data=pca_df, hue="categories")
     sns.move_legend(pca_plot, "upper left", bbox_to_anchor=(1, 1))
-    plt.title("PCA for " + session)
+    plt.title("PCA for " + file_description)
     save_img("pca" + os.sep + file_description)
+
+
+def rsa_plot(dissimilarities, categories_sorted, categories, file_description, title, vmin=0.1, vmax = 1.0) : 
+
+    #mds(dissimilarities, categories_sorted, file_description)
+    
+    categories_copy = categories.copy()
+    empty_columns = categories.columns[np.where([category not in categories_sorted for category in categories])[0]]
+    categories_copy = categories_copy.drop(columns=empty_columns)
+
+    f, ax = plt.subplots(1,1, figsize=(10, 8))
+    plt.imshow(np.nan_to_num(dissimilarities, 1.0), cmap='jet', vmin=vmin,vmax=vmax)
+    plt.colorbar()
+    binsize = [ len([iterator for iterator in categories_sorted if iterator == category]) for category in categories_copy]
+    edges = np.cumsum(binsize)[:-1] 
+    tick_position = list(np.concatenate([np.asarray([0]),np.array(edges)])) + np.asarray(binsize).astype(float) / 2.0 - 0.5
+    ax.set_xticks(tick_position)
+    ax.set_yticks(tick_position)
+    ax.set_xticklabels(categories_copy.columns, rotation = 90)
+    ax.set_yticklabels(categories_copy.columns)
+    ax.vlines(edges-0.5,-0.4,len(dissimilarities)-0.5, linewidth=1.2)
+    ax.hlines(edges-0.5,-0.4,len(dissimilarities)-0.5, linewidth=1.2)
+    ax.set_title(title)
+    save_img("rsa" + os.sep + file_description)
 
 
 def rsa(neural_responses, stimuli_names, categories, file_description, vmin = 0.0, vmax = 1.0) : 
@@ -121,80 +154,97 @@ def rsa(neural_responses, stimuli_names, categories, file_description, vmin = 0.
     
     dissimilarities_rsa_all  = [[dissimilarity_matrix[i,j] for j in stim_indices_list_rsa] for i in stim_indices_list_rsa]
 
-    categories_for_stimuli = category_list_rsa# get_categories_for_stimuli(categories)
+    categories_for_stimuli = category_list_rsa
     dissimilarity_df = pd.DataFrame(dissimilarities_rsa_all, columns = categories_for_stimuli)
     np.fill_diagonal(dissimilarity_df.values, np.nan)
-    #dissimilarity_df.values[[np.arange(dissimilarity_df.shape[0])]*2] = 6.0
     dissimilarity_df["categories"] = categories_for_stimuli
     dissimilarity_group = dissimilarity_df.groupby(['categories']).mean().transpose().groupby(level=0)
-    #d1 = dissimilarity_df.stack().dropna()
-    #d2 = dissimilarity_group.mean().transpose().groupby(level=0)
     diss_mean = dissimilarity_group.mean()
     diss_sem = dissimilarity_group.sem()
-    #d3 = d2.copy()
-    #d2["categories"] = categories_for_stimuli
-    #d4 = d2.groupby(['categories'])
-    #d5 = d4.mean()
-    #d6 = d4.sem()
 
-
-    #plt.figure(figsize=(600,70))
     f = plt.figure()
     diss_mean.plot(kind="bar", yerr=diss_sem.values, figsize=(100,10), width=0.75)
     plt.legend(loc='center left', bbox_to_anchor=(1.0, 0.5))
-    #sns.move_legend(mds_plot, "upper left", bbox_to_anchor=(1, 1))
     save_img("sem_diss" + os.sep + file_description)
-    #dissimilarity_df.reset_index().plot(x="index", y=categories_copy.columns, kind="bar")
+    
+    rsa_plot(diss_mean, categories.columns, categories, "categories" + os.sep + file_description, "Mean correlation between stimuli from categories", vmin=vmin, vmax=vmax)
+    rsa_plot(dissimilarities_rsa_all, category_list_rsa, categories, file_description, 'Stimuli sorted by categories', vmin=vmin, vmax=vmax)
 
-    #if not median_dissimilarity == -1 :
-    #for column1 in categories_copy : 
-    #    group = dissimilarity_df.get_group(column1).stack().dropna()
-        #group_transposed = group.transpose()
-        #group = group.melt(id_vars=[0], value_vars=[range(len(group.columns))[1:]])
-
-    #    plt.figure(figsize=(14, 8))
-    #    ax = sns.barplot(group)
-    #    save_img("sem_diss" + os.sep + file_description)
+    return dissimilarity_matrix
 
 
-        #for column2 in categories_copy : 
-        #    if column1 not in categories_for_stimuli or column2 not in categories_for_stimuli or column2 > column1 : 
-        #        continue
-        #    dissimilarities_median = dissimilarity_df.get_group(column1)[column2].median()
-            #if column1 <= column2 :
-        #    combined = column1 + "; " + column2
-            #else : 
-            #    combined = column2 + "; " + column1
-        #    if combined in median_dissimilarity : 
-        #        median_dissimilarity.append(dissimilarities_median)
-        #    else : 
-        #        median_dissimilarity[combined] = [dissimilarities_median]
+#def rsa_indexed(neural_responses_all, indices, file_description, vmin=0.0, vmax=1.0) : 
+#    neural_responses_reduced = np.array(neural_responses_all)[:,(indices.astype(int))]
+#    stim_names_reduced = data.df_metadata.uniqueID[indices]
+#    categories_reduced = data.df_categories.iloc[indices]
+#    dissimilarity_matrix_reduced = rsa(neural_responses_reduced, stim_names_reduced, categories_reduced, file_description, vmin, vmax)
+#    return dissimilarity_matrix_reduced
 
 
-
-    f, ax = plt.subplots(1,1, figsize=(10, 8))
-    plt.imshow(np.nan_to_num(dissimilarities_rsa_all, 1.0), cmap='jet', vmin=vmin,vmax=vmax)
-    plt.colorbar()
-    binsize = [ len([iterator for iterator in category_list_rsa if iterator == category]) for category in categories_copy]#np.histogram(category_list_rsa, num_categories)[0]
-    edges = np.cumsum(binsize)[:-1] # np.concatenate([np.asarray([0]), np.cumsum(binsize)])[:-1]
-    tick_position = list(np.concatenate([np.asarray([0]),np.array(edges)])) + np.asarray(binsize).astype(float) / 2.0 - 0.5
-    ax.set_xticks(tick_position)
-    ax.set_yticks(tick_position)
-    ax.set_xticklabels(categories_copy.columns, rotation = 90)
-    ax.set_yticklabels(categories_copy.columns)
-    ax.vlines(edges-0.5,-0.4,len(category_list_rsa)-0.5, linewidth=1.2)
-    ax.hlines(edges-0.5,-0.4,len(category_list_rsa)-0.5, linewidth=1.2)
-    ax.set_title('Stimuli sorted by categories')
-    save_img("rsa" + os.sep + file_description)
-
-    return dissimilarity_matrix#, median_dissimilarity
-
-def rsa_indexed(neural_responses_all, indices, file_description, vmin=0.0, vmax=1.0) : 
-    neural_responses_reduced = np.array(neural_responses_all)[:,(indices.astype(int))]
-    stim_names_reduced = data.df_metadata.uniqueID[indices]
-    categories_reduced = data.df_categories.iloc[indices]
+def analyze_indexed(neural_responses, stim_names, categories, file_description, indices, vmin=0.0, vmax=1.0) : 
+    
+    indices_int = indices.astype(int)
+    neural_responses_reduced = np.array(neural_responses)[:,(indices_int)]
+    stim_names_reduced = stim_names[indices_int]
+    categories_reduced = categories.iloc[indices_int]
     dissimilarity_matrix_reduced = rsa(neural_responses_reduced, stim_names_reduced, categories_reduced, file_description, vmin, vmax)
-    return dissimilarity_matrix_reduced
+
+    mds(dissimilarity_matrix_reduced, categories_reduced, file_description) 
+    linear_regression(dissimilarity_matrix_reduced, categories_reduced, file_description)
+
+
+def analyze_no_nan(neural_responses, stim_names, categories, file_description, ratio=0.0, vmin=0.0, vmax=1.0) : 
+    indices = get_indices_not_nan_ratio(neural_responses, ratio)
+    analyze_indexed(neural_responses, stim_names, categories, file_description + "_no_nan" + str(ratio).replace(".",","), indices, vmin, vmax)
+
+
+def analyze(neural_responses, stim_names, categories, file_description, vmin=0.0, vmax=1.0) : 
+    
+    dissimilarity_matrix = rsa(neural_responses, stim_names, categories, file_description, vmin, vmax)
+    mds(dissimilarity_matrix, categories, file_description) 
+    linear_regression(dissimilarity_matrix, categories, file_description)
+
+
+def linear_regression(dissimilarity_matrix, categories, file_description) : 
+    
+    stim_category_table = []
+    num_stim = dissimilarity_matrix.shape[0]
+    dissimilarity_matrix_responses_triangular = dissimilarity_matrix[np.triu_indices(num_stim, k = 1)]
+
+    for column in categories : #?--> 27
+        stim_to_category_list = np.outer(categories[column], categories[column]) #np.zeros(num_categories*(num_categories-1) /2)
+        stim_to_category_list_triangular = stim_to_category_list[np.triu_indices(num_stim, k = 1)]
+        stim_category_table.append(stim_to_category_list_triangular)
+
+    #regression_model = linear_model.LinearRegression()
+    #regression_model.fit(pd.DataFrame(dissimilarity_matrix_concepts), pd.DataFrame(distance_matrix))
+    #category_names = data.df_categories.keys()[things_indices]
+
+    regression_model = sm.OLS(pd.DataFrame(dissimilarity_matrix_responses_triangular), pd.DataFrame(np.transpose(stim_category_table)))                #, missing='drop'     
+    fitted_data = regression_model.fit() 
+    #fdr_corrected = statsmodels.stats.multitest.fdrcorrection(np.nan_to_num(fitted_data.pvalues.values), alpha=args.alpha_colors)
+    
+    pvalue = fitted_data.f_pvalue
+    params = fitted_data.params
+    rsquared = fitted_data.rsquared 
+    pvalues = fitted_data.pvalues.values 
+
+
+    for i in range(len(categories.columns)):
+        category = categories.columns[i]
+        if(category in regression_categories_p) : 
+            regression_categories_p[category].append(pvalues[i])
+            regression_categories_params[category].append(params[i])
+        else : 
+            regression_categories_p[category] = [pvalues[i]]
+            regression_categories_params[category] = [params[i]]
+
+    color_sequence = ['red' if pvalues[i] < args.alpha_colors else 'blue' for i in range(len(pvalues)) ]
+    text_categories = np.array([str(categories.columns[i]) + ", p: " + str(round(pvalues[i], 5)) for i in range(len(categories.columns))])
+    coef_fig = sns.barplot(x=text_categories, y=params, palette=color_sequence)
+    coef_fig.set_xticklabels(coef_fig.get_xticklabels(), rotation=270)
+    plt.title("rsquared = " + str(rsquared) + ", pvalue: " + str(pvalue))
+    save_img("coef_regression" + os.sep + file_description)
 
 
 def save_img(filename) : 
@@ -215,6 +265,12 @@ def save_img(filename) :
     plt.close()
 
 
+def get_indices_not_nan_ratio(neural_responses_input, ratio = 0.0) : 
+    neural_responses_input_np = np.asarray(neural_responses_input)
+    num_stimuli = neural_responses_input_np.shape[1]
+    return np.where(np.asarray([np.count_nonzero(np.isnan(neural_responses_input_np[:,i])) for i in range(num_stimuli)]) <= num_stimuli * ratio)[0]
+
+
 print("\n--- START ---")
 startLoadData = time.time()
 args=parser.parse_args()
@@ -227,8 +283,8 @@ paradigm = args.path2data.split(os.sep)[-1].split('/')[-2].split('_')[0]
 
 data = DataHandler(args) # class for handling neural and feature data
 data.load_metadata() # -> data.df_metadata
-data.load_neural_data() # -> data.neural_data
 data.load_categories() # -> data.df_categories
+data.load_neural_data() # -> data.neural_data
 
 # WHICH SESSION(S) TO RUN
 if args.session is None:
@@ -296,7 +352,7 @@ for session in sessions:
     print(session)
 
     neural_responses = []
-    neural_responses_patient =[]
+    #neural_responses_patient =[]
     
     for unit in units:
 
@@ -331,47 +387,54 @@ for session in sessions:
         print("Not enough units for session " + session + ", region: " + args.region + ", units: " + str(len(neural_responses)))
         continue
 
-    stim_category_table = []
-    dissimilarity_matrix_responses = rsa(neural_responses, stim_names, session_categories, file_description, vmin=0.3)
-    dissimilarity_matrix_responses_triangular = dissimilarity_matrix_responses[np.triu_indices(len(stim_names), k = 1)]
-
-    for column in session_categories : #?--> 27
-        stim_to_category_list = np.outer(session_categories[column], session_categories[column]) #np.zeros(num_categories*(num_categories-1) /2)
-        stim_to_category_list_triangular = stim_to_category_list[np.triu_indices(num_stimuli, k = 1)]
-        stim_category_table.append(stim_to_category_list_triangular)
-
-    #regression_model = linear_model.LinearRegression()
-    #regression_model.fit(pd.DataFrame(dissimilarity_matrix_concepts), pd.DataFrame(distance_matrix))
-    #category_names = data.df_categories.keys()[things_indices]
-
-    regression_model = sm.OLS(pd.DataFrame(dissimilarity_matrix_responses_triangular), pd.DataFrame(np.transpose(stim_category_table)))                #, missing='drop'     
-    fitted_data = regression_model.fit() 
-    #fdr_corrected = statsmodels.stats.multitest.fdrcorrection(np.nan_to_num(fitted_data.pvalues.values), alpha=args.alpha_colors)
+    #dissimilarity_matrix_responses = rsa(neural_responses, stim_names, session_categories, file_description, vmin=0.3)
+    #linear_regression(dissimilarity_matrix_responses, session_categories, file_description)
+    categories_df = pd.DataFrame(session_categories)
+    stim_names_df = pd.DataFrame(stim_names)[0]
+    analyze(neural_responses, stim_names_df, categories_df, file_description, vmin=0.0, vmax=1.0)
+    #analyze_no_nan(neural_responses, stim_names_df, categories_df, file_description, ratio=0.0, vmin=0.0, vmax=1.0) 
+    #analyze_no_nan(neural_responses, stim_names_df, categories_df, file_description, ratio=0.1, vmin=0.0, vmax=1.0) 
     
-    pvalue = fitted_data.f_pvalue
-    params = fitted_data.params
-    rsquared = fitted_data.rsquared 
-    pvalues = fitted_data.pvalues.values 
+    #stim_category_table = []
+    #dissimilarity_matrix_responses_triangular = dissimilarity_matrix_responses[np.triu_indices(len(stim_names), k = 1)]
+
+    #for column in session_categories : #?--> 27
+    #    stim_to_category_list = np.outer(session_categories[column], session_categories[column]) #np.zeros(num_categories*(num_categories-1) /2)
+    #    stim_to_category_list_triangular = stim_to_category_list[np.triu_indices(num_stimuli, k = 1)]
+    #    stim_category_table.append(stim_to_category_list_triangular)
+
+    ##regression_model = linear_model.LinearRegression()
+    ##regression_model.fit(pd.DataFrame(dissimilarity_matrix_concepts), pd.DataFrame(distance_matrix))
+    ##category_names = data.df_categories.keys()[things_indices]
+
+    #regression_model = sm.OLS(pd.DataFrame(dissimilarity_matrix_responses_triangular), pd.DataFrame(np.transpose(stim_category_table)))                #, missing='drop'     
+    #fitted_data = regression_model.fit() 
+    ##fdr_corrected = statsmodels.stats.multitest.fdrcorrection(np.nan_to_num(fitted_data.pvalues.values), alpha=args.alpha_colors)
+    
+    #pvalue = fitted_data.f_pvalue
+    #params = fitted_data.params
+    #rsquared = fitted_data.rsquared 
+    #pvalues = fitted_data.pvalues.values 
 
 
-    for i in range(len(session_categories.columns)):
-        category = session_categories.columns[i]
-        if(category in regression_categories_p) : 
-            regression_categories_p[category].append(pvalues[i])
-            regression_categories_params[category].append(params[i])
-        else : 
-            regression_categories_p[category] = [pvalues[i]]
-            regression_categories_params[category] = [params[i]]
+    #for i in range(len(session_categories.columns)):
+    #    category = session_categories.columns[i]
+    #    if(category in regression_categories_p) : 
+    #        regression_categories_p[category].append(pvalues[i])
+    #        regression_categories_params[category].append(params[i])
+    #    else : 
+    #        regression_categories_p[category] = [pvalues[i]]
+    #        regression_categories_params[category] = [params[i]]
 
-    color_sequence = ['red' if pvalues[i] < args.alpha_colors else 'blue' for i in range(len(pvalues)) ]
-    text_categories = np.array([str(session_categories.columns[i]) + ", p: " + str(round(pvalues[i], 5)) for i in range(len(session_categories.columns))])
-    coef_fig = sns.barplot(x=text_categories, y=params, palette=color_sequence)
-    coef_fig.set_xticklabels(coef_fig.get_xticklabels(), rotation=270)
-    plt.title("rsquared = " + str(rsquared) + ", pvalue: " + str(pvalue))
-    save_img("coef_regression" + os.sep + file_description)
+    #color_sequence = ['red' if pvalues[i] < args.alpha_colors else 'blue' for i in range(len(pvalues)) ]
+    #text_categories = np.array([str(session_categories.columns[i]) + ", p: " + str(round(pvalues[i], 5)) for i in range(len(session_categories.columns))])
+    #coef_fig = sns.barplot(x=text_categories, y=params, palette=color_sequence)
+    #coef_fig.set_xticklabels(coef_fig.get_xticklabels(), rotation=270)
+    #plt.title("rsquared = " + str(rsquared) + ", pvalue: " + str(pvalue))
+    #save_img("coef_regression" + os.sep + file_description)
 
     
-    mds(session_categories, dissimilarity_matrix_responses, file_description) 
+    #mds(session_categories, dissimilarity_matrix_responses, file_description) 
     #categories_stimuli_list_array = session_categories.dot(session_categories.columns + ',').str.rstrip(',').str.split(',').to_numpy()
     #categories_stimuli_list = [categories[0] for categories in categories_stimuli_list_array]
     #categories_stimuli_list = ['; '.join(categories) for categories in categories_stimuli_list_array] ##all categories separated by ;
@@ -388,29 +451,56 @@ for session in sessions:
 
 
 file_description = "all"
-dissimilarity_matrix_all = rsa(neural_responses_all, data.df_metadata.uniqueID, data.df_categories, file_description, vmin = -0.1, vmax = 0.5) 
+#dissimilarity_matrix_all = rsa(neural_responses_all, data.df_metadata.uniqueID, data.df_categories, file_description, vmin = -0.1, vmax = 0.5) 
 #mds(data.df_categories, dissimilarity_matrix_all, file_description)
 
 for patient in neural_responses_patients : 
     file_description_patient = "pat_" + str(patient)
     neural_responses_patient_np = np.asarray(neural_responses_patients[patient])
-    dissimilarity_matrix_patient = rsa(neural_responses_patients[patient], data.df_metadata.uniqueID, data.df_categories, file_description_patient, vmin = -0.1, vmax = 0.5)
+    #dissimilarity_matrix_patient = rsa(neural_responses_patients[patient], data.df_metadata.uniqueID, data.df_categories, file_description_patient, vmin = -0.1, vmax = 0.5)
     #mds(data.df_categories, dissimilarity_matrix_patient, patient) 
-    stimuli_without_nan_patient = np.where(np.asarray([np.count_nonzero(np.isnan(neural_responses_patient_np[:,i])) for i in range(num_things)]) <= num_things * 0.05 )[0]
-    dissimilarity_matrix_reduced_no_nan = rsa_indexed(neural_responses_all, stimuli_without_nan_patient, file_description_patient + "_mostly_no_nan", vmin=0.5)
+    #stimuli_without_nan_patient = np.where(np.asarray([np.count_nonzero(np.isnan(neural_responses_patient_np[:,i])) for i in range(num_things)]) <= num_things * 0.1 )[0]
+    #dissimilarity_matrix_reduced_no_nan = rsa_indexed(neural_responses_patients[patient], get_indices_not_nan_ratio(neural_responses_patient_np, 0.1), file_description_patient + "_mostly_no_nan_0.1", vmin=0.5)
+    #dissimilarity_matrix_reduced_no_nan = rsa_indexed(neural_responses_patients[patient], get_indices_not_nan_ratio(neural_responses_patient_np, 0.05), file_description_patient + "_mostly_no_nan_0.05", vmin=0.5)
+    #dissimilarity_matrix_reduced_no_nan = rsa_indexed(neural_responses_patients[patient], get_indices_not_nan_ratio(neural_responses_patient_np, 0), file_description_patient + "_no_nan", vmin=0.5)
+
+    ##analyze(neural_responses_patients[patient], data.df_metadata.uniqueID, data.df_categories, file_description_patient, vmin=0.0, vmax=1.0)
+    analyze_no_nan(neural_responses_patients[patient], data.df_metadata.uniqueID, data.df_categories, file_description_patient, ratio=0.0, vmin=0.0, vmax=1.0) 
+    analyze_no_nan(neural_responses_patients[patient], data.df_metadata.uniqueID, data.df_categories, file_description_patient, ratio=0.05, vmin=0.0, vmax=1.0) 
+    analyze_no_nan(neural_responses_patients[patient], data.df_metadata.uniqueID, data.df_categories, file_description_patient, ratio=0.075, vmin=0.0, vmax=1.0) 
+    analyze_no_nan(neural_responses_patients[patient], data.df_metadata.uniqueID, data.df_categories, file_description_patient, ratio=0.1, vmin=0.0, vmax=1.0) 
+    analyze_no_nan(neural_responses_patients[patient], data.df_metadata.uniqueID, data.df_categories, file_description_patient, ratio=0.15, vmin=0.0, vmax=1.0) 
+    analyze_no_nan(neural_responses_patients[patient], data.df_metadata.uniqueID, data.df_categories, file_description_patient, ratio=0.2, vmin=0.0, vmax=1.0) 
+    analyze_no_nan(neural_responses_patients[patient], data.df_metadata.uniqueID, data.df_categories, file_description_patient, ratio=0.95, vmin=0.0, vmax=1.0) 
+    #mds(data.df_categories, dissimilarity_matrix_patient, file_description_patient) 
+    #linear_regression(dissimilarity_matrix_responses, session_categories, file_description_patient)
 
 #never_presented = np.where(num_presented_things == 0)[0]
 thresh_frequently_presented = len(sessions) / 3.0
 frequently_presented = np.where(num_presented_things >= thresh_frequently_presented)[0]
 print("Frequently presented threshold: " + str(thresh_frequently_presented))
 
-neural_responses_reduced = np.array(neural_responses_all)[:,(frequently_presented.astype(int))]
-stim_names_reduced = data.df_metadata.uniqueID[frequently_presented]
-dissimilarity_matrix_reduced = rsa_indexed(neural_responses_all, frequently_presented, file_description + "_reduced", vmin=0.5, vmax=1.0)
+#dissimilarity_matrix_reduced = rsa_indexed(neural_responses_all, frequently_presented, file_description + "_reduced", vmin=0.5, vmax=1.0)
 
 neural_responses_all_np = np.asarray(neural_responses_all)
-stimuli_without_nan = np.where(np.asarray([np.count_nonzero(np.isnan(neural_responses_all_np[:,i])) for i in range(num_things)]) <= num_things * 0.8 )[0]
-dissimilarity_matrix_reduced_no_nan = rsa_indexed(neural_responses_all, stimuli_without_nan, file_description + "_mostly_no_nan", vmin=0.7)
+
+vmin_all = 0.5
+analyze(neural_responses_all_np, data.df_metadata.uniqueID, data.df_categories, file_description, vmin=0.0, vmax=1.0)
+analyze_indexed(neural_responses_all_np, data.df_metadata.uniqueID, data.df_categories, file_description + "_reduced", frequently_presented, vmin=vmin_all, vmax=1.0)
+analyze_no_nan(neural_responses_all_np, data.df_metadata.uniqueID, data.df_categories, file_description, ratio=0.9, vmin=vmin_all, vmax=1.0) 
+analyze_no_nan(neural_responses_all_np, data.df_metadata.uniqueID, data.df_categories, file_description, ratio=0.85, vmin=vmin_all, vmax=1.0) 
+analyze_no_nan(neural_responses_all_np, data.df_metadata.uniqueID, data.df_categories, file_description, ratio=0.8, vmin=vmin_all, vmax=1.0) 
+analyze_no_nan(neural_responses_all_np, data.df_metadata.uniqueID, data.df_categories, file_description, ratio=0.5, vmin=vmin_all, vmax=1.0) 
+analyze_no_nan(neural_responses_all_np, data.df_metadata.uniqueID, data.df_categories, file_description, ratio=0.2, vmin=vmin_all, vmax=1.0) 
+#stimuli_without_nan = np.where(np.asarray([np.count_nonzero(np.isnan(neural_responses_all_np[:,i])) for i in range(num_things)]) <= num_things * 0.8 )[0]
+#dissimilarity_matrix_reduced_no_nan = rsa_indexed(neural_responses_all, get_indices_not_nan_ratio(neural_responses_all_np, 0.9), file_description + "_mostly_no_nan_0.9", vmin=0.7)
+#dissimilarity_matrix_reduced_no_nan = rsa_indexed(neural_responses_all, get_indices_not_nan_ratio(neural_responses_all_np, 0.8), file_description + "_mostly_no_nan_0.8", vmin=0.7)
+#dissimilarity_matrix_reduced_no_nan = rsa_indexed(neural_responses_all, get_indices_not_nan_ratio(neural_responses_all_np, 0.5), file_description + "_mostly_no_nan_0.5", vmin=0.7)
+#dissimilarity_matrix_reduced_no_nan = rsa_indexed(neural_responses_all, get_indices_not_nan_ratio(neural_responses_all_np, 0), file_description + "_no_nan", vmin=0.7)
+
+
+neural_responses_reduced = np.array(neural_responses_all)[:,(frequently_presented.astype(int))]
+stim_names_reduced = data.df_metadata.uniqueID[frequently_presented]
 
 num_non_nan_units = [np.count_nonzero(~np.isnan(neural_responses_reduced[i,:])) for i in range(len(neural_responses_reduced))]
 num_non_nan_stimuli = [np.count_nonzero(~np.isnan(neural_responses_reduced[:,i])) for i in range(len(stim_names_reduced))]
