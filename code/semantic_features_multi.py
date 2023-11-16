@@ -6,16 +6,21 @@ import pandas as pd
 import time
 import argparse
 
-import seaborn as sns
-import statsmodels.api as sm
-import statsmodels.stats.multitest 
-
 from utils import *
 from plot_helper import *
 from data_manip import *
 
+import seaborn as sns
+import matplotlib as mpl
+from pylab import cm
+from matplotlib.lines import Line2D
+
+import statsmodels.api as sm
+import statsmodels.stats.multitest 
+
 from sklearn import linear_model
 from sklearn import manifold
+from scipy.cluster import hierarchy 
 from sklearn.decomposition import PCA
 from sklearn.metrics import euclidean_distances
 
@@ -32,7 +37,7 @@ parser.add_argument('--session', default=None, type=str, #"90_1_aos" / None ; 90
 # DATA AND MODEL
 parser.add_argument('--metric', default='zscores', # zscores, or pvalues or firing_rates
                     help='Metric to rate responses') # best firing_rates = best zscore ?!
-parser.add_argument('--region', default='All', # "All, "AM", "HC", "EC", "PHC"
+parser.add_argument('--region', default='HC', # "All, "AM", "HC", "EC", "PHC"
                     help='Which region to consider') # 
 
 # FLAGS
@@ -117,7 +122,8 @@ def rsa_plot(dissimilarities, categories_sorted, categories, file_description, t
     categories_copy = categories_copy.drop(columns=empty_columns)
 
     f, ax = plt.subplots(1,1, figsize=(10, 8))
-    plt.imshow(np.nan_to_num(dissimilarities, 1.0), cmap='jet', vmin=vmin,vmax=vmax)
+    #plt.imshow(np.nan_to_num(dissimilarities, 1.0), cmap='jet', vmin=0.7*np.percentile(dissimilarities, 5), vmax=np.percentile(dissimilarities, 75))
+    plt.imshow(np.nan_to_num(dissimilarities, 1.0), cmap='jet', vmin=vmin, vmax=vmax)
     plt.colorbar()
     binsize = [ len([iterator for iterator in categories_sorted if iterator == category]) for category in categories_copy]
     edges = np.cumsum(binsize)[:-1] 
@@ -177,7 +183,7 @@ def rsa(neural_responses, stimuli_names, categories, file_description, vmin = 0.
         f = plt.figure()
         #no_nan = np.where(np.asarray([np.count_nonzero(np.isnan(diss_sem.values[:,i])) for i in range(diss_sem.values[0])]) == 0)[0]
         #diss_mds = 
-        diss_mean.plot(kind="bar", yerr=diss_sem.values, ylabel=categories.columns, figsize=(100,10), width=0.75)
+        diss_mean.plot(kind="bar", yerr=diss_sem.values, ylabel=categories_copy.columns, figsize=(100,10), width=0.75)
         plt.legend(loc='center left', bbox_to_anchor=(1.0, 0.5))
         save_img("sem_diss" + os.sep + file_description)
 
@@ -187,8 +193,8 @@ def rsa(neural_responses, stimuli_names, categories, file_description, vmin = 0.
             save_img(file_description_sem_diss + os.sep + category)
 
     
-    rsa_plot(diss_mean, categories.columns, categories, "categories" + os.sep + file_description, "Mean correlation between stimuli from categories", vmin=vmin, vmax=vmax)
-    rsa_plot(dissimilarities_rsa_all, category_list_rsa, categories, file_description, 'Stimuli sorted by categories', vmin=vmin, vmax=vmax)
+    rsa_plot(diss_mean, categories_copy.columns, categories_copy, "categories" + os.sep + file_description, "Mean correlation between stimuli from categories", vmin=vmin, vmax=vmax)
+    rsa_plot(dissimilarities_rsa_all, category_list_rsa, categories_copy, file_description, 'Stimuli sorted by categories', vmin=vmin, vmax=vmax)
 
     return dissimilarity_matrix
 
@@ -200,6 +206,59 @@ def rsa(neural_responses, stimuli_names, categories, file_description, vmin = 0.
 #    dissimilarity_matrix_reduced = rsa(neural_responses_reduced, stim_names_reduced, categories_reduced, file_description, vmin, vmax)
 #    return dissimilarity_matrix_reduced
 
+
+def get_diss_matrix(neural_responses) :
+    try : 
+        dissimilarity_matrix = 1.0-pd.DataFrame(neural_responses).corr(min_periods=4).to_numpy() #min_periods = min number of observations
+    except : 
+        print("Error calculating dissimilarity matrix. File: " + file_description)
+        return
+    
+    num_stim = dissimilarity_matrix.shape[0]
+    dissimilarity_matrix_triangular = dissimilarity_matrix[np.triu_indices(num_stim, k = 1)]
+
+    return dissimilarity_matrix, dissimilarity_matrix_triangular
+    
+
+def dendrogram(dissimilarity_matrix, stim_names, categories, file_description) : 
+    
+    if np.any(np.isnan(dissimilarity_matrix)):
+        print("WARNING: dendrogram not possible due to nan for " + file_description)
+        return
+    
+    category_names = get_categories_for_stimuli(categories)
+    
+    unique_categories = np.unique(category_names)
+    
+    #cmap = mpl.cm.jet
+    #bounds = range(len(unique_categories))
+
+    #norm = mpl.colors.BoundaryNorm(bounds, cmap.N) ## TODO: get_cmap is deprecated
+    #norm2 = mpl.colors.Normalize(vmin=5, vmax=10)
+        
+    norm = mpl.colors.Normalize(vmin=0, vmax=len(unique_categories))
+
+    #colormap possible values = viridis, jet, spectral
+    #rgba_color = cm.jet(norm(i),bytes=True) 
+
+    #category_color_map = cm.get_cmap('jet', len(unique_categories))# plt.colormaps.get_cmap('hsv', len(unique_categories))
+    legend_elements = [Line2D([0], [0], color=cm.jet(norm(i)) , lw=4, label=unique_categories[i]) for i in range(len(unique_categories))]
+
+    plt.figure(figsize=(20,4)) 
+    Z = hierarchy.linkage(dissimilarity_matrix, 'ward')
+    dn = hierarchy.dendrogram(Z, labels=np.asarray(stim_names), leaf_font_size = 10)
+    
+    ax = plt.gca()
+    x_labels = ax.get_xmajorticklabels()
+    for i in range(len(x_labels)):
+        stim_index = np.where(stim_names == x_labels[i].get_text())[0][0]
+        category_index = np.where(unique_categories == category_names[stim_index])[0][0]
+        color = cm.jet(norm(category_index)) # category_color_map(category_index)
+        x_labels[i].set_color(color)
+
+    ax.legend(handles=legend_elements, loc='center left', bbox_to_anchor=(1, 0.5))
+    save_img("dendrogram" + os.sep + file_description)
+    
 
 def analyze_indexed(neural_responses, stim_names, categories, file_description, indices, vmin=0.0, vmax=1.0) : 
     
@@ -220,7 +279,9 @@ def analyze_no_nan(neural_responses, stim_names, categories, file_description, r
 
 def analyze(neural_responses, stim_names, categories, file_description, vmin=0.0, vmax=1.0) : 
     
-    dissimilarity_matrix = rsa(neural_responses, stim_names, categories, file_description, vmin, vmax)
+    dissimilarity_matrix, dissimilarity_matrix_triangular = get_diss_matrix(neural_responses)
+    dissimilarity_matrix_tmp = rsa(neural_responses, stim_names, categories, file_description, vmin, vmax)
+    dendrogram(dissimilarity_matrix_triangular, stim_names, categories, file_description)
     mds(dissimilarity_matrix, categories, file_description) 
     return linear_regression(dissimilarity_matrix, categories, file_description)
 
@@ -311,11 +372,16 @@ start_prepare_data_time = time.time()
 unit_counter = 0
 responsive_unit_counter = 0
 session_counter = 0
+session_counter_120 = 0
+session_counter_150 = 0
 num_things = len(data.df_metadata.uniqueID)
 num_presented_things = np.zeros(len(data.df_metadata.uniqueID))
 
 neural_responses_all = []
+neural_responses_120 = []
+neural_responses_150 = []
 neural_responses_patients = {}
+neural_responses_patients_start = {}
 regression_categories_p = {}
 regression_categories_params = {}
 regression_categories_model_p = []
@@ -346,6 +412,8 @@ region_dict = {
 #}
 
 sites_to_exclude = ["LFa", "LTSA", "LTSP", "Fa", "TSA", "TSP", "LTP", "LTB", "RMC", "RAI", "RAC", "RAT", "RFO", "RFa", "RFb", "RFc"] 
+start_stimuli_120 = []
+start_stimuli_150 = []
 
 for session in sessions:
 
@@ -359,6 +427,46 @@ for session in sessions:
     things_indices = np.array(data.get_THINGS_indices(data.neural_data[session]['stimlookup']))
     num_presented_things[things_indices] += 1
     #stim_combination_matrix = np.array(np.meshgrid(object_names, object_names)).T.reshape(-1, 2)
+    objectnames = data.neural_data[session]['objectnames']
+    session_with_120_start_stimuli = objectnames[121] in objectnames[0:120]
+    start_stimuli = objectnames[0:120] if session_with_120_start_stimuli else objectnames[0:150]
+    first_session_120 = False
+    first_session_150 = False
+
+    if len(start_stimuli_120) == 0 and session_with_120_start_stimuli: 
+        start_stimuli_120 = start_stimuli
+        first_session_120 = True
+
+    if len(start_stimuli_150) == 0 and not session_with_120_start_stimuli: 
+        start_stimuli_150 = start_stimuli
+        first_session_150 = True
+
+    if session_with_120_start_stimuli : 
+        start_indices = np.in1d(data.neural_data[session]['stimlookup'], start_stimuli_120).nonzero()[0] #np.where(data.neural_data[session]['stimlookup'] in objectnames)
+        print("120 start stimuli")
+        session_counter_120 += 1
+    else : 
+        start_indices = np.in1d(data.neural_data[session]['stimlookup'], start_stimuli_150).nonzero()[0]
+        print("150 start stimuli")
+        session_counter_150 += 1
+
+    if first_session_120 : 
+        print("first session with 120 start stimuli")
+        start_indices_things_120 = things_indices[start_indices]
+        categories_120 = pd.DataFrame(data.df_categories.iloc[start_indices_things_120])
+        start_stimuli_120 = np.array(data.neural_data[session]['stimlookup'])[start_indices]
+    
+    if first_session_150 : 
+        print("first session with 150 start stimuli")
+        start_indices_things_150 = things_indices[start_indices]
+        categories_150 = pd.DataFrame(data.df_categories.iloc[start_indices_things_150])
+        start_stimuli_150 = np.array(data.neural_data[session]['stimlookup'])[start_indices]
+
+    if session_with_120_start_stimuli and not set(start_stimuli).issubset(start_stimuli_120) :
+        print("Warning! Session with different start stimuli found!")
+    
+    if not session_with_120_start_stimuli and not set(start_stimuli).issubset(start_stimuli_150) :
+        print("Warning! Session with different start stimuli found!")
 
     session_categories = data.df_categories.iloc[things_indices]
     num_categories = len(session_categories)
@@ -385,6 +493,7 @@ for session in sessions:
         score_things = np.arange(num_things).astype(float)
         score_things[:] = np.nan
         score_things[things_indices] = score 
+        score_start = score[start_indices]
 
         if len(unit_data['responses']) > 0 or not args.consider_only_responses: # TODO: also non-responsive?
             responsive_unit_counter += 1 
@@ -395,6 +504,16 @@ for session in sessions:
                 neural_responses_patients[subject_num].append(score_things)
             else : 
                 neural_responses_patients[subject_num] = [score_things]
+            
+            if subject_num in neural_responses_patients_start : 
+                neural_responses_patients_start[subject_num].append(score_start)
+            else : 
+                neural_responses_patients_start[subject_num] = [score_start]
+
+            if session_with_120_start_stimuli : 
+                neural_responses_120.append(score_start)
+            else : 
+                neural_responses_150.append(score_start)
 
 
     if len(neural_responses) < 5 : 
@@ -420,23 +539,50 @@ for session in sessions:
             regression_categories_params[category] = [params[i]]
 
 
-file_description = "all"
+
 
 print("ANALYZING PATIENT-WISE..")
 
-#for patient in neural_responses_patients : 
-#    print(str(patient))
-#    file_description_patient = "pat_" + str(patient)
-#    neural_responses_patient_np = np.asarray(neural_responses_patients[patient])
+for patient in neural_responses_patients : 
+    print(str(patient))
+    file_description_patient = "pat_" + str(patient)
+    neural_responses_patient_np = np.asarray(neural_responses_patients[patient])
 
+    if(len(neural_responses_patients_start[patient][0]) == 120) : 
+        analyze(neural_responses_patients_start[patient], start_stimuli_120, categories_120, file_description_patient + "_120", vmin=0.5, vmax=1.0)
+    else : 
+        analyze(neural_responses_patients_start[patient], start_stimuli_150, categories_150, file_description_patient + "_150", vmin=0.5, vmax=1.0)
+    
     ##analyze(neural_responses_patients[patient], data.df_metadata.uniqueID, data.df_categories, file_description_patient, vmin=0.0, vmax=1.0)
-#    analyze_no_nan(neural_responses_patients[patient], data.df_metadata.uniqueID, data.df_categories, file_description_patient, ratio=0.0, vmin=0.0, vmax=1.0) 
-#    analyze_no_nan(neural_responses_patients[patient], data.df_metadata.uniqueID, data.df_categories, file_description_patient, ratio=0.05, vmin=0.0, vmax=1.0) 
-#    analyze_no_nan(neural_responses_patients[patient], data.df_metadata.uniqueID, data.df_categories, file_description_patient, ratio=0.075, vmin=0.0, vmax=1.0) 
-#    analyze_no_nan(neural_responses_patients[patient], data.df_metadata.uniqueID, data.df_categories, file_description_patient, ratio=0.1, vmin=0.0, vmax=1.0) 
-#    analyze_no_nan(neural_responses_patients[patient], data.df_metadata.uniqueID, data.df_categories, file_description_patient, ratio=0.15, vmin=0.0, vmax=1.0) 
-#    analyze_no_nan(neural_responses_patients[patient], data.df_metadata.uniqueID, data.df_categories, file_description_patient, ratio=0.2, vmin=0.0, vmax=1.0) 
-#    analyze_no_nan(neural_responses_patients[patient], data.df_metadata.uniqueID, data.df_categories, file_description_patient, ratio=0.95, vmin=0.0, vmax=1.0) 
+    analyze_no_nan(neural_responses_patients[patient], data.df_metadata.uniqueID, data.df_categories, file_description_patient, ratio=0.0, vmin=0.5, vmax=1.0) 
+    #analyze_no_nan(neural_responses_patients[patient], data.df_metadata.uniqueID, data.df_categories, file_description_patient, ratio=0.05, vmin=0.0, vmax=1.0) 
+    #analyze_no_nan(neural_responses_patients[patient], data.df_metadata.uniqueID, data.df_categories, file_description_patient, ratio=0.075, vmin=0.0, vmax=1.0) 
+    #analyze_no_nan(neural_responses_patients[patient], data.df_metadata.uniqueID, data.df_categories, file_description_patient, ratio=0.1, vmin=0.0, vmax=1.0) 
+    #analyze_no_nan(neural_responses_patients[patient], data.df_metadata.uniqueID, data.df_categories, file_description_patient, ratio=0.15, vmin=0.0, vmax=1.0) 
+    #analyze_no_nan(neural_responses_patients[patient], data.df_metadata.uniqueID, data.df_categories, file_description_patient, ratio=0.2, vmin=0.0, vmax=1.0) 
+    #analyze_no_nan(neural_responses_patients[patient], data.df_metadata.uniqueID, data.df_categories, file_description_patient, ratio=0.95, vmin=0.0, vmax=1.0) 
+
+print("ANALYZING 120 and 150..")
+
+print("Stimuli in all sessions: ")
+count_stim = 0
+for stim in start_stimuli_120 : 
+    if stim in start_stimuli_150 : 
+        count_stim += 1 
+        print(stim)
+print(str(count_stim) + " stimuli in all sessions ")
+
+if session_counter_120 > 0 : 
+    file_description = "all_120"
+    analyze(np.asarray(neural_responses_120), start_stimuli_120, categories_120, file_description, vmin=0.7, vmax=1.0)
+
+if session_counter_150 > 0 : 
+    file_description = "all_150"
+    analyze(np.asarray(neural_responses_150), start_stimuli_150, categories_150, file_description, vmin=0.7, vmax=1.0)
+
+print("ANALYZING ALL..")
+
+file_description = "all"
 
 thresh_frequently_presented = len(sessions) / 3.0
 frequently_presented = np.where(num_presented_things >= thresh_frequently_presented)[0]
@@ -448,10 +594,11 @@ vmin_all = 0.5
 analyze(neural_responses_all_np, data.df_metadata.uniqueID, data.df_categories, file_description, vmin=0.0, vmax=1.0)
 analyze_indexed(neural_responses_all_np, data.df_metadata.uniqueID, data.df_categories, file_description + "_reduced", frequently_presented, vmin=vmin_all, vmax=1.0)
 analyze_no_nan(neural_responses_all_np, data.df_metadata.uniqueID, data.df_categories, file_description, ratio=0.9, vmin=vmin_all, vmax=1.0) 
-analyze_no_nan(neural_responses_all_np, data.df_metadata.uniqueID, data.df_categories, file_description, ratio=0.85, vmin=vmin_all, vmax=1.0) 
-analyze_no_nan(neural_responses_all_np, data.df_metadata.uniqueID, data.df_categories, file_description, ratio=0.8, vmin=vmin_all, vmax=1.0) 
+#analyze_no_nan(neural_responses_all_np, data.df_metadata.uniqueID, data.df_categories, file_description, ratio=0.85, vmin=vmin_all, vmax=1.0) 
+#analyze_no_nan(neural_responses_all_np, data.df_metadata.uniqueID, data.df_categories, file_description, ratio=0.8, vmin=vmin_all, vmax=1.0) 
 analyze_no_nan(neural_responses_all_np, data.df_metadata.uniqueID, data.df_categories, file_description, ratio=0.5, vmin=vmin_all, vmax=1.0) 
-analyze_no_nan(neural_responses_all_np, data.df_metadata.uniqueID, data.df_categories, file_description, ratio=0.2, vmin=vmin_all, vmax=1.0) 
+#analyze_no_nan(neural_responses_all_np, data.df_metadata.uniqueID, data.df_categories, file_description, ratio=0.2, vmin=vmin_all, vmax=1.0) 
+
 
 neural_responses_reduced = np.array(neural_responses_all)[:,(frequently_presented.astype(int))]
 stim_names_reduced = data.df_metadata.uniqueID[frequently_presented]
@@ -511,5 +658,7 @@ save_img("regression_p")
 
 print("\nTime plotting data: " + str(time.time() - start_prepare_data_time) + " s\n")
 print("Num sessions: " + str(session_counter))
+print("Num sessions 120 : " + str(session_counter_120))
+print("Num sessions 150 : " + str(session_counter_150))
 print("Num units: " + str(unit_counter))
 print("Num responsive units: " + str(responsive_unit_counter))
