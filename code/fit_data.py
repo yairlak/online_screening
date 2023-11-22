@@ -22,13 +22,17 @@ class Fitter :
     yFit : List = field (default_factory=lambda: [[]])
     x : List = field (default_factory=lambda: [[]])
     y : List = field (default_factory=lambda: [[]])
+    xNoFit : List = field (default_factory=lambda: [[]])
+    yNoFit : List = field (default_factory=lambda: [[]])
 
     paramsNames : List = field (default_factory=lambda: [])
     params : List = field(default_factory=lambda: [[]])
     rSquared : List = field (default_factory=lambda: [])
     steepestSlopes : List = field (default_factory=lambda: [])
+    spearman : List = field (default_factory=lambda: [])
 
     plotDetails : List = field (default_factory=lambda: [])
+    plotDetailsNoFit : List = field (default_factory=lambda: [])
 
     def getFitter(func, funcParams, paramsNames, p0, bounds, stepSize=0.02) : 
         newFitter = Fitter()
@@ -50,15 +54,24 @@ class Fitter :
     #    ssTot = np.sum((y - statistics.mean(y))**2)
     #    return 1 - ssRes/ssTot
 
-    def addFit(self, xToFit, yToFit, plotDetails="") :
+    def addFit(self, xToFit, yToFit, plotDetails="", spearman=0.0) :
         try : 
             popt, pcov = curve_fit(self.func, xToFit, yToFit, p0=self.p0, bounds=self.bounds)
         except Exception as e : 
             print("WARNING: No logistic curve fitting found: " + str(e))
+            if len(self.xNoFit[0]) == 0 and len(self.xNoFit) == 1 : 
+                self.xNoFit[0] = xToFit
+                self.yNoFit[0] = yToFit
+                self.plotDetailsNoFit.append(plotDetails)
+            else : 
+                self.xNoFit.append(xToFit)
+                self.yNoFit.append(yToFit)
+                self.plotDetailsNoFit.append(plotDetails)
             return -1
         
         rSquared = calculateRSquared(yToFit, self.funcParams(xToFit, popt))
         self.rSquared.append(rSquared)
+        self.spearman.append(spearman)
 
         for i in range(len(popt)):
             self.params[i].append(popt[i])
@@ -146,9 +159,11 @@ class Fitter :
             for j in range(len(self.params)) :
                 params.append(self.params[j][i])
             yFit = self.funcParams(np.arange(0,1,self.stepSlope), params)
-            steepestSlope = np.max(abs(yFit[:-1] - yFit[1:]))
+            steepestSlopeUp = np.max(yFit[1:] - yFit[:-1])
+            steepestSlopeDown = np.min(yFit[1:] - yFit[:-1])
+            steepestSlope = steepestSlopeUp if abs(steepestSlopeUp) > abs(steepestSlopeDown) else steepestSlopeDown
             self.steepestSlopes.append(steepestSlope / self.stepSlope)
-            self.steepestSlopes.append(steepestSlope / self.stepSlope)
+            #self.steepestSlopes.append(steepestSlope / self.stepSlope)
 
         return 
 

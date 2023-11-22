@@ -273,8 +273,8 @@ regions = {}
 
 regions[allRegionsName] = Region(allRegionsName)
 alphaBestResponse = []
-#sitesToExclude = ["LFa", "LTSA", "LTSP", "Fa", "TSA", "TSP", "LPL", "LTP", "LTB", "RMC", "RAI", "RAC", "RAT", "RFO", "RFa", "RFb", "RFc", "RT"]
-sitesToExclude = ["LFa", "LTSA", "LTSP", "Fa", "TSA", "TSP", "LTP", "LTB", "RMC", "RAI", "RAC", "RAT", "RFO", "RFa", "RFb", "RFc"] 
+sitesToExclude = ["LFa", "LTSA", "LTSP", "Fa", "TSA", "TSP", "LPL", "LTP", "LTB", "RMC", "RAI", "RAC", "RAT", "RFO", "RFa", "RFb", "RFc", "RT"]
+#sitesToExclude = ["LFa", "LTSA", "LTSP", "Fa", "TSA", "TSP", "LTP", "LTB", "RMC", "RAI", "RAC", "RAT", "RFO", "RFa", "RFb", "RFc"] 
 
 unitCounter = 0
 unitCounterLeft = 0
@@ -362,8 +362,8 @@ for session in sessions:
         valuesCorSteps = [[] for i in range(numCorSteps)]
         zscores = zscores / max(zscores)
         
-        ##if subjectNum == 103 and sessionNum == 1 and channel == 70 and cluster == 1 : # TODO!!!!!!!!!!!!! Here, there are many responses to car parts which drives the very high end of the coactivation plot
-        ##    continue
+        if subjectNum == 103 and sessionNum == 1 and channel == 70 and cluster == 1 : # TODO!!!!!!!!!!!!! Here, there are many responses to car parts which drives the very high end of the coactivation plot
+            continue
 
         unitCounter += 1
         isLeftSite = True if unitData['site'][0] == 'L' else False
@@ -493,7 +493,7 @@ for session in sessions:
             regions[allRegionsName].maxDistResp.append(maxDist)
             regions[site].maxDistResp.append(maxDist)
 
-        if len(valuesCor) >= 2 : 
+        if len(valuesCor) >= 5 : 
             regions[site].spearmanCorMSplit = MedianSplit.getMedianSplit(similaritiesCor, valuesCor)
             regions[allRegionsName].spearmanCorMSplit = MedianSplit.getMedianSplit(similaritiesCor, valuesCor)
             
@@ -503,6 +503,8 @@ for session in sessions:
                 regions[site].spearmanP.append(spearman.pvalue)
                 regions[allRegionsName].spearmanCor.append(spearman.correlation)
                 regions[allRegionsName].spearmanP.append(spearman.pvalue)
+            else : 
+                print("WARNING!! spearman is nan")
 
             pearson = stats.pearsonr(similaritiesCor, valuesCor)
             regions[site].pearsonCor.append(pearson[0])
@@ -541,15 +543,24 @@ for session in sessions:
             ## fit step function
             if len(valuesCor) >= 3 : 
                 plotDetails = session + "_ch" + str(channel) + "_cluster" + str(cluster)
-                rSquaredLog = regions[site].logisticFit.addFit(similaritiesCor, valuesCor, plotDetails) ### TODO: all values, not only responses?
+                rSquaredLog = regions[site].logisticFit.addFit(similaritiesCor, valuesCor, plotDetails, spearman.correlation) ### TODO: all values, not only responses?
+                rSquaredLog = regions[allRegionsName].logisticFit.addFit(similaritiesCor, valuesCor, plotDetails, spearman.correlation) ### TODO: all values, not only responses?
                 rSquaredStep = regions[site].stepFit.addFit(similaritiesCor, valuesCor, plotDetails)
+                rSquaredStep = regions[allRegionsName].stepFit.addFit(similaritiesCor, valuesCor, plotDetails)
                 rSquaredGauss = regions[site].gaussFit.addFit(similaritiesCor, valuesCor, plotDetails)
+                rSquaredGauss = regions[allRegionsName].gaussFit.addFit(similaritiesCor, valuesCor, plotDetails)
                 if rSquaredLog >= 0 and rSquaredStep >= 0 : 
                     regions[site].rDiffLog.append(rSquaredLog - rSquaredStep)
+                    regions[allRegionsName].rDiffLog.append(rSquaredLog - rSquaredStep)
                 if rSquaredGauss >= 0 and rSquaredStep >= 0 : 
                     regions[site].rDiffGauss.append(rSquaredGauss - rSquaredStep)
+                    regions[allRegionsName].rDiffGauss.append(rSquaredGauss - rSquaredStep)
                 if rSquaredLog >= 0 and rSquaredGauss >= 0 : 
                     regions[site].rDiffGauss.append(rSquaredGauss - rSquaredLog)
+                    regions[allRegionsName].rDiffGauss.append(rSquaredGauss - rSquaredLog)
+        else: 
+            if len(responses) > 1 :
+                print("WARNING! NOT ENOUGH DATAPOINTS FOR SPEARMAN CORRELATION")
                 
     
     print("Best response is response in " + str(countBestResponseIsResponse) + " cases and no response in " + str(countBestResponseIsNoResponse) + " cases.")
@@ -581,6 +592,7 @@ allRegionFiringRatesPlots = []
 allRegionNumResponsesPlots = []
 allRegionMaxDistPlots = []
 allRegionSpearmanPlots = []
+allRegionSpearmanSlopePlots = []
 allRegionSpearmanSplitPlots = []
 allRegionSpearmanMSplitPlots = []
 allRegionSpearmanPPlots = []
@@ -607,16 +619,16 @@ spearmanPlot = createStdErrorMeanPlot([regions[site].sitename for site in allSit
 pearsonPPlot = go.Figure()
 pearsonPlot = go.Figure()
 
-for site in allSiteNames : 
+#for site in allSiteNames : 
 
-    if site == allRegionsName : 
-        continue
-    regions[allRegionsName].logisticFit.append(regions[site].logisticFit)
-    regions[allRegionsName].stepFit.append(regions[site].stepFit)
-    regions[allRegionsName].gaussFit.append(regions[site].gaussFit)
-    regions[allRegionsName].rDiffLog.extend(regions[site].rDiffLog)
-    regions[allRegionsName].rDiffGauss.extend(regions[site].rDiffGauss)
-    regions[allRegionsName].rDiffLogGauss.extend(regions[site].rDiffLogGauss)
+#    if site == allRegionsName : 
+#        continue
+#    regions[allRegionsName].logisticFit.append(regions[site].logisticFit)
+#    regions[allRegionsName].stepFit.append(regions[site].stepFit)
+#    regions[allRegionsName].gaussFit.append(regions[site].gaussFit)
+#    regions[allRegionsName].rDiffLog.extend(regions[site].rDiffLog)
+#    regions[allRegionsName].rDiffGauss.extend(regions[site].rDiffGauss)
+#    regions[allRegionsName].rDiffLogGauss.extend(regions[site].rDiffLogGauss)
 
 
 for site in allSiteNames : 
@@ -646,9 +658,9 @@ for site in allSiteNames :
 
     logFit = regions[site].logisticFit
 
-    if len(regions[site].logisticFit.yFit[0]) > 0 and not site == 'All':
+    if len(logFit.yFit[0]) > 0 and not site == 'All':
 
-        pTmp = regions[site].logisticFit.params
+        pTmp = logFit.params
         
         for i in range(len(pTmp[0])) :
             logisticFitFigSingle = go.Figure(
@@ -674,7 +686,7 @@ for site in allSiteNames :
                 yaxis_title='Normalized firing rate',
                 showlegend=False 
             )
-            saveImg(logisticFitFigSingle, "fit" + os.sep + "logistic_fit_single" + os.sep + fileDescription + "_" + str(i) + "_r" + rStr + "_" + logFit.plotDetails[i])
+            saveImg(logisticFitFigSingle, "fit" + os.sep + "logistic_fit_single" + os.sep + logFit.plotDetails[i] + "_" + site)
 
         #for i in range(len(regions[site].logisticFitK)) : 
         #    logisticFitFig.add_trace(go.Scatter(
@@ -682,8 +694,17 @@ for site in allSiteNames :
         #        y=fitLogisticFunc(xLogisticFit, regions[site].logisticFitX0[i], regions[site].logisticFitK[i], regions[site].logisticFitA[i], regions[site].logisticFitC[i]),
         #    ))
 
+    if not site == "All" : 
+        for i in range(len(regions[site].logisticFit.yNoFit)) : 
+            logisticFitFigSingle = go.Figure(go.Scatter(x=logFit.xNoFit[i], y=logFit.yNoFit[i],mode='markers'))
+            saveImg(logisticFitFigSingle, "fit" + os.sep + "logistic_fit_single" + os.sep + logFit.plotDetailsNoFit[i] + "_" + site + "_nofit")
+
     regions[site].gaussFit.calculateSteepestSlopes()
     regions[site].logisticFit.calculateSteepestSlopes()
+
+    spearman_slope_df = pd.DataFrame(data={'spearman': siteData.logisticFit.spearman, 'slope': siteData.logisticFit.steepestSlopes})    
+    allRegionSpearmanSlopePlots.append(createAndSave(px.scatter(spearman_slope_df, x='spearman', y='slope'), 
+        "fit" + os.sep + "logistic_fit_spearman" + os.sep + fileDescription))
 
     allRegionGaussFitPlots.append(createAndSave(
         createFitPlot(regions[site].gaussFit, "Gauss"), 
@@ -762,6 +783,9 @@ for site in allSiteNames :
     allRegionSlopePlots.append(createAndSave(
         createBoxPlot([regions[site].logisticFit.steepestSlopes], [""], "Steepest slope of fitted data per neuron"), 
         "fit" + os.sep + "slopes" + os.sep + fileDescription))
+    createAndSave(
+        createHist([regions[site].logisticFit.steepestSlopes], np.arange(-10,12,1), factorY=1.0, labelX="Steepest slopes", labelY="Num"),
+        "fit" + os.sep + "slope_steps" + os.sep + fileDescription)
     #allRegionSlopePlots.append(createAndSave(
     #    createBoxPlot([regions[site].logisticFit.steepestSlopes, regions[site].gaussFit.steepestSlopes], ["Log", "Gauss"], "Steepest slope of fitted data"), 
     #    "fit" + os.sep + "slopes" + os.sep + fileDescription))
@@ -791,6 +815,7 @@ spearmanCorMSplitDiv, spearmanCorMSplitFigId, spearmanCorMSplitTableId = createR
 spearmanCorStepsDiv, spearmanCorStepsFigId, spearmanCorStepsTableId = createRegionsDiv("Spearman correlation dependent on semantic similarity to best response", allSiteNames)
 spearmanCorSplitDiv, spearmanCorSplitFigId, spearmanCorSplitTableId = createRegionsDiv("Spearman correlation dependent on semantic similarity to best response; split data", allSiteNames)
 pearsonCorStepsDiv, pearsonCorStepsFigId, pearsonCorStepsTableId = createRegionsDiv("Pearson correlation dependent on semantic similarity to best response", allSiteNames)
+spearmanSlopesDiv, spearmanSlopesFigId, spearmanSlopesTableId = createRegionsDiv("Spearman slopes scatter plot", allSiteNames)
 numRespDiv, numRespFigId, numRespTableId = createRegionsDiv("Number of units with respective response counts", allSiteNames)
 maxDistDiv, maxDistFigId, maxDistTableId = createRegionsDiv("Max span of responsive field of a neuron", allSiteNames)
 responseStrengthHistDiv, responseStrengthHistFigId, responseStrengthHistTableId = createRegionsDiv("Response strength histogram for responsive stimuli", allSiteNames)
@@ -819,6 +844,7 @@ app.layout = html.Div(children=[
     spearmanCorStepsDiv,
     spearmanCorSplitDiv,
     spearmanCorMSplitDiv,
+    spearmanSlopesDiv,
     html.H3('Pearson correlation'),
     dcc.Graph(id='pearson-plot', figure=pearsonPlot),
     dcc.Graph(id='pearson-p-plot', figure=pearsonPPlot),
@@ -881,6 +907,13 @@ def update_output_div(active_cell):
 )
 def update_output_div(active_cell):
     return getActivePlot(allRegionSpearmanMSplitPlots, active_cell)
+
+@app.callback(
+    Output(component_id=spearmanSlopesFigId, component_property='figure'), 
+    Input(spearmanSlopesTableId, 'active_cell')
+)
+def update_output_div(active_cell):
+    return getActivePlot(allRegionSpearmanSlopePlots, active_cell)
 
 @app.callback(
     Output(component_id=pearsonCorStepsFigId, component_property='figure'), 

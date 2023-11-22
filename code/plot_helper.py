@@ -45,20 +45,44 @@ def plotRaster(rasterInput, linewidth=1) :
 
     numTrials = len(rasterInput.spikes)
     for trial in range(numTrials) : 
-        spikesTrial = rasterInput.spikes[trial][0]
-        spikes = spikesTrial[np.where(spikesTrial <= rasterInput.maxX)[0]]
-        spikes = spikesTrial[np.where(spikesTrial > rasterInput.minX)[0]]
-
-        for spikeTime in spikes : 
+        if len(rasterInput.spikes) == 0 or len(rasterInput.spikes[trial]) == 0 :  
             fig.add_trace(
                 go.Scatter(
-                    x=[spikeTime, spikeTime], 
+                    x=[0, 0], 
                     y=[trial, trial + 1],
                     mode='lines',
-                    line_color='black', 
+                    opacity=0.0,
+                    line_color='blue', 
                     line_width=linewidth
             ))
-    
+            continue
+        spikesTrial = rasterInput.spikes[trial][0]
+        if type(spikesTrial) == np.float64 : 
+            spikesTrial = np.asarray([spikesTrial])
+        spikes = spikesTrial[(np.where((spikesTrial <= rasterInput.maxX) & (spikesTrial > rasterInput.minX)))[0]]
+        #spikes = spikesTrial[np.where(spikesTrial > rasterInput.minX)[0]]
+
+        if len(spikes) == 0: 
+            fig.add_trace(
+                go.Scatter(
+                    x=[0, 0], 
+                    y=[trial, trial + 1],
+                    mode='lines',
+                    opacity=0.0,
+                    line_color='blue', 
+                    line_width=linewidth
+            ))
+        else : 
+            for spikeTime in spikes : 
+                fig.add_trace(
+                    go.Scatter(
+                        x=[spikeTime, spikeTime], 
+                        y=[trial, trial + 1],
+                        mode='lines',
+                        line_color='black', 
+                        line_width=linewidth
+                ))
+        
     pval = rasterInput.pval
     if pval < 0.0001 : 
         pval = np.format_float_scientific(pval, precision=3)

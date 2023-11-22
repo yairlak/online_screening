@@ -10,6 +10,7 @@ import glob
 import argparse
 import numpy as np
 import pandas as pd
+import operator
 
 import time
 from typing import List
@@ -21,6 +22,8 @@ import scipy.interpolate
 import plotly.graph_objects as go
 import plotly.express as px
 from plotly.subplots import make_subplots
+import seaborn as sns
+from skimage.measure import label
 import matplotlib.pyplot as plt
 from PIL import Image
 
@@ -48,7 +51,7 @@ parser.add_argument('--session', default=None, type=str,
                             e.g., '90_1'.")
 
 # ANALYSIS
-parser.add_argument('--data_type', default="firing_rates", type=str, # zscores or firing_rates
+parser.add_argument('--data_type', default="zstatistics", type=str, # zscores or firing_rates or zsctatistics
                     help="Determines underlying datatype for heatmaps. \
                         Currently, zscores or firing_rate are implemented.")
 parser.add_argument('--min_t', default=100, type=int,
@@ -69,9 +72,11 @@ parser.add_argument('--load_cat2object', default=False,
 # STATS
 parser.add_argument('--alpha', type=float, default=0.001,
                     help='alpha for stats')
+parser.add_argument('--alpha_region', type=float, default=0.01,
+                    help='alpha for stats')
 
 # PLOT
-parser.add_argument('--interpolation_factor', type=float, default=1000,
+parser.add_argument('--interpolation_factor', type=float, default=100,
                     help='heatmap interpolation grid size')
 parser.add_argument('--padding_factor', type=float, default=1.1,
                     help='padding around datapoints')
@@ -85,7 +90,7 @@ parser.add_argument('--path2wordembeddings',
 parser.add_argument('--path2wordembeddingsTSNE',
                     default='../data/THINGS/sensevec_TSNE.csv')
 parser.add_argument('--path2data', 
-                    default='../data/aos_after_manual_clustering/') # also work with nos?
+                    default='../data/aos_after_manual_clustering/') # also work with nos? aos_after_manual_clustering, aos_selected_sessions, aos_one_session
 parser.add_argument('--path2images', 
                     default='../figures/heatmaps/') 
 
@@ -103,112 +108,35 @@ class Tuner:
     stimuliX: List[float]
     stimuliY: List[float]
     stimuliNames: List[str]
-    zscores: List[float]
+    zscores : List[float]
     firingRates: List[float]
+    pvalues : List[float] = field(default_factory=lambda: [])
     responses: List[RasterInput] = field(default_factory=lambda: [])
-
-def rescaleX(x) :
-    xPadding = np.asarray([xOut / args.padding_factor for xOut in x])
-    return args.interpolation_factor * (xPadding - xMinThings) / (xMaxThings - xMinThings) - 0.5
-
-def rescaleY(y) :
-    yPadding = np.asarray([yOut / args.padding_factor for yOut in y])
-    return args.interpolation_factor * (yPadding - yMinThings) / (yMaxThings - yMinThings) - 0.5
-
-def getInterpolatedMap(x, y, z) : 
-    xMin = xMinThings * args.padding_factor
-    xMax = xMaxThings * args.padding_factor
-    yMin = yMinThings * args.padding_factor
-    yMax = yMaxThings * args.padding_factor
-
-    # Create regular grid
-    xi, yi = np.linspace(xMin, xMax, args.interpolation_factor), np.linspace(yMin, yMax, args.interpolation_factor)
-    xi, yi = np.meshgrid(xi, yi)
-
-    xWithBorder = np.copy(x)
-    yWithBorder = np.copy(y)
-    zWithBorder = np.copy(z)
-
-    xRange = np.arange(int(xMin), int(xMax))
-    xWithBorder = np.append(xWithBorder, xRange) 
-    xWithBorder = np.append(xWithBorder, xRange) 
-    yWithBorder = np.append(yWithBorder, np.full(len(xRange), yMin))
-    yWithBorder = np.append(yWithBorder, np.full(len(xRange), yMax))
-    zWithBorder = np.append(zWithBorder, np.zeros(len(xRange) * 2))
-
-    yRange = np.arange(int(yMin), int(yMax))
-    xWithBorder = np.append(xWithBorder, np.full(len(yRange), xMin)) 
-    xWithBorder = np.append(xWithBorder, np.full(len(yRange), xMax))
-    yWithBorder = np.append(yWithBorder, yRange)
-    yWithBorder = np.append(yWithBorder, yRange)
-    zWithBorder = np.append(zWithBorder, np.zeros(len(yRange) * 2))
-
-    # Interpolate missing data
-    rbf = scipy.interpolate.Rbf(xWithBorder, yWithBorder, zWithBorder, function='linear')
-    zi = rbf(xi, yi)
-
-    return px.imshow(zi,aspect=0.8,color_continuous_scale='RdBu_r',origin='lower') #, zmax=1
-
-#def createHeatMapZScores(tuner, figureHeight, savePath=outputPath, addName=False) : 
-#    createHeatMap(tuner, tuner.zscores, figureHeight, savePath, addName)
-
-#def createHeatMapFiringRate(tuner, figureHeight, savePath=outputPath, addName=False) : 
-#    createHeatMap(tuner, tuner.firingRate, figureHeight, savePath, addName)
+    allRasters: List[RasterInput] = field(default_factory=lambda: [])
+    responseIndices : List[int] = field(default_factory=lambda: [])
+    site : str = ""
+    zstatistics : List[float] = field(default_factory=lambda: []) 
 
 
-def createHeatMap(tuner, figureHeight, savePath="", addName=False) : 
 
-    if args.data_type == "firing_rates" :
-        outputPath = args.path2images + os.sep + "firingRates" + os.sep + savePath
-        targetValue = tuner.firingRates
-    else : 
-        outputPath = args.path2images + os.sep + "zscores" + os.sep + savePath
-        targetValue = tuner.zscores
+
+def save_img(filename) : 
+
+    file = args.path2images + os.sep + args.data_type + os.sep + filename
+
+    if not args.dont_plot : 
+        os.makedirs(os.path.dirname(file), exist_ok=True)
+        plt.savefig(file + ".png", bbox_inches="tight")
+        plt.clf()
+
+    plt.close()
+
+
+def createRasterPlot(rasterToPlot, figureWidth, figureHeight) : 
     
-    if not os.path.exists(outputPath):
-        os.makedirs(outputPath)
-
-    ## Heatmap
-    heatmap = getInterpolatedMap(np.array(tuner.stimuliX), np.array(tuner.stimuliY), np.array(targetValue))
-    
-    targetValues = np.copy(targetValue)
-    targetValues -= min(targetValues)
-    targetValues /= max(targetValues)
-
-    ## Text / labels 
-    for stimulusNum in range(len(tuner.stimuliNames)) :
-        opacityStim = targetValues[stimulusNum]
-        heatmap.add_trace(
-            go.Scatter(
-                mode='text',
-                x=rescaleX([tuner.stimuliX[stimulusNum]]), y=rescaleY([tuner.stimuliY[stimulusNum]]),
-                #text=[tuner.stimuliNames[stimulusNum]],
-                hovertext=[tuner.stimuliNames[stimulusNum] + ", z: " + str(round(targetValues[stimulusNum], 2))],
-                opacity=opacityStim,
-                textfont=dict(
-                    size=12,
-                    color="black"
-                ),
-                name='zscore'
-            )
-        )
-
-    figureWidth = figureHeight*3/2
-    graphLayout = go.Layout(
-        title_text="session: " + tuner.subjectsession + ", channel: " + str(tuner.channel) + ", cluster: " + str(tuner.cluster) + ", " + tuner.unitType, 
-        xaxis=dict(ticks='', showticklabels=False),
-        yaxis=dict(ticks='', showticklabels=False),
-        showlegend=False, 
-        autosize=False,
-        height=figureHeight,
-        width=figureWidth
-    )
-
-    heatmap.update_layout(graphLayout)
-
     ## Raster plots
     numCols = 5
-    numRowsRaster = int(len(tuner.responses) / numCols) + 1
+    numRowsRaster = int(len(rasterToPlot) / numCols) + 1
 
     specs=[]
     for rowNum in range(numRowsRaster) : 
@@ -217,7 +145,7 @@ def createHeatMap(tuner, figureHeight, savePath="", addName=False) :
             specsCols.append({})
         specs.append(specsCols)
 
-    responsesSorted = sorted(tuner.responses, key=lambda x: x.pval)
+    responsesSorted = sorted(rasterToPlot, key=lambda x: x.pval)
 
     subplot_titles=[]
     for response in responsesSorted : 
@@ -263,19 +191,277 @@ def createHeatMap(tuner, figureHeight, savePath="", addName=False) :
             rasterGrid['layout'][ax]['showticklabels']=False
             #rasterGrid['layout'][ax]['range']=[0, len(response.spikes)]  # can only be set for all together (?)
             
+    return rasterGrid
+
+def rescaleX(x) :
+    xPadding = np.asarray([xOut / args.padding_factor for xOut in x])
+    return args.interpolation_factor * (xPadding - xMinThings) / (xMaxThings - xMinThings) - 0.5
+
+def rescaleY(y) :
+    yPadding = np.asarray([yOut / args.padding_factor for yOut in y])
+    return args.interpolation_factor * (yPadding - yMinThings) / (yMaxThings - yMinThings) - 0.5
+
+def getInterpolatedMap(x, y, z, pvalues=False) : 
+    xMin = xMinThings * args.padding_factor
+    xMax = xMaxThings * args.padding_factor
+    yMin = yMinThings * args.padding_factor
+    yMax = yMaxThings * args.padding_factor
+
+    # Create regular grid
+    xi, yi = np.linspace(xMin, xMax, args.interpolation_factor), np.linspace(yMin, yMax, args.interpolation_factor)
+    xi, yi = np.meshgrid(xi, yi)
+
+    xWithBorder = np.copy(x)
+    yWithBorder = np.copy(y)
+    zWithBorder = np.copy(z)
+    if pvalues : 
+        zWithBorder = np.log(zWithBorder)
+
+    xRange = np.arange(int(xMin), int(xMax))
+    xWithBorder = np.append(xWithBorder, xRange) 
+    xWithBorder = np.append(xWithBorder, xRange) 
+    yWithBorder = np.append(yWithBorder, np.full(len(xRange), yMin))
+    yWithBorder = np.append(yWithBorder, np.full(len(xRange), yMax))
+    zWithBorder = np.append(zWithBorder, np.zeros(len(xRange) * 2))
+
+    yRange = np.arange(int(yMin), int(yMax))
+    xWithBorder = np.append(xWithBorder, np.full(len(yRange), xMin)) 
+    xWithBorder = np.append(xWithBorder, np.full(len(yRange), xMax))
+    yWithBorder = np.append(yWithBorder, yRange)
+    yWithBorder = np.append(yWithBorder, yRange)
+    zWithBorder = np.append(zWithBorder, np.zeros(len(yRange) * 2))
+
+
+    if pvalues : 
+        rbf = scipy.interpolate.Rbf(xWithBorder, yWithBorder, zWithBorder, function='linear')
+        zi = rbf(xi, yi)
+        zi[zi > np.log(args.alpha_region)] = 0.0 # allow 10*alpha to connect
+
+        #zi = np.log(zi)
+        #zi[zi < 0.0] = 0.0
+        #rbf.di[rbf.di > args.alpha] = 0.0
+    
+    else : 
+        # Interpolate missing data
+        rbf = scipy.interpolate.Rbf(xWithBorder, yWithBorder, zWithBorder, function='linear')
+        #rbf = scipy.interpolate.Rbf(xWithBorder, yWithBorder, zWithBorder)
+        zi = rbf(xi, yi)
+
+    return px.imshow(zi,aspect=0.8,color_continuous_scale='RdBu_r',origin='lower'), xi, yi #, zmax=1
+
+#def createHeatMapZScores(tuner, figureHeight, savePath=outputPath, addName=False) : 
+#    createHeatMap(tuner, tuner.zscores, figureHeight, savePath, addName)
+
+#def createHeatMapFiringRate(tuner, figureHeight, savePath=outputPath, addName=False) : 
+#    createHeatMap(tuner, tuner.firingRate, figureHeight, savePath, addName)
+
+
+def createHeatMap(tuner, figureHeight, savePath="", addName=False) : 
+
+    outputPath = args.path2images + os.sep + args.data_type + os.sep + savePath
+    
+    if args.data_type == "firing_rates" :
+        targetValue = tuner.firingRates
+    elif args.data_type == "zstatistics": 
+        targetValue = tuner.zstatistics
+    else : 
+        targetValue = tuner.zscores
+
+    if not os.path.exists(outputPath):
+        os.makedirs(outputPath)
+
+    ## Heatmap
+    heatmap = getInterpolatedMap(np.array(tuner.stimuliX), np.array(tuner.stimuliY), np.array(targetValue))[0]
+    heatmapOnlyResponses, xi, yi = getInterpolatedMap(np.array(tuner.stimuliX), np.array(tuner.stimuliY), np.array(tuner.pvalues), pvalues=True)
+
+    regionsHeatmap = heatmapOnlyResponses.data[0].z.copy()
+    regionsHeatmap[regionsHeatmap != 0.0] = 1.0
+    regionsLabels = label(regionsHeatmap, connectivity=2)
+
+    
+    #remove areas without response (including consider)
+    regionsLabels[regionsLabels > 0] += 1000
+    newLabelCount = 1
+    for responseIndex in tuner.responseIndices :
+        xResponse = tuner.stimuliX[responseIndex]
+        yResponse = tuner.stimuliY[responseIndex]
+        #xHeatmap = heatmapOnlyResponses.data[0].x.copy()
+        xResponseHeatmap = (np.abs(xi[0] - xResponse)).argmin()
+        yResponseHeatmap = (np.abs(yi[:,0] - yResponse)).argmin()
+        responseLabel = regionsLabels[yResponseHeatmap][xResponseHeatmap]
+        heatmapOnlyResponses.data[0].z[yResponseHeatmap][xResponseHeatmap] = 1
+        
+        regionFound = False
+        if responseLabel == 0 : 
+            for xstep in [-1, 1] : 
+                for ystep in [-1, 1] : 
+                    responseLabel = regionsLabels[yResponseHeatmap + xstep][xResponseHeatmap + ystep]
+                    if responseLabel > 0 : 
+                        regionFound = True
+                        print("found neighboring region. xstep: " + str(xstep) + ", ystep: " + str(ystep))
+                        break
+                if regionFound : 
+                    break
+
+        if responseLabel > 1000 : 
+            labelIndices = np.where(regionsLabels == responseLabel)
+            regionsLabels[labelIndices] = newLabelCount
+            newLabelCount += 1
+        else: 
+            print("label is " + str(responseLabel))
+        
+        #print("test")
+        
+    noResponseIndices = np.where(regionsLabels > 1000)
+    regionsLabels[noResponseIndices] = 0
+    heatmapOnlyResponses.data[0].z[noResponseIndices] = 0
+    #heatmapOnlyResponses.data[0].z = regionsLabels
+
+    numRegions = np.amax(regionsLabels)
+
+    #heatmapPvalues.data[0].z[heatmapPvalues.data[0].z > args.alpha] = 0.0
+
+    ## Create reduced heatmap
+    #targetValuesOnlyResponses = targetValue.copy()
+    #noResponseIndices = list(set(range(len(targetValuesOnlyResponses))) - set(tuner.responseIndices))
+    #targetValuesOnlyResponses[noResponseIndices] = 0.0
+    #heatmapOnlyResponses = heatmapPvalues #getInterpolatedMap(np.array(tuner.stimuliX), np.array(tuner.stimuliY), np.array(targetValuesOnlyResponses))
+    
+    targetValues = np.copy(targetValue)
+    targetValues -= min(targetValues)
+    targetValues /= max(targetValues)
+
+    ## Text / labels 
+    for stimulusNum in range(len(tuner.stimuliNames)) :
+        opacityStim = targetValues[stimulusNum]
+        heatmap.add_trace(
+            go.Scatter(
+                mode='text',
+                x=rescaleX([tuner.stimuliX[stimulusNum]]), y=rescaleY([tuner.stimuliY[stimulusNum]]),
+                #text=[tuner.stimuliNames[stimulusNum]],
+                hovertext=[tuner.stimuliNames[stimulusNum] + ", z: " + str(round(targetValues[stimulusNum], 2))],
+                opacity=opacityStim,
+                textfont=dict(
+                    size=12,
+                    color="black"
+                ),
+                name='zscore'
+            )
+        )
+
+    
+    for stimulusNum in tuner.responseIndices :
+        text = tuner.stimuliNames[stimulusNum]
+        heatmapOnlyResponses.add_trace(
+            go.Scatter(
+                mode='text',
+                text=text,
+                x=rescaleX([tuner.stimuliX[stimulusNum]]), y=rescaleY([tuner.stimuliY[stimulusNum]]),
+                #hovertext=[tuner.stimuliNames[stimulusNum] + ", z: " + str(round(targetValues[stimulusNum], 2))],
+                textfont=dict(size=12,color="black"),
+                #name='zscore'
+            )
+        )
+
+    figureWidth = figureHeight*3/2
+    titleText = "session: " + tuner.subjectsession + ", channel: " + str(tuner.channel) + ", cluster: " + str(tuner.cluster) + ", " + tuner.unitType + ", " + tuner.site
+    graphLayout = go.Layout(
+        title_text=titleText, 
+        xaxis=dict(ticks='', showticklabels=False),
+        yaxis=dict(ticks='', showticklabels=False),
+        showlegend=False, 
+        autosize=False,
+        height=figureHeight,
+        width=figureWidth
+    )
+
+    heatmap.update_layout(graphLayout)
+    heatmapOnlyResponses.update_layout(graphLayout)
+    heatmapOnlyResponses.update_layout(go.Layout(title_text = titleText + ", numRegions: " + str(numRegions)))
+
+
+    """ rasterToPlot = tuner.responses # tuner.responses
+
+    ## Raster plots
+    numCols = 5
+    numRowsRaster = int(len(rasterToPlot) / numCols) + 1
+
+    specs=[]
+    for rowNum in range(numRowsRaster) : 
+        specsCols = []
+        for colNum in range(numCols) : 
+            specsCols.append({})
+        specs.append(specsCols)
+
+    responsesSorted = sorted(rasterToPlot, key=lambda x: x.pval)
+
+    subplot_titles=[]
+    for response in responsesSorted : 
+        pval = response.pval
+        if pval < 0.0001 : 
+            pval = np.format_float_scientific(pval, precision=3)
+        else : 
+            pval = round(pval, 7)
+        subplot_titles.append(response.stimulusName + ', pval: ' + str(pval))
+
+    rasterGrid = make_subplots(rows=numRowsRaster, cols=numCols, specs=specs, subplot_titles=subplot_titles)
+
+    for title in rasterGrid['layout']['annotations']:
+        title['font'] = dict(size=10)
+
+    rowNum = 0
+    colNum = 0
+    for response in responsesSorted : 
+        rasterFigure = plotRaster(response, linewidth=1.5)
+        for line in rasterFigure.data : 
+            rasterGrid.add_trace(line, row=rowNum+1, col=colNum+1)
+
+        colNum += 1
+        if colNum == numCols : 
+            rowNum += 1
+            colNum = 0
+
+    rasterGrid.update_layout(go.Layout(
+        showlegend=False, 
+        autosize=False,
+        height = int(figureHeight / 4) * numRowsRaster + 100,
+        width = int(figureWidth), 
+    ))
+
+    for ax in rasterGrid['layout']:
+        if ax[:5]=='xaxis':
+            rasterGrid['layout'][ax]['range']=[-500,1500]
+            rasterGrid['layout'][ax]['tickmode']='array'
+            rasterGrid['layout'][ax]['tickvals']=[0, 1000]
+            rasterGrid['layout'][ax]['tickfont']=dict(size=8)
+        if ax[:5]=='yaxis':
+            rasterGrid['layout'][ax]['visible']=False
+            rasterGrid['layout'][ax]['showticklabels']=False
+            #rasterGrid['layout'][ax]['range']=[0, len(response.spikes)]  # can only be set for all together (?)
+             """
+    
+    allRasters = createRasterPlot(tuner.allRasters, figureWidth, figureHeight)
+    rasterGrid = createRasterPlot(tuner.responses, figureWidth, figureHeight)
 
     if not args.dont_plot : 
-        filename = outputPath + os.sep + tuner.subjectsession + "_ch" + str(tuner.channel) + "_cl" + str(tuner.cluster) 
+        filename = tuner.subjectsession + "_ch" + str(tuner.channel) + "_cl" + str(tuner.cluster) 
         if addName : 
-            filename += "_" + tuner.name
+            filename = outputPath + os.sep + filename + "_" + tuner.name
+        else : 
+            filename = outputPath + os.sep + str(numRegions) + "regions" + os.sep + filename
         heatmapFilename = filename + "_heatmap.png"
+        heatmapOnlyResponsesFilename = filename + "_heatmap_responses.png"
         rasterFilename = filename + "_rasterplots.png"
+        rastersAllFilename = filename + "_rasterplots_all.png"
         completeFilename = filename 
+        os.makedirs(os.path.dirname(filename), exist_ok=True)
 
+        heatmapOnlyResponses.write_image(heatmapOnlyResponsesFilename)
         heatmap.write_image(heatmapFilename)
         heatmap.write_image(filename + "_heatmap.svg")
         rasterGrid.write_image(rasterFilename)
         rasterGrid.write_image(filename + "_rasterplots.svg")
+        allRasters.write_image(rastersAllFilename)
 
         pltHeatmap = Image.open(heatmapFilename)
         pltRaster = Image.open(rasterFilename)
@@ -298,7 +484,7 @@ def createHeatMap(tuner, figureHeight, savePath="", addName=False) :
         html.Div(children=[dcc.Graph(id='rasterGrid-' + tuner.name, figure=rasterGrid)], style={'margin-top': 0})
     ])
 
-    return tunerDivGrid
+    return tunerDivGrid, numRegions
 
 #############
 # LOAD DATA #
@@ -322,7 +508,7 @@ print("\nTime loading data: " + str(time.time() - startLoadData) + " s\n")
 
 tuners = [ # clusters might not fit (manual clustering took place)
     #Tuner("088e03aos1", 17, 1, "Pacifier", "aos", [], [], [], [], []),
-    Tuner("103_1", 70, 1, [], "Unknown", "aos", [], [], [], [], [], []),
+    Tuner("103_1", 70, 1, [], "Car parts", "aos", [], [], [], [], [], []),
     Tuner("88_1", 77, 1, [], "Engine", "aos", [], [], [], [], [], []),
     Tuner("88_1", 75, 2, [], "Lizard", "aos", [], [], [], [], [], []), 
     Tuner("88_1", 87, 2, [], "Zucchini", "aos", [], [], [], [], [], []), 
@@ -373,10 +559,8 @@ yThingsRescaled = rescaleY(yThings)
 
 startPrepareData = time.time()
 inputPath = args.path2data #+ tuner.paradigm + "_after_manual_clustering/"
-if args.data_type == "firing_rates" :
-    outputPath =  args.path2images + os.sep + "firingRates"
-else : 
-    outputPath = args.path2images + os.sep + "zscores"
+outputPath =  args.path2images + os.sep + args.data_type
+
 allUnits = []
 
 for session in sessions:
@@ -390,7 +574,7 @@ for session in sessions:
     sessionParadigm = session.split("_")[2]
 
     stimuliIndices = data.neural_data[session]['objectindices_session']
-    stimuliNames = np.unique(data.neural_data[session]['objectnames'])
+    stimuliNames = data.neural_data[session]['stimlookup']
     stimuliNamesTrials = data.neural_data[session]['objectnames']
 
     stimuliNums = []
@@ -404,8 +588,10 @@ for session in sessions:
         stimuliY.append(yThings[stimInThings])
     
     for unit in units:
+        site = data.neural_data[session]['units'][unit]['site']
         pvals = data.neural_data[session]['units'][unit]['p_vals']
         zscores = data.neural_data[session]['units'][unit]['zscores']
+        zstatistics = data.neural_data[session]['units'][unit]['zstatistics']
         channelName = data.neural_data[session]['units'][unit]['channel_name']
         channel = data.neural_data[session]['units'][unit]['channel_num']
         cluster = data.neural_data[session]['units'][unit]['class_num']
@@ -415,12 +601,23 @@ for session in sessions:
         name = "pat " + str(subjectNum) + ", session " + str(sessionNum) + ", " + channelName + ", channel " + str(channel) + ", cluster " + str(cluster) + ", " + kind
         
         responses = []
-        responseIndices = np.where(pvals < args.alpha)[0]
+        allRasters = []
+        responseIndices = data.neural_data[session]['units'][unit]['responses']
         for responseIndex in responseIndices : 
             stimulusName = stimuliNames[responseIndex]
             trialIndices = np.where(np.asarray(stimuliNamesTrials) == stimulusName)[0]
             stimulusTrials = trials[trialIndices]
             responses.append(RasterInput(stimulusName, pvals[responseIndex], trials[trialIndices]))
+
+        for i in range(len(pvals)) : 
+            stimulusName = stimuliNames[i]
+            trialIndices = np.where(np.asarray(stimuliNamesTrials) == stimulusName)[0]
+            stimulusTrials = trials[trialIndices]
+            allRasters.append(RasterInput(stimulusName, pvals[i], trials[trialIndices]))
+
+        allRasters = sorted(allRasters, key=lambda x: x.pval)
+        allRasters = allRasters[:30]
+        #allRasters.sort(key=operator.attrgetter('pvalues'))
 
         for tuner in tuners : 
             if tuner.subjectsession + "_" + tuner.paradigm == session and tuner.channel == channel and tuner.cluster == cluster : 
@@ -432,13 +629,19 @@ for session in sessions:
                 tuner.stimuliY = stimuliY
                 tuner.responses = responses
                 tuner.unitType = kind
+                tuner.responseIndices = responseIndices
+                tuner.allRasters = allRasters
+                tuner.pvalues = pvals
+                tuner.site = site
+                tuner.zstatistics = zstatistics
 
         #if all(pval >= args.alpha for pval in pvals) : 
             #print("Skipping " + subjectSession + ", cell " + str(cellNum))
             #continue
 
-        allUnits.append(Tuner(session, channel, cluster, kind, name, "aos", 
-            stimuliNums, stimuliX, stimuliY, stimuliNames, zscores, firingRates, responses))
+        if len(responseIndices) > 0 : 
+            allUnits.append(Tuner(session, channel, cluster, kind, name, "aos", 
+                stimuliNums, stimuliX, stimuliY, stimuliNames, zscores, firingRates, pvals, responses, allRasters, responseIndices, site, zstatistics))
 
     print("Prepared session " + session)
 
@@ -455,17 +658,23 @@ startHeatmap = getInterpolatedMap(np.array(tuners[0].stimuliX), np.array(tuners[
 startTimeTunerPlots = time.time()
 tunerHeatmaps = []
 for tuner in tuners : 
+    if len(tuner.pvalues) == 0 : 
+        print("WARNING! Tuner " + tuner.name + " not found ")
+        continue
     tunerHeatmaps.append(
-        createHeatMap(tuner, figureHeightBig, "interesting", True))
+        createHeatMap(tuner, figureHeightBig, "interesting", True)[0])
 
     print("Created heatmap for " + tuner.name)    
 
 print("Time preparing tuner plots: " + str(time.time() - startTimeTunerPlots) + " s\n")
 
+numRegions = []
 allHeatmaps = []
 if args.show_all : 
     for unit in allUnits : 
-        heatMapFigure = createHeatMap(unit, figureHeight)
+        heatMapData = createHeatMap(unit, figureHeight)
+        heatMapFigure = heatMapData[0]
+        numRegions.append(heatMapData[1])
         allHeatmaps.append(
             html.Div([
                 html.H3(children='Activation heatmap ' + unit.name),
@@ -478,6 +687,13 @@ if args.show_all :
         print("Created heatmap for " + unit.name)
 
     print("Done loading all heatmaps!")
+
+
+counts, bins = np.histogram(numRegions, bins=np.append(np.arange(0,15,1), np.inf))
+#counts = np.append(counts,0)
+numRegionsPlot = sns.barplot(x=bins[:-1], y=counts)
+save_img("numRegions")
+
 
 app.layout = html.Div(children=[
     html.H1(children='Tuners'),

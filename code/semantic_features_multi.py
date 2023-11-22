@@ -37,7 +37,7 @@ parser.add_argument('--session', default=None, type=str, #"90_1_aos" / None ; 90
 # DATA AND MODEL
 parser.add_argument('--metric', default='zscores', # zscores, or pvalues or firing_rates
                     help='Metric to rate responses') # best firing_rates = best zscore ?!
-parser.add_argument('--region', default='HC', # "All, "AM", "HC", "EC", "PHC"
+parser.add_argument('--region', default='AM', # "All, "AM", "HC", "EC", "PHC"
                     help='Which region to consider') # 
 
 # FLAGS
@@ -80,7 +80,7 @@ def mds(dissimilarity_matrix, categories, file_description) :
     if np.any(np.isnan(dissimilarity_matrix)):
         print("WARNING: mds not possible due to nan for " + file_description)
         return
-    print("mds: " + file_description)
+    #print("mds: " + file_description)
     
     if isinstance(categories, pd.DataFrame):
         categories_stimuli_list_array = get_categories_for_stimuli(categories)
@@ -89,7 +89,7 @@ def mds(dissimilarity_matrix, categories, file_description) :
     #categories_stimuli_list = ['; '.join(categories) for categories in categories_stimuli_list_array] ##all categories separated by ;
 
     mds_model = manifold.MDS(n_components=2, random_state=0, dissimilarity='precomputed', normalized_stress='auto')
-    mds = mds_model.fit_transform(np.round(dissimilarity_matrix,5).astype(np.float64))
+    mds = mds_model.fit_transform(np.round(dissimilarity_matrix,10).astype(np.float64))
 
     #clf = PCA(n_components=2)
     #mds = clf.fit_transform(mds)
@@ -111,6 +111,29 @@ def mds(dissimilarity_matrix, categories, file_description) :
     sns.move_legend(pca_plot, "upper left", bbox_to_anchor=(1, 1))
     plt.title("PCA for " + file_description)
     save_img("pca" + os.sep + file_description)
+
+
+def TSNE(neural_responses, categories, file_description) :
+    
+    if np.any(np.isnan(neural_responses)):
+        print("WARNING: TSNE not possible due to nan for " + file_description)
+        return
+    #("tsne: " + file_description)
+
+    if isinstance(categories, pd.DataFrame):
+        categories_stimuli_list_array = get_categories_for_stimuli(categories)
+    else : 
+        categories_stimuli_list_array = categories
+
+    tsne_model = manifold.TSNE(n_components=2, random_state=0)
+    tsne = tsne_model.fit_transform(np.transpose(np.asarray(neural_responses)))
+    tsne_df = pd.DataFrame(tsne, columns=('x', 'y'))
+    tsne_df["categories"] = categories_stimuli_list_array
+
+    tsne_plot = sns.scatterplot(x="x", y="y", data=tsne_df, hue="categories")
+    sns.move_legend(tsne_plot, "upper left", bbox_to_anchor=(1, 1))
+    plt.title("TSNE for " + file_description)
+    save_img("tsne" + os.sep + file_description)
 
 
 def rsa_plot(dissimilarities, categories_sorted, categories, file_description, title, vmin=0.1, vmax = 1.0) : 
@@ -138,13 +161,13 @@ def rsa_plot(dissimilarities, categories_sorted, categories, file_description, t
     save_img("rsa" + os.sep + file_description)
 
 
-def rsa(neural_responses, stimuli_names, categories, file_description, vmin = 0.0, vmax = 1.0) : 
+def rsa(dissimilarity_matrix, stimuli_names, categories, file_description, vmin = 0.0, vmax = 1.0) : 
 
-    try : 
-        dissimilarity_matrix = 1.0-pd.DataFrame(neural_responses).corr(min_periods=4).to_numpy() #min_periods = min number of observations
-    except : 
-        print("Error calculating dissimilarity matrix. File: " + file_description)
-        return
+    #try : 
+    #    dissimilarity_matrix = 1.0-pd.DataFrame(neural_responses).corr(min_periods=4).to_numpy() #min_periods = min number of observations
+    #except : 
+    #    print("Error calculating dissimilarity matrix. File: " + file_description)
+    #    return
     
     category_list_rsa = []
     stim_names_list_rsa = []     
@@ -198,15 +221,6 @@ def rsa(neural_responses, stimuli_names, categories, file_description, vmin = 0.
 
     return dissimilarity_matrix
 
-
-#def rsa_indexed(neural_responses_all, indices, file_description, vmin=0.0, vmax=1.0) : 
-#    neural_responses_reduced = np.array(neural_responses_all)[:,(indices.astype(int))]
-#    stim_names_reduced = data.df_metadata.uniqueID[indices]
-#    categories_reduced = data.df_categories.iloc[indices]
-#    dissimilarity_matrix_reduced = rsa(neural_responses_reduced, stim_names_reduced, categories_reduced, file_description, vmin, vmax)
-#    return dissimilarity_matrix_reduced
-
-
 def get_diss_matrix(neural_responses) :
     try : 
         dissimilarity_matrix = 1.0-pd.DataFrame(neural_responses).corr(min_periods=4).to_numpy() #min_periods = min number of observations
@@ -220,32 +234,21 @@ def get_diss_matrix(neural_responses) :
     return dissimilarity_matrix, dissimilarity_matrix_triangular
     
 
-def dendrogram(dissimilarity_matrix, stim_names, categories, file_description) : 
+def dendrogram(dissimilarity_matrix_triangular, stim_names, categories, file_description) : 
     
-    if np.any(np.isnan(dissimilarity_matrix)):
+    if np.any(np.isnan(dissimilarity_matrix_triangular)):
         print("WARNING: dendrogram not possible due to nan for " + file_description)
         return
     
     category_names = get_categories_for_stimuli(categories)
     
     unique_categories = np.unique(category_names)
-    
-    #cmap = mpl.cm.jet
-    #bounds = range(len(unique_categories))
-
-    #norm = mpl.colors.BoundaryNorm(bounds, cmap.N) ## TODO: get_cmap is deprecated
-    #norm2 = mpl.colors.Normalize(vmin=5, vmax=10)
-        
     norm = mpl.colors.Normalize(vmin=0, vmax=len(unique_categories))
-
-    #colormap possible values = viridis, jet, spectral
-    #rgba_color = cm.jet(norm(i),bytes=True) 
-
-    #category_color_map = cm.get_cmap('jet', len(unique_categories))# plt.colormaps.get_cmap('hsv', len(unique_categories))
-    legend_elements = [Line2D([0], [0], color=cm.jet(norm(i)) , lw=4, label=unique_categories[i]) for i in range(len(unique_categories))]
+    legend_elements = [Line2D([0], [0], color=cm.brg(norm(i)) , lw=4, label=unique_categories[i]) for i in range(len(unique_categories))]
+    legend_elements[0] = Line2D([0], [0], color='y' , lw=4, label=unique_categories[0])
 
     plt.figure(figsize=(20,4)) 
-    Z = hierarchy.linkage(dissimilarity_matrix, 'ward')
+    Z = hierarchy.linkage(dissimilarity_matrix_triangular, 'ward')
     dn = hierarchy.dendrogram(Z, labels=np.asarray(stim_names), leaf_font_size = 10)
     
     ax = plt.gca()
@@ -253,7 +256,10 @@ def dendrogram(dissimilarity_matrix, stim_names, categories, file_description) :
     for i in range(len(x_labels)):
         stim_index = np.where(stim_names == x_labels[i].get_text())[0][0]
         category_index = np.where(unique_categories == category_names[stim_index])[0][0]
-        color = cm.jet(norm(category_index)) # category_color_map(category_index)
+        if category_index == 0 : 
+            color = 'y'# [0,255,255,0]
+        else :
+            color = cm.brg(norm(category_index)) # category_color_map(category_index)
         x_labels[i].set_color(color)
 
     ax.legend(handles=legend_elements, loc='center left', bbox_to_anchor=(1, 0.5))
@@ -262,14 +268,16 @@ def dendrogram(dissimilarity_matrix, stim_names, categories, file_description) :
 
 def analyze_indexed(neural_responses, stim_names, categories, file_description, indices, vmin=0.0, vmax=1.0) : 
     
+
     indices_int = indices.astype(int)
     neural_responses_reduced = np.array(neural_responses)[:,(indices_int)]
     stim_names_reduced = stim_names[indices_int]
     categories_reduced = categories.iloc[indices_int]
-    dissimilarity_matrix_reduced = rsa(neural_responses_reduced, stim_names_reduced, categories_reduced, file_description, vmin, vmax)
 
-    mds(dissimilarity_matrix_reduced, categories_reduced, file_description) 
-    linear_regression(dissimilarity_matrix_reduced, categories_reduced, file_description)
+    dissimilarity_matrix, dissimilarity_matrix_triangular = get_diss_matrix(neural_responses_reduced)
+    rsa(dissimilarity_matrix, stim_names_reduced, categories_reduced, file_description, vmin, vmax)
+    mds(dissimilarity_matrix, categories_reduced, file_description) 
+    linear_regression(dissimilarity_matrix_triangular, categories_reduced, dissimilarity_matrix.shape[0], file_description)
 
 
 def analyze_no_nan(neural_responses, stim_names, categories, file_description, ratio=0.0, vmin=0.0, vmax=1.0) : 
@@ -280,17 +288,18 @@ def analyze_no_nan(neural_responses, stim_names, categories, file_description, r
 def analyze(neural_responses, stim_names, categories, file_description, vmin=0.0, vmax=1.0) : 
     
     dissimilarity_matrix, dissimilarity_matrix_triangular = get_diss_matrix(neural_responses)
-    dissimilarity_matrix_tmp = rsa(neural_responses, stim_names, categories, file_description, vmin, vmax)
+    rsa(dissimilarity_matrix, stim_names, categories, file_description, vmin, vmax)
+    TSNE(neural_responses, categories, file_description)
     dendrogram(dissimilarity_matrix_triangular, stim_names, categories, file_description)
     mds(dissimilarity_matrix, categories, file_description) 
-    return linear_regression(dissimilarity_matrix, categories, file_description)
+    return linear_regression(dissimilarity_matrix_triangular, categories, dissimilarity_matrix.shape[0], file_description)
 
 
-def linear_regression(dissimilarity_matrix, categories, file_description) : 
+def linear_regression(dissimilarity_matrix_triangular, categories, num_stim, file_description) : 
     
     stim_category_table = []
-    num_stim = dissimilarity_matrix.shape[0]
-    dissimilarity_matrix_responses_triangular = dissimilarity_matrix[np.triu_indices(num_stim, k = 1)]
+    #num_stim = dissimilarity_matrix.shape[0]
+    #dissimilarity_matrix_responses_triangular = dissimilarity_matrix[np.triu_indices(num_stim, k = 1)]
 
     for column in categories : #?--> 27
         stim_to_category_list = np.outer(categories[column], categories[column]) #np.zeros(num_categories*(num_categories-1) /2)
@@ -301,7 +310,7 @@ def linear_regression(dissimilarity_matrix, categories, file_description) :
     #regression_model.fit(pd.DataFrame(dissimilarity_matrix_concepts), pd.DataFrame(distance_matrix))
     #category_names = data.df_categories.keys()[things_indices]
 
-    regression_model = sm.OLS(pd.DataFrame(dissimilarity_matrix_responses_triangular), pd.DataFrame(np.transpose(stim_category_table)))                #, missing='drop'     
+    regression_model = sm.OLS(pd.DataFrame(dissimilarity_matrix_triangular), pd.DataFrame(np.transpose(stim_category_table)))                #, missing='drop'     
     fitted_data = regression_model.fit() 
     #fdr_corrected = statsmodels.stats.multitest.fdrcorrection(np.nan_to_num(fitted_data.pvalues.values), alpha=args.alpha_colors)
     
@@ -645,15 +654,15 @@ plt.ylabel("param")
 plt.xticks(rotation=45, ha='right')
 save_img("regression_params")
 
-counts, bins = np.histogram(regression_categories_model_rsquared, bins=np.arange(0,1.0,0.1))
-sns.barplot(x=bins[:-1], y=counts)
+counts, bins = np.histogram(regression_categories_model_rsquared, bins=[0.0,0.01,0.05,0.1,1.0])
+sns.barplot(x=bins[1:], y=counts)
 #sns.swarmplot(x=[0], y=np.asarray([regression_categories_model_rsquared]), color="0", alpha=.35)
 save_img("regression_rsquared")
 
-counts, bins = np.histogram(regression_categories_model_p, bins=[0.0001,0.001,0.01,0.1,1.0])
-sns.barplot(x=bins[:-1], y=counts)
+counts, bins = np.histogram(regression_categories_model_p, bins=[0.0,0.000001,0.00001,0.0001,0.001,0.01,0.1,1.0])
+sns.barplot(x=bins[1:], y=counts)
 #sns.swarmplot(x=["rsquared"], y=[regression_categories_model_p], color="0", alpha=.35)
-save_img("regression_p")
+save_img("regression_pvalue")
 
 
 print("\nTime plotting data: " + str(time.time() - start_prepare_data_time) + " s\n")
