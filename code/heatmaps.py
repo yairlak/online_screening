@@ -66,6 +66,8 @@ parser.add_argument('--show_all', default=True,
                     help='If True, all heatmaps are shown on dashboard and saved')
 parser.add_argument('--dont_plot', action='store_true', default=False, 
                     help='If True, plotting to figures folder is supressed')
+parser.add_argument('--plot_all_rasters', default=False, 
+                    help='If True, extended rasters are plotted')
 parser.add_argument('--load_cat2object', default=False, 
                     help='If True, cat2object is loaded')
 
@@ -235,25 +237,13 @@ def getInterpolatedMap(x, y, z, pvalues=False) :
     if pvalues : 
         rbf = scipy.interpolate.Rbf(xWithBorder, yWithBorder, zWithBorder, function='linear')
         zi = rbf(xi, yi)
-        zi[zi > np.log(args.alpha_region)] = 0.0 # allow 10*alpha to connect
-
-        #zi = np.log(zi)
-        #zi[zi < 0.0] = 0.0
-        #rbf.di[rbf.di > args.alpha] = 0.0
-    
+        zi[zi > np.log(args.alpha_region)] = 0.0 
     else : 
         # Interpolate missing data
         rbf = scipy.interpolate.Rbf(xWithBorder, yWithBorder, zWithBorder, function='linear')
-        #rbf = scipy.interpolate.Rbf(xWithBorder, yWithBorder, zWithBorder)
         zi = rbf(xi, yi)
 
     return px.imshow(zi,aspect=0.8,color_continuous_scale='RdBu_r',origin='lower'), xi, yi #, zmax=1
-
-#def createHeatMapZScores(tuner, figureHeight, savePath=outputPath, addName=False) : 
-#    createHeatMap(tuner, tuner.zscores, figureHeight, savePath, addName)
-
-#def createHeatMapFiringRate(tuner, figureHeight, savePath=outputPath, addName=False) : 
-#    createHeatMap(tuner, tuner.firingRate, figureHeight, savePath, addName)
 
 
 def createHeatMap(tuner, figureHeight, savePath="", addName=False) : 
@@ -315,18 +305,8 @@ def createHeatMap(tuner, figureHeight, savePath="", addName=False) :
     noResponseIndices = np.where(regionsLabels > 1000)
     regionsLabels[noResponseIndices] = 0
     heatmapOnlyResponses.data[0].z[noResponseIndices] = 0
-    #heatmapOnlyResponses.data[0].z = regionsLabels
 
     numRegions = np.amax(regionsLabels)
-
-    #heatmapPvalues.data[0].z[heatmapPvalues.data[0].z > args.alpha] = 0.0
-
-    ## Create reduced heatmap
-    #targetValuesOnlyResponses = targetValue.copy()
-    #noResponseIndices = list(set(range(len(targetValuesOnlyResponses))) - set(tuner.responseIndices))
-    #targetValuesOnlyResponses[noResponseIndices] = 0.0
-    #heatmapOnlyResponses = heatmapPvalues #getInterpolatedMap(np.array(tuner.stimuliX), np.array(tuner.stimuliY), np.array(targetValuesOnlyResponses))
-    
     targetValues = np.copy(targetValue)
     targetValues -= min(targetValues)
     targetValues /= max(targetValues)
@@ -378,69 +358,9 @@ def createHeatMap(tuner, figureHeight, savePath="", addName=False) :
     heatmap.update_layout(graphLayout)
     heatmapOnlyResponses.update_layout(graphLayout)
     heatmapOnlyResponses.update_layout(go.Layout(title_text = titleText + ", numRegions: " + str(numRegions)))
-
-
-    """ rasterToPlot = tuner.responses # tuner.responses
-
-    ## Raster plots
-    numCols = 5
-    numRowsRaster = int(len(rasterToPlot) / numCols) + 1
-
-    specs=[]
-    for rowNum in range(numRowsRaster) : 
-        specsCols = []
-        for colNum in range(numCols) : 
-            specsCols.append({})
-        specs.append(specsCols)
-
-    responsesSorted = sorted(rasterToPlot, key=lambda x: x.pval)
-
-    subplot_titles=[]
-    for response in responsesSorted : 
-        pval = response.pval
-        if pval < 0.0001 : 
-            pval = np.format_float_scientific(pval, precision=3)
-        else : 
-            pval = round(pval, 7)
-        subplot_titles.append(response.stimulusName + ', pval: ' + str(pval))
-
-    rasterGrid = make_subplots(rows=numRowsRaster, cols=numCols, specs=specs, subplot_titles=subplot_titles)
-
-    for title in rasterGrid['layout']['annotations']:
-        title['font'] = dict(size=10)
-
-    rowNum = 0
-    colNum = 0
-    for response in responsesSorted : 
-        rasterFigure = plotRaster(response, linewidth=1.5)
-        for line in rasterFigure.data : 
-            rasterGrid.add_trace(line, row=rowNum+1, col=colNum+1)
-
-        colNum += 1
-        if colNum == numCols : 
-            rowNum += 1
-            colNum = 0
-
-    rasterGrid.update_layout(go.Layout(
-        showlegend=False, 
-        autosize=False,
-        height = int(figureHeight / 4) * numRowsRaster + 100,
-        width = int(figureWidth), 
-    ))
-
-    for ax in rasterGrid['layout']:
-        if ax[:5]=='xaxis':
-            rasterGrid['layout'][ax]['range']=[-500,1500]
-            rasterGrid['layout'][ax]['tickmode']='array'
-            rasterGrid['layout'][ax]['tickvals']=[0, 1000]
-            rasterGrid['layout'][ax]['tickfont']=dict(size=8)
-        if ax[:5]=='yaxis':
-            rasterGrid['layout'][ax]['visible']=False
-            rasterGrid['layout'][ax]['showticklabels']=False
-            #rasterGrid['layout'][ax]['range']=[0, len(response.spikes)]  # can only be set for all together (?)
-             """
     
-    allRasters = createRasterPlot(tuner.allRasters, figureWidth, figureHeight)
+    if args.plot_all_rasters : 
+        allRasters = createRasterPlot(tuner.allRasters, figureWidth, figureHeight)
     rasterGrid = createRasterPlot(tuner.responses, figureWidth, figureHeight)
 
     if not args.dont_plot : 
@@ -461,7 +381,8 @@ def createHeatMap(tuner, figureHeight, savePath="", addName=False) :
         heatmap.write_image(filename + "_heatmap.svg")
         rasterGrid.write_image(rasterFilename)
         rasterGrid.write_image(filename + "_rasterplots.svg")
-        allRasters.write_image(rastersAllFilename)
+        if args.plot_all_rasters : 
+            allRasters.write_image(rastersAllFilename)
 
         pltHeatmap = Image.open(heatmapFilename)
         pltRaster = Image.open(rasterFilename)
@@ -505,6 +426,7 @@ else:
 
 print("\nTime loading data: " + str(time.time() - startLoadData) + " s\n")
 
+sitesToExclude = ["LFa", "LTSA", "LTSP", "Fa", "TSA", "TSP", "LPL", "LTP", "LTB", "RMC", "RAI", "RAC", "RAT", "RFO", "RFa", "RFb", "RFc", "RT"]
 
 tuners = [ # clusters might not fit (manual clustering took place)
     #Tuner("088e03aos1", 17, 1, "Pacifier", "aos", [], [], [], [], []),
@@ -600,6 +522,9 @@ for session in sessions:
         firingRates = get_mean_firing_rate_normalized(trials, stimuliIndices, args.min_t, args.max_t)[0]
         name = "pat " + str(subjectNum) + ", session " + str(sessionNum) + ", " + channelName + ", channel " + str(channel) + ", cluster " + str(cluster) + ", " + kind
         
+        if site in sitesToExclude : 
+            continue
+
         responses = []
         allRasters = []
         responseIndices = data.neural_data[session]['units'][unit]['responses']
@@ -615,8 +540,11 @@ for session in sessions:
             stimulusTrials = trials[trialIndices]
             allRasters.append(RasterInput(stimulusName, pvals[i], trials[trialIndices]))
 
-        allRasters = sorted(allRasters, key=lambda x: x.pval)
-        allRasters = allRasters[:30]
+        if args.plot_all_rasters : 
+            allRasters = sorted(allRasters, key=lambda x: x.pval)
+            allRasters = allRasters[:30]
+        else : 
+            allRasters = []
         #allRasters.sort(key=operator.attrgetter('pvalues'))
 
         for tuner in tuners : 
@@ -629,8 +557,8 @@ for session in sessions:
                 tuner.stimuliY = stimuliY
                 tuner.responses = responses
                 tuner.unitType = kind
-                tuner.responseIndices = responseIndices
                 tuner.allRasters = allRasters
+                tuner.responseIndices = responseIndices
                 tuner.pvalues = pvals
                 tuner.site = site
                 tuner.zstatistics = zstatistics
@@ -670,11 +598,18 @@ print("Time preparing tuner plots: " + str(time.time() - startTimeTunerPlots) + 
 
 numRegions = []
 allHeatmaps = []
+allSites = []
 if args.show_all : 
     for unit in allUnits : 
         heatMapData = createHeatMap(unit, figureHeight)
         heatMapFigure = heatMapData[0]
         numRegions.append(heatMapData[1])
+        site = unit.site
+        if site == "LAH" or site == "LMH" : 
+            site = "LH"
+        if site == "RAH" or site == "RMH" : 
+            site = "RH"
+        allSites.append(site)
         allHeatmaps.append(
             html.Div([
                 html.H3(children='Activation heatmap ' + unit.name),
@@ -689,10 +624,27 @@ if args.show_all :
     print("Done loading all heatmaps!")
 
 
-counts, bins = np.histogram(numRegions, bins=np.append(np.arange(0,15,1), np.inf))
-#counts = np.append(counts,0)
+counts, bins = np.histogram(numRegions, bins=np.append(np.asarray(range(11)), 10000))
 numRegionsPlot = sns.barplot(x=bins[:-1], y=counts)
 save_img("numRegions")
+
+allSites = np.array(allSites)
+numRegions = np.array(numRegions)
+for site in np.unique(allSites) : 
+    numRegionsSite = numRegions[np.where(allSites == site)]
+    counts, bins = np.histogram(numRegionsSite, bins=np.append(np.asarray(range(11)), 10000))
+    numRegionsPlot = sns.barplot(x=bins[:-1], y=counts)
+    save_img("numRegions_" + site)
+
+rightHemisphere = np.asarray([i for i in range(len(allSites)) if allSites[i][0] == "R"])
+counts, bins = np.histogram(numRegions[rightHemisphere], bins=np.append(np.asarray(range(11)), 10000))
+numRegionsPlot = sns.barplot(x=bins[:-1], y=counts)
+save_img("numRegions_right")
+
+leftHemisphere = np.asarray([i for i in range(len(allSites)) if allSites[i][0] == "L"])
+counts, bins = np.histogram(numRegions[leftHemisphere], bins=np.append(np.asarray(range(11)), 10000))
+numRegionsPlot = sns.barplot(x=bins[:-1], y=counts)
+save_img("numRegions_left")
 
 
 app.layout = html.Div(children=[

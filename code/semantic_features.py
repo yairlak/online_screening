@@ -12,7 +12,7 @@ import statsmodels.stats.multitest
 import statsmodels.regression.linear_model as lm
 from sklearn.decomposition import PCA
 from sklearn.linear_model import Ridge
-from sklearn.model_selection import LeaveOneOut
+from sklearn.model_selection import LeaveOneOut, cross_val_score
 from sklearn.metrics import mean_squared_error
 from mne.stats import fdr_correction
 import time
@@ -51,7 +51,7 @@ parser.add_argument('--load_cat2object', default=False,
 # STATS
 parser.add_argument('--alpha', type=float, default=0.001,
                     help='Alpha for significance') 
-parser.add_argument('--alpha_categories', type=float, default=0.01,
+parser.add_argument('--alpha_categories', type=float, default=0.001,
                     help='Alpha for significance for categories (only color)') 
 parser.add_argument('--threshold_p_value', type=float, default=0.05,
                     help='Threshold to only keep units where model makes sense') 
@@ -174,6 +174,9 @@ rsquaredSites["all"] = []
 pValueSites = {}
 pValueSites["all"] = []
 rsquaredPCA = []
+meanScoresSites = {}
+meanScoresSites["all"] = []
+#stddevScoresSites = []
 sites_to_exclude = ["LFa", "LTSA", "LTSP", "Fa", "TSA", "TSP", "LTP", "LTB", "RMC", "RAI", "RAC", "RAT", "RFO", "RFa", "RFb", "RFc"] 
 #"RT": pat 102 session 1: anteater unit
 #LPL: pat 102 session 3, channel 36, cluster1: mug, teapot
@@ -224,11 +227,18 @@ for session in sessions:
                 count_cat = 0
                 for categories in categories_pca :
                     categories_consider_df = categories.iloc[consider_indices_THINGS] ## categories_pca
-                    regression_model = sm.OLS(firing_rates_consider, categories_consider_df.values, missing='drop')               
+                    regression_model = sm.OLS(firing_rates_consider, categories_consider_df.values, missing='drop') 
+                    #scores = cross_val_score(estimator = regression_model, X=firing_rates_consider, y=categories_consider_df.values, cv=10)    
+
                     fitted_data = regression_model.fit() 
                     if len(rsquaredPCA) < count_cat + 1 :
                         rsquaredPCA.append([])
+                        #meanScoresPCA.append([])
+                        #stddevScoresPCA.append([])
                     rsquaredPCA[count_cat].append(fitted_data.rsquared)
+                    #meanScoresPCA[count_cat].append(scores.mean())
+                    #stddevScoresPCA[count_cat].append(scores.std())
+
                     #print("Fitting model for " + str(num_pcs[count_cat]) + " pcs")
                     count_cat += 1
 
@@ -236,6 +246,7 @@ for session in sessions:
             categories_consider_df = categories.iloc[consider_indices_THINGS] ## categories_pca
 
             regression_model = sm.OLS(firing_rates_consider, categories_consider_df.values, missing='drop')
+            regression_model2 = linear_model.LinearRegression()
 
             if args.analyze == "embedding" : 
                 X = np.nan_to_num(categories_consider_df.values)
@@ -257,15 +268,23 @@ for session in sessions:
                 rsquared = 0
                 pvalues_fit = np.ones(len(params))
                 #fdr_corrected = [[False for i in range(len(params))], np.ones(len(params))]
-            else :                                                   
+            else :     
+                scores = cross_val_score(estimator=regression_model2, X=categories_consider_df.values, y=firing_rates_consider, cv=5)                                              
                 fitted_data = regression_model.fit() 
                 #fdr_corrected = statsmodels.stats.multitest.fdrcorrection(fitted_data.pvalues, alpha=args.alpha)
                 #fdr_corrected = fdr_correction(fitted_data.pvalues, alpha=args.alpha)
                 
+                scores = np.abs(np.asarray(scores))
                 pvalue = fitted_data.f_pvalue
                 params = fitted_data.params
                 rsquared = fitted_data.rsquared
                 pvalues_fit = fitted_data.pvalues
+                meanScore = scores.mean()
+                stddevScore = scores.std()
+                #print(str(meanScore))
+                #meanScores.append(scores.mean())
+                #stddevScores.append(scores.std())
+                    
 
                 
             if site in rsquaredSites : 
@@ -274,8 +293,19 @@ for session in sessions:
             else :
                 pValueSites[site] = [pvalue]
                 rsquaredSites[site] = [rsquared]
+
+            if meanScore > 1.0 : 
+                print("WARNING! High cv score")
+            else : 
+                if site in meanScoresSites : 
+                    meanScoresSites[site].append(meanScore)
+                else : 
+                    meanScoresSites[site] = [meanScore]
+
+
             pValueSites["all"].append(pvalue)
             rsquaredSites["all"].append(rsquared)
+            meanScoresSites["all"].append(meanScore)
 
             pvalues.append(pvalue)
 
@@ -299,7 +329,10 @@ for session in sessions:
             text_categories = np.array([str(categories_consider_df.keys()[i]) + ", p: " + str(round(pvalues_fit[i], 5)) for i in range(len(categories_consider_df.keys()))])
             coef_fig = sns.barplot(x=text_categories, y=params, palette=color_sequence)
             coef_fig.set_xticklabels(coef_fig.get_xticklabels(), rotation=270)
-            plt.title("rsquared = " + str(rsquared) + ", pvalue: " + str(pvalue) + ", Entropy = " + str(entropy))
+            title = "rsquared = " + str(round(rsquared, 4)) + ", pvalue: " + str(pvalue) #+ ", Entropy = " + str(entropy)
+            if args.analyze != "embedding" : 
+                title += ", cv mean: " + str(round(meanScore, 4)) + ", stddev: " + str(round(stddevScore, 4))
+            plt.title(title)
             save_plt("coef_regression" + os.sep + fileDescription)
 
 
@@ -325,6 +358,14 @@ sitesTitles = [site + " (" + str(len(pValueSites[site])) + ")" for site in sites
 createStdErrorMeanPlt(sitesTitles, [pValueSites[site] for site in sites], "pvalue of regression of unit activation based on category / feature", "p value", [-0.005,0.15])
 plt.xticks(rotation=45, ha='right')
 save_plt(semantic_fields_path + "pvalues_sites")
+
+plt.figure(figsize=(10,4)) 
+sites_scores = list(meanScoresSites.keys())
+sitesTitles = [site + " (" + str(len(meanScoresSites[site])) + ")" for site in sites_scores]
+createStdErrorMeanPlt(sitesTitles, [meanScoresSites[site] for site in sites_scores], "mean of crossvalidation scores of regression of unit activation based on category / feature", "mean cv score", [0,1])
+plt.xticks(rotation=45, ha='right')
+save_plt(semantic_fields_path + "cv_scores_sites")
+
 
 if args.analyze == "PCA" : 
     createStdErrorMeanPlt([str(cat) for cat in num_pcs], rsquaredPCA, "r squared of regression for different pcs", "r squared")
