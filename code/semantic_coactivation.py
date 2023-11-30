@@ -45,13 +45,13 @@ parser.add_argument('--metric', default='cosine',
                     help='Distance metric')
 parser.add_argument('--similarity_matrix_delimiter', default=',', type=str,
                     help='Similarity metric delimiter')
-parser.add_argument('--response_metric', default='firing_rates', # zscores, or pvalues or firing_rates
+parser.add_argument('--response_metric', default='zscore', # zscores, or pvalues or firing_rates
                     help='Metric to rate responses') # best firing_rates = best zscore ?!
 
 # FLAGS
 parser.add_argument('--dont_plot', action='store_true', default=False, 
                     help='If True, plotting to figures folder is supressed')
-parser.add_argument('--only_SU', default=False, 
+parser.add_argument('--only_SU', default=True, 
                     help='If True, only single units are considered')
 parser.add_argument('--only_responses', default=False, 
                     help='If True, only stimuli ecliciting responses are considered')
@@ -87,7 +87,7 @@ parser.add_argument('--path2wordembeddings',
 parser.add_argument('--path2semanticdata',
                     default='../data/semantic_data/')
 parser.add_argument('--path2data', 
-                    default='../data/aos_after_manual_clustering/') 
+                    default='../data/aos_after_manual_clustering/') #aos_after_manual_clustering aos_one_session
 parser.add_argument('--path2images', 
                     default='../figures/semantic_coactivation') 
 
@@ -112,7 +112,7 @@ class NormArray:
         self.similarity = uniqueSimilarities
         for i in range(len(self.normalizer)) :
             if self.normalizer[i] > 0 : 
-                self.y[i] = self.y[i] / self.normalizer[i]
+                self.y[i] = self.y[i] / float(self.normalizer[i])
         
     def addValue(self, index, value) : 
         self.y[index] += value
@@ -159,6 +159,7 @@ class MedianSplit:
 class Region:
     sitename: str
     coactivationNorm : NormArray = field(default_factory=lambda: NormArray())
+    coactivationProb : NormArray = field(default_factory=lambda: NormArray())
     numResponsesPerConcept : List = field (default_factory=lambda: np.zeros(len(data.df_metadata['uniqueID'])))
     zScoresNorm : SimilaritiesArray = field(default_factory=lambda: SimilaritiesArray())
     firingRatesNorm : SimilaritiesArray = field(default_factory=lambda: SimilaritiesArray())
@@ -272,8 +273,10 @@ allSiteNames = [allRegionsName]
 regions = {}
 
 regions[allRegionsName] = Region(allRegionsName)
+regions[allRegionsName].coactivationProb.normalizer = np.zeros((nTHINGS))
+regions[allRegionsName].coactivationProb.y = np.zeros((nTHINGS,nTHINGS))
 alphaBestResponse = []
-sitesToExclude = ["LFa", "LTSA", "LTSP", "Fa", "TSA", "TSP", "LPL", "LTP", "LTB", "RMC", "RAI", "RAC", "RAT", "RFO", "RFa", "RFb", "RFc", "RT"]
+sitesToExclude = ["LFa", "LTSA", "LTSP", "Fa", "TSA", "TSP", "LPL", "LTP", "LTB", "RMC", "RAI", "RAC", "RAT", "RFO", "RFa", "RFb", "RFc", "RT", "RFI", "RFM", "RIN", "LFI", "LFM", "LIN"]
 #sitesToExclude = ["LFa", "LTSA", "LTSP", "Fa", "TSA", "TSP", "LTP", "LTB", "RMC", "RAI", "RAC", "RAT", "RFO", "RFa", "RFb", "RFc"] 
 
 unitCounter = 0
@@ -283,6 +286,9 @@ responsiveUnitCounter = 0
 responsiveUnitCounterLeft = 0
 responsiveUnitCounterRight = 0
 sessionCounter = 0
+unitsPerSite = []
+unitsPerSiteResponsive = []
+
 for session in sessions:
 
     subjectNum = int(session.split("_")[0])
@@ -320,7 +326,8 @@ for session in sessions:
         if site not in allSiteNames : 
             allSiteNames.append(site)
             regions[site] = Region(site)
-
+            regions[site].coactivationProb.normalizer = np.zeros((nTHINGS))
+            regions[site].coactivationProb.y = np.zeros((nTHINGS,nTHINGS))
         
         if not (not data.neural_data[session]['units'][unit]['kind'] == 'SU' and args.only_SU): 
             numUnits = numUnits + 1
@@ -340,6 +347,7 @@ for session in sessions:
 
     countBestResponseIsResponse = 0
     countBestResponseIsNoResponse = 0
+    
 
     for unit in units:
         unitData = data.neural_data[session]['units'][unit]
@@ -362,8 +370,8 @@ for session in sessions:
         valuesCorSteps = [[] for i in range(numCorSteps)]
         zscores = zscores / max(zscores)
         
-        if subjectNum == 103 and sessionNum == 1 and channel == 70 and cluster == 1 : # TODO!!!!!!!!!!!!! Here, there are many responses to car parts which drives the very high end of the coactivation plot
-            continue
+        #if subjectNum == 103 and sessionNum == 1 and channel == 70 and cluster == 1 : # TODO!!!!!!!!!!!!! Here, there are many responses to car parts which drives the very high end of the coactivation plot
+        #    continue
 
         unitCounter += 1
         isLeftSite = True if unitData['site'][0] == 'L' else False
@@ -375,6 +383,17 @@ for session in sessions:
             unitCounterRight += 1
         if not isLeftSite and not isRightSite : 
             print("No side: " + unitData['site'])
+
+        #if unitData['kind'] == 'SU' : 
+        siteIndex = np.where(np.asarray(allSiteNames) == site)[0][0]
+        if siteIndex > len(unitsPerSite)-1 : 
+            unitsPerSite.append(1)
+            unitsPerSiteResponsive.append(1)
+        else : 
+            unitsPerSite[siteIndex] += 1
+            if len(responses) > 0 :  
+                unitsPerSiteResponsive[siteIndex] += 1
+
 
         if args.response_metric == "zscores" : 
             metric = zscores
@@ -391,11 +410,17 @@ for session in sessions:
             regions[allRegionsName].numResponsesPerConcept[i1] += 1
             regions[site].numResponsesPerConcept[i1] += 1
             
+            regions[allRegionsName].coactivationProb.normalizer[i1] +=1
+            regions[site].coactivationProb.normalizer[i1] +=1
+            
             for i2 in responses : 
                 if i2 > i1 or (i1 == i2 and not includeSelfSimilarity) :
                     continue
                 regions[allRegionsName].coactivationNorm.y[similarityMatrixToIndex[i1, i2]] += 1
                 regions[site].coactivationNorm.y[similarityMatrixToIndex[i1, i2]] += 1
+
+                regions[allRegionsName].coactivationProb.y[i1,i2] +=1
+                regions[site].coactivationProb.y[i1,i2] +=1
 
                 #if similarityMatrixToIndex[i1, i2] >= similarityMatrixToIndex.max() - 2 : 
                 #    print("pat: " + str(subjectNum) + ", session: " + str(sessionNum) + ", channel: " + str(channel) + ", cluster: " + str(cluster) + ", index: " + str(similarityMatrixToIndex[i1, i2]))
@@ -584,6 +609,7 @@ print("Num responsive units right: " + str(responsiveUnitCounterRight))
 
 
 allRegionCoactivationPlots = []
+allRegionCoactivationProbPlots = []
 allRegionCopresentationPlots = []
 allRegionCoactivationNormalizedPlots = []
 allRegionZScoresPlots = []
@@ -630,6 +656,16 @@ pearsonPlot = go.Figure()
 #    regions[allRegionsName].rDiffGauss.extend(regions[site].rDiffGauss)
 #    regions[allRegionsName].rDiffLogGauss.extend(regions[site].rDiffLogGauss)
 
+numUnit_df = pd.DataFrame()
+numUnit_df["sites"] = allSiteNames[1:]
+numUnit_df["numUnits"] = unitsPerSite[1:]
+numUnit_df["numUnitsResponsive"] = unitsPerSiteResponsive[1:]
+
+numUnitPlot = px.bar(numUnit_df, x="sites", y="numUnits")
+saveImg(numUnitPlot, "num_units")
+ 
+numUnitPlot = px.bar(numUnit_df, x="sites", y="numUnitsResponsive")
+saveImg(numUnitPlot, "num_units_responsive")
 
 for site in allSiteNames : 
 
@@ -643,6 +679,19 @@ for site in allSiteNames :
 
     coactivationBeforeNormalization = siteData.coactivationNorm.y.copy()
     siteData.coactivationNorm.normalize()
+
+    siteData.coactivationProb.y = np.asarray(siteData.coactivationProb.y)
+    coactivationProbBeforeNormalization = siteData.coactivationProb.y.copy()
+    siteData.coactivationProb.normalize()
+    
+    semProbPositiveIndices = np.where(siteData.coactivationProb.normalizer > 0)[0]
+    coactivationProbTriu = np.transpose(siteData.coactivationProb.y)[semProbPositiveIndices,:][:,semProbPositiveIndices]
+    semanticSimTriu = np.asarray(data.similarity_matrix)[semProbPositiveIndices,:][:,semProbPositiveIndices]
+
+    triu_indices = np.triu_indices(len(semProbPositiveIndices), k = 1)
+    coactivationProbTriu = coactivationProbTriu[triu_indices]
+    semanticSimTriu = semanticSimTriu[triu_indices]
+    semanticProbabilitySimilarity = SimilaritiesArray(values=coactivationProbTriu, similarities=semanticSimTriu)
 
     ticktextCoactivation = np.asarray([str(round(siteData.coactivationNorm.similarity[i], 2)) for i in range(len(coactivationBeforeNormalization))])
         #+ ": " + str(siteData.coactivationNorm.y[i] * 100) 
@@ -696,6 +745,8 @@ for site in allSiteNames :
 
     if not site == "All" : 
         for i in range(len(regions[site].logisticFit.yNoFit)) : 
+            if len(logFit.yNoFit[i]) == 0: 
+                continue
             logisticFitFigSingle = go.Figure(go.Scatter(x=logFit.xNoFit[i], y=logFit.yNoFit[i],mode='markers'))
             saveImg(logisticFitFigSingle, "fit" + os.sep + "logistic_fit_single" + os.sep + logFit.plotDetailsNoFit[i] + "_" + site + "_nofit")
 
@@ -755,12 +806,14 @@ for site in allSiteNames :
     allRegionMaxDistPlots.append(createAndSave(
         px.bar(x=bins[:-1], y=counts/siteData.copresentationSpan, labels={'x':'Span of responses', 'y':'Number of units'}), 
         "span_responses" + os.sep + fileDescription))
-
     allRegionCoactivationNormalizedPlots.append(createAndSave(
         createPlot(siteData.coactivationNorm.similarity[:-1], siteData.coactivationNorm.y * 100, "Normalized coactivation probability in %", "coactivation normalized", True, ticktextCoactivation), 
         "coactivation_normalized" + os.sep + fileDescription))
+    allRegionCoactivationProbPlots.append(createAndSave(
+        createStepBoxPlot(semanticProbabilitySimilarity, "Coactivation probability in %", "coactivation_probability", args.alpha_box, addPartialGaussian=True, addLog=False), 
+        "coactivation_probability" + os.sep + fileDescription))
     allRegionZScoresPlots.append(createAndSave(
-        createStepBoxPlot(siteData.zScoresNorm, "Mean zscores", "zscores", args.alpha_box), 
+        createStepBoxPlot(siteData.zScoresNorm, "Mean zscores", "zscores", args.alpha_box, addLog=True, addPartialGaussian=False), 
         "zscores" + os.sep + fileDescription))
     allRegionPValuesPlots.append(createAndSave(
         createStepBoxPlot(siteData.pvalues, "Mean pvalues", "pvalues", args.alpha_box), 

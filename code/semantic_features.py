@@ -13,6 +13,8 @@ import statsmodels.regression.linear_model as lm
 from sklearn.decomposition import PCA
 from sklearn.linear_model import Ridge
 from sklearn.model_selection import LeaveOneOut, cross_val_score
+from sklearn.model_selection import KFold
+from lofo import LOFOImportance, Dataset, plot_importance
 from sklearn.metrics import mean_squared_error
 from mne.stats import fdr_correction
 import time
@@ -22,7 +24,8 @@ from utils import *
 from plot_helper import *
 from data_manip import *
 
-from sklearn import linear_model
+from sklearn import linear_model, datasets
+from sklearn.datasets import fetch_california_housing
 
 spector_data = sm.datasets.spector.load()
 spector_data.exog = sm.add_constant(spector_data.exog, prepend=False)
@@ -43,7 +46,7 @@ parser.add_argument('--dont_plot', action='store_true', default=False,
                     help='If True, plotting to figures folder is supressed')
 parser.add_argument('--consider_only_responses', default=False, 
                     help='If True, only stimuli eliciting responses are analyzed')
-parser.add_argument('--only_SU', default=False, 
+parser.add_argument('--only_SU', default=True, 
                     help='If True, only single units are considered')
 parser.add_argument('--load_cat2object', default=False, 
                     help='If True, cat2object is loaded')
@@ -77,7 +80,7 @@ parser.add_argument('--path2semanticdata',
 parser.add_argument('--path2categories',
                     default='../data/THINGS/category_mat_manual.tsv')
 parser.add_argument('--path2data', 
-                    default='../data/aos_after_manual_clustering/') 
+                    default='../data/aos_after_manual_clustering/') #aos_after_manual_clustering aos_one_session
 parser.add_argument('--path2images', 
                     default='../figures/semantic_features') 
 
@@ -165,6 +168,7 @@ session_counter = 0
 r_squared_counter = 0
 entropies = []
 num_significant_weights = []
+lofo_score_all = []
 num_categories_spanned = []
 num_responsive_stimuli = []
 pvalues = []
@@ -176,8 +180,11 @@ pValueSites["all"] = []
 rsquaredPCA = []
 meanScoresSites = {}
 meanScoresSites["all"] = []
+categoryNames = data.df_categories.columns
+categoriesSignificantCount = np.zeros((len(categoryNames)))
+numSignificant = []
 #stddevScoresSites = []
-sites_to_exclude = ["LFa", "LTSA", "LTSP", "Fa", "TSA", "TSP", "LTP", "LTB", "RMC", "RAI", "RAC", "RAT", "RFO", "RFa", "RFb", "RFc"] 
+sitesToExclude = ["LFa", "LTSA", "LTSP", "Fa", "TSA", "TSP", "LPL", "LTP", "LTB", "RMC", "RAI", "RAC", "RAT", "RFO", "RFa", "RFb", "RFc", "RT", "RFI", "RFM", "RIN", "LFI", "LFM", "LIN"]
 #"RT": pat 102 session 1: anteater unit
 #LPL: pat 102 session 3, channel 36, cluster1: mug, teapot
 
@@ -197,7 +204,7 @@ for session in sessions:
         site = data.neural_data[session]['units'][unit]['site']
         unit_data = data.neural_data[session]['units'][unit]
         
-        if (not unit_data['kind'] == 'SU' and args.only_SU) or site in sites_to_exclude :
+        if (not unit_data['kind'] == 'SU' and args.only_SU) or site in sitesToExclude :
             continue
         
         if site == "RAH" or site == "RMH" :
@@ -209,6 +216,7 @@ for session in sessions:
         channel = unit_data['channel_num']
         cluster = unit_data['class_num']
         firing_rates = unit_data['firing_rates']
+        #firing_rates = unit_data['zscores']
         response_stimuli_indices = unit_data['responses'] 
 
         if len(response_stimuli_indices) > 0 :
@@ -244,6 +252,7 @@ for session in sessions:
 
             categories_responses_df = categories.iloc[things_indices[response_stimuli_indices]]
             categories_consider_df = categories.iloc[consider_indices_THINGS] ## categories_pca
+            categories_session = categories_consider_df.loc[consider_indices_THINGS]
 
             regression_model = sm.OLS(firing_rates_consider, categories_consider_df.values, missing='drop')
             regression_model2 = linear_model.LinearRegression()
@@ -281,9 +290,43 @@ for session in sessions:
                 pvalues_fit = fitted_data.pvalues
                 meanScore = scores.mean()
                 stddevScore = scores.std()
+                lofo_score = []
                 #print(str(meanScore))
                 #meanScores.append(scores.mean())
                 #stddevScores.append(scores.std())
+
+                ##data_url = "http://lib.stat.cmu.edu/datasets/boston"
+                ##raw_df = pd.read_csv(data_url, sep="\s+", skiprows=22, header=None)
+                ##data = np.hstack([raw_df.values[::2, :], raw_df.values[1::2, :2]])
+                ##target = raw_df.values[1::2, 2]
+                ##boston = pd.DataFrame(data)
+                ##boston["target"] = target
+
+                #housing = fetch_california_housing()
+                #boston = raw_df #datasets.load_boston()
+                ##dataset = Dataset(df=boston, target='target', features=[str(col) for col in boston.columns if col != 'target'])
+                ##lofo_imp = LOFOImportance(dataset,scoring='neg_mean_squared_error')
+                ##importance_df = lofo_imp.get_importance()
+                ##plot_importance(importance_df, figsize=(12, 12))
+
+                #lofo_df = categories_consider_df.copy()# pd.DataFrame(categories_consider_df.values, columns=categoryNames)
+                #categoryNames = lofo_df.columns
+                #lofo_df["score"] = firing_rates_consider
+                #cv = KFold(n_splits=5, shuffle=True, random_state=None) # Don't shuffle to keep the time split split validation
+                #dataset = Dataset(lofo_df, target="score", features=categoryNames)
+                #lofo_imp = LOFOImportance(dataset, cv=cv, model=regression_model2, scoring='roc_auc')
+                #importance_df = lofo_imp.get_importance()
+                #plot_importance(importance_df, figsize=(12, 20))
+                
+
+                for category in categories.columns : 
+                    category_reduced = categories_session.copy()
+                    category_reduced = category_reduced.drop(category, axis=1)
+                    regression_model_reduced = sm.OLS(firing_rates_consider, category_reduced.values, missing='drop')
+                    fitted_data_reduced = regression_model_reduced.fit()
+                    lofo_score.append(rsquared - fitted_data_reduced.rsquared)
+
+                lofo_score_all.append(lofo_score)
                     
 
                 
@@ -324,22 +367,58 @@ for session in sessions:
             entropy = stats.entropy(params)
             entropies.append(entropy)
 
+            for c in range(len(pvalues_fit)) : 
+                if pvalues_fit[c] < args.alpha_categories : 
+                    name = str(categories_consider_df.keys()[c])
+                    index = np.where(categoryNames == name)[0]
+                    categoriesSignificantCount[index] += 1
+
             fileDescription = paradigm + '_pat' + str(subject_num) + '_s' + str(session_num) + '_ch' + '{:02d}'.format(channel)  + '_cl' + str(cluster) + '_' + site 
             color_sequence = ['red' if pvalues_fit[i] < args.alpha_categories else 'blue' for i in range(len(pvalues_fit)) ]
             text_categories = np.array([str(categories_consider_df.keys()[i]) + ", p: " + str(round(pvalues_fit[i], 5)) for i in range(len(categories_consider_df.keys()))])
-            coef_fig = sns.barplot(x=text_categories, y=params, palette=color_sequence)
-            coef_fig.set_xticklabels(coef_fig.get_xticklabels(), rotation=270)
+            
+
+            regression_df = pd.DataFrame()
+            regression_df["categories"] = text_categories
+            regression_df["params"] = params
+            regression_df["color"] = color_sequence
+            regression_df["lofo_score"] = lofo_score
+            regression_df["category_names"] = categories.columns
+            regression_df = regression_df.sort_values("params", ascending=False)
+
+            #coef_fig = sns.barplot(x=text_categories, y=params, palette=color_sequence)
+            coef_fig = sns.barplot(x="category_names", y="params", data=regression_df, palette=regression_df["color"])
+            coef_fig.set_xticklabels(coef_fig.get_xticklabels(), rotation=90)
             title = "rsquared = " + str(round(rsquared, 4)) + ", pvalue: " + str(pvalue) #+ ", Entropy = " + str(entropy)
             if args.analyze != "embedding" : 
                 title += ", cv mean: " + str(round(meanScore, 4)) + ", stddev: " + str(round(stddevScore, 4))
-            plt.title(title)
+            #plt.title(title)
+            plt.tick_params(axis='both', which='major', labelsize=14)
             save_plt("coef_regression" + os.sep + fileDescription)
+            
+            #fig = fig(figsize=(14,8))
+            regression_df = regression_df.sort_values("lofo_score", ascending=False)
+            plt.figure(figsize=(20, 8))
+            lofo_fig = sns.barplot(x="category_names", y="lofo_score", data=regression_df, color='blue')#, palette=regression_df["color"])
+            lofo_fig.set_xticklabels(lofo_fig.get_xticklabels(), rotation=90)
+            lofo_fig.set(xlabel=None, ylabel=None)
+            plt.tick_params(axis='both', which='major', labelsize=30)
+            #plt.title("lofo score")
+            save_plt("lofo_score" + os.sep + fileDescription)
 
 
 semantic_fields_path = "semantic_fields" + os.sep 
 sites = list(rsquaredSites.keys())
 sites.remove('all')
 sites = ['all'] + sorted(sites)
+
+sortedSignificant = np.argsort(-categoriesSignificantCount)
+categoryNames = categoryNames[sortedSignificant]
+categoriesSignificantCount = categoriesSignificantCount[sortedSignificant]
+fig = plt.figure()
+plt.bar(categoryNames, categoriesSignificantCount / responsive_unit_counter)
+plt.xticks(rotation=90, ha='right')
+save_plt(semantic_fields_path + "num_significant_categories")
 
 create2DhemispherePlt(rsquaredSites, sites)
 save_plt(semantic_fields_path + "rsquared_hemispheres")
@@ -365,6 +444,12 @@ sitesTitles = [site + " (" + str(len(meanScoresSites[site])) + ")" for site in s
 createStdErrorMeanPlt(sitesTitles, [meanScoresSites[site] for site in sites_scores], "mean of crossvalidation scores of regression of unit activation based on category / feature", "mean cv score", [0,1])
 plt.xticks(rotation=45, ha='right')
 save_plt(semantic_fields_path + "cv_scores_sites")
+
+plt.figure(figsize=(10,4)) 
+createStdErrorMeanPlt(categories.columns, np.transpose(lofo_score_all), "lofo score for all features", "lofo score", sort=True)
+plt.xticks(rotation=90, ha='right')
+plt.tick_params(axis='both', which='major', labelsize=14)
+save_plt(semantic_fields_path + "lofo_score")
 
 
 if args.analyze == "PCA" : 

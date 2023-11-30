@@ -37,7 +37,7 @@ class DataHandler(object):
 
             # Load cherries (contains also condition info), zscores and pvalues
             cherries = load_matlab_file(fn_cherrie)# sio.loadmat(fn_cherrie)
-            #zscores = load_matlab_file(subject_session_path + '_zscores.mat')["zscores_rs"] 
+            zstatistics = load_matlab_file(subject_session_path + '_zscores.mat')["zscores_rs"] 
             pvals = load_matlab_file(subject_session_path + '_os_responses.mat')["pvals_rs"]
             stimlookup = load_matlab_file(subject_session_path + '_stimlookup.mat')["stimlookup"][0]
 
@@ -78,6 +78,7 @@ class DataHandler(object):
                 neural_data[subject_session_key]['units'][unit_num + 1]['kind'] = cherries['cherries'][0, unit_num]['kind'][0]
                 neural_data[subject_session_key]['units'][unit_num + 1]['p_vals'] = pvals[unit_num]
                 neural_data[subject_session_key]['units'][unit_num + 1]['zscores'] = zscores
+                neural_data[subject_session_key]['units'][unit_num + 1]['zstatistics'] = zstatistics[unit_num]
                 neural_data[subject_session_key]['units'][unit_num + 1]['consider'] = consider
                 neural_data[subject_session_key]['units'][unit_num + 1]['firing_rates'] = firing_rates
                 neural_data[subject_session_key]['units'][unit_num + 1]['responses'] = np.where((pvals[unit_num] < alpha) & (consider > 0))[0]
@@ -219,6 +220,7 @@ def get_mean_firing_rate_normalized(all_trials, objectnumbers, min_t = 0, max_t 
     
 
     mean_baselines = statistics.mean(baseline_firing_rates)
+    mean_firing_rates = statistics.mean(firing_rates)
     if mean_baselines == 0 : 
         print("WARNING! Baseline is 0 for this unit. Mean firing rate after onset: " + str(statistics.mean(firing_rates)))
         stddev = 1.0
@@ -227,12 +229,17 @@ def get_mean_firing_rate_normalized(all_trials, objectnumbers, min_t = 0, max_t 
         #firing_rates = firing_rates / mean_baselines
 
     mean_firing_rates = statistics.mean(firing_rates)
+    #zscores = (firing_rates - mean_firing_rates) / stddev / mean_baselines
     zscores = (firing_rates - mean_baselines) / stddev
 
+    #firing_rates = firing_rates - min(firing_rates)
+    #firing_rates = firing_rates / max(firing_rates)
+    #zscores = zscores - min(zscores)
+    #zscores = zscores / max(zscores)
     #for stim in stimuli : 
     #    zscores[stim] = (firing_rates[stim] - mean_baselines) / stddev
 
-    return firing_rates / max(firing_rates), zscores, consider
+    return (firing_rates - min(firing_rates))/ max(firing_rates), zscores / max(zscores), consider
 
 
 def object2category(objectname, df_metadata, concept_source):

@@ -41,6 +41,7 @@ class RasterInput:
 
 def plotRaster(rasterInput, linewidth=1) : 
 
+    upperBound = 1000
     fig=go.Figure()
 
     numTrials = len(rasterInput.spikes)
@@ -83,6 +84,24 @@ def plotRaster(rasterInput, linewidth=1) :
                         line_width=linewidth
                 ))
         
+
+    fig.add_trace(
+        go.Scatter(x=[upperBound, upperBound], 
+            y=[0, numTrials],
+            mode='lines',
+            line_color='black', 
+            line_dash='dash',
+            #line = dict(color='royalblue', width=4, dash='dash')
+            line_width=1.2*linewidth))
+    
+    fig.add_trace(
+        go.Scatter(x=[0, 0], 
+            y=[0, numTrials],
+            mode='lines',
+            line_color='black', 
+            line_dash='dash',
+            line_width=1.2*linewidth))
+
     pval = rasterInput.pval
     if pval < 0.0001 : 
         pval = np.format_float_scientific(pval, precision=3)
@@ -96,11 +115,13 @@ def plotRaster(rasterInput, linewidth=1) :
         yaxis_visible=False, 
         yaxis_showticklabels=False, 
         yaxis_range=[0, numTrials],
+        #paper_bgcolor='lightgrey',
+        #plot_bgcolor='white',
 
         xaxis_range=[rasterInput.minX,rasterInput.maxX],
         xaxis = dict(
             tickmode = 'array',
-            tickvals = [0, 1000],
+            tickvals = [0, upperBound],
             tickfont=dict(size=8),
         )
     )
@@ -181,7 +202,6 @@ def create2DhemispherePlt(valuesSites, sitenames) :
     plt.ylim(low, high)
     plt.xlabel("left hemisphere")
     plt.ylabel("right hemisphere")
-
 
 def createHistPlt(x, inputBins, factorY=1.0, labelX="", labelY="", color="blue", pvalues=False) : 
 
@@ -273,20 +293,26 @@ def createBoxPlot(values, xNames, title, boxpoints='all') :
     )
     return fig
 
-def createStdErrorMeanPlt(x, data, title, yLabel, ylim = []) :
+def createStdErrorMeanPlt(x, data, title, yLabel, ylim = [], sort=False) :
     for i in range(len(data)) : 
         if len(data[i]) == 0 : 
             data[i] = [0]
 
-    sems = [sem(data[i]) for i in range(len(data))] 
     y = [statistics.mean(data[i]) for i in range(len(data))] 
+    sems = [sem(data[i]) for i in range(len(data))] 
+
+    if sort : 
+        sortIndices = np.argsort(y)[::-1] #np.asarray(y).sort(order="descending")
+        y = np.asarray(y)[sortIndices]
+        sems = np.asarray(sems)[sortIndices]
+        x = np.asarray(x)[sortIndices]
+
     plt.errorbar(x, y, sems, fmt='o', capsize=7)#, marker='s', mfc='red', mec='green', ms=20, mew=4)
     plt.ylabel(yLabel)
     plt.title(title)
 
     if len(ylim) > 0 : 
         plt.ylim(ylim)
-
 
 def createStdErrorMeanPlot(x, data, title, yLabel, minZero=True) : 
     fig = go.Figure()
@@ -350,7 +376,13 @@ def createStepBoxPlot(similaritiesArray, title, yLabel="", alpha=0.001, boxpoint
             upperfences.append(mean+stddev)
             q1.append(np.percentile(y, 25)) #(mean-error)
             q3.append(np.percentile(y, 75))
-    
+        else : 
+            means.append(0)
+            sems.append(0)
+            lowerfences.append(0)
+            upperfences.append(0)
+            q1.append(0)
+            q3.append(0)
             
             #go.Box(
             #x0=step,
@@ -422,7 +454,7 @@ def createStepBoxPlot(similaritiesArray, title, yLabel="", alpha=0.001, boxpoint
     fig.update_layout(
         width=600,
         height=500,
-        title_text=title, ###
+        #title_text=title, ###
         xaxis_title='Semantic similarity',
         yaxis_title=yLabel,
         showlegend=False,
