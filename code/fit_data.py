@@ -1,13 +1,15 @@
 from cmath import isnan
 import math
-from re import I
+#from re import I
+#import statsmodels.api as sm
 import numpy as np
 import scipy
 import statistics
-from scipy.stats import sem
+from scipy.stats import sem # chisquare, kstest, sem
 from scipy.optimize import curve_fit
 from dataclasses import dataclass, field
 from typing import List
+from utils import get_indexed_array
 
 @dataclass
 class Fitter :
@@ -28,6 +30,8 @@ class Fitter :
     paramsNames : List = field (default_factory=lambda: [])
     params : List = field(default_factory=lambda: [[]])
     rSquared : List = field (default_factory=lambda: [])
+    gof : List = field (default_factory=lambda: [])
+    gof2 : List = field (default_factory=lambda: [])
     steepestSlopes : List = field (default_factory=lambda: [])
     spearman : List = field (default_factory=lambda: [])
 
@@ -48,6 +52,37 @@ class Fitter :
         newFitter.params = [[] for i in range(len(paramsNames))]
 
         return newFitter
+    
+    def getGood(self, gof, thresh) : 
+        newFitter = Fitter()
+        goodFit = np.where(np.asarray(gof) >= thresh)[0]
+        
+        newFitter.stepSize = self.stepSize
+        newFitter.numSteps = self.numSteps
+        newFitter.stepSlope = self.stepSlope
+        newFitter.func = self.func
+        newFitter.funcParams = self.funcParams
+        newFitter.p0 = self.p0
+        newFitter.bounds = self.bounds
+        newFitter.paramsNames = self.paramsNames
+
+        newFitter.xFit = self.xFit
+        newFitter.yFit = np.asarray(self.yFit)[:,np.asarray(goodFit)]
+        newFitter.x = get_indexed_array(self.x, goodFit) #np.asarray(self.x)[goodFit]
+        newFitter.y = get_indexed_array(self.y, goodFit)
+        #newFitter.xNoFit = self.xNoFit[goodFit]
+        #newFitter.yNoFit = self.yNoFit[goodFit]
+
+        newFitter.params = np.asarray(self.params)[:,np.asarray(goodFit)]
+        newFitter.rSquared = np.asarray(self.rSquared)[goodFit]
+        newFitter.gof = np.asarray(self.gof)[goodFit]
+        newFitter.steepestSlopes = np.asarray(self.steepestSlopes)[goodFit]
+        newFitter.spearman = np.asarray(self.spearman)[goodFit]
+
+        newFitter.plotDetails = np.asarray(self.plotDetails)[goodFit]
+        #newFitter.plotDetailsNoFit = self.plotDetailsNoFit[goodFit]
+        return newFitter
+
 
     #def calculateRSquared(self, y, yFitted) : 
     #    ssRes = np.sum((y - yFitted)**2)
@@ -55,8 +90,16 @@ class Fitter :
     #    return 1 - ssRes/ssTot
 
     def addFit(self, xToFit, yToFit, plotDetails="", spearman=0.0) :
+        yToFitNormalized = yToFit - min(yToFit)
+        yToFitNormalized = yToFitNormalized / max(yToFitNormalized)
+        #yToFit = yToFitNormalized
+
         try : 
-            popt, pcov = curve_fit(self.func, xToFit, yToFit, p0=self.p0, bounds=self.bounds)
+            fitted_data = curve_fit(self.func, xToFit, yToFit, p0=self.p0, bounds=self.bounds, full_output=True)
+            popt = fitted_data[0]
+            infodict = fitted_data[2]
+            #1 / max(yToFit) # in case of only 0 values don't do curve fitting
+            #popt, pcov, infodict
         except Exception as e : 
             print("WARNING: No logistic curve fitting found: " + str(e))
             if len(self.xNoFit[0]) == 0 and len(self.xNoFit) == 1 : 
@@ -69,9 +112,25 @@ class Fitter :
                 self.plotDetailsNoFit.append(plotDetails)
             return -1
         
-        rSquared = calculateRSquared(yToFit, self.funcParams(xToFit, popt))
+        yLogisticFit = self.funcParams(xToFit, popt)
+        rSquared = calculateRSquared(yToFit, yLogisticFit)
+        #chisquared = chisquare(f_obs=yToFit, f_exp=yLogisticFit)
+        #ks = kstest(yToFit, yLogisticFit) # ks.pvalue
         self.rSquared.append(rSquared)
         self.spearman.append(spearman)
+        #self.chiSquared.append(chisquared.pvalue)
+        #self.gof2.append(infodict.fvec) # infodict.fvec gives residuals
+
+        # Calculate McFadden's R-squared
+        #logit_model = sm.Logit(yToFit, xToFit)
+        #yhat = logit_model.predict(self.xFit[0]) 
+        #result = logit_model.fit()
+
+        #null_deviance = result.llnull
+        #model_deviance = result.llf
+        McFadden_R2 = 1.0 # 1 - (model_deviance / null_deviance)
+        self.gof.append(McFadden_R2) 
+
 
         for i in range(len(popt)):
             self.params[i].append(popt[i])
@@ -282,6 +341,11 @@ def step(x, x0, a, b) :
     y[np.where(x <= x0)[0]] = a
     y[np.where(x > x0)[0]] = b
     return logFunc(x, x0, 10000, a, b)  #a * (np.heaviside(x-x0, 0) + b) #a * (np.sign(x-x0) + b)
+
+
+
+
+    #return 1 * scipy.special.expit((x-x0)*(-k))
 
 
 

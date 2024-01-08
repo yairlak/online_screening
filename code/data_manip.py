@@ -13,6 +13,8 @@ import numpy as np
 from scipy import stats
 import scipy.io as sio
 import pandas as pd
+from sklearn.metrics import pairwise_distances
+from statsmodels.stats.multitest import fdrcorrection
 
 
 class DataHandler(object):
@@ -68,6 +70,7 @@ class DataHandler(object):
                 trial_data = cherries['cherries'][0, unit_num]['trial'][0, :]
                 firing_rates, zscores, consider = get_mean_firing_rate_normalized(
                     trial_data, objectindices, min_t, max_t, min_ratio_active_trials, min_firing_rate, min_active_trials, min_t_baseline)
+                #fdr_corrected = fdrcorrection(pvals[unit_num], alpha=alpha) # 0: pass alpha, 1 : alpha values
 
                 neural_data[subject_session_key]['units'][unit_num + 1] = {}
                 neural_data[subject_session_key]['units'][unit_num + 1]['site'] = cherries['cherries'][0, unit_num]['site'][0]
@@ -81,6 +84,7 @@ class DataHandler(object):
                 neural_data[subject_session_key]['units'][unit_num + 1]['zstatistics'] = zstatistics[unit_num]
                 neural_data[subject_session_key]['units'][unit_num + 1]['consider'] = consider
                 neural_data[subject_session_key]['units'][unit_num + 1]['firing_rates'] = firing_rates
+                #neural_data[subject_session_key]['units'][unit_num + 1]['responses'] = np.where((fdr_corrected[1] < alpha) & (consider > 0))[0]
                 neural_data[subject_session_key]['units'][unit_num + 1]['responses'] = np.where((pvals[unit_num] < alpha) & (consider > 0))[0]
                 
    
@@ -149,6 +153,11 @@ class DataHandler(object):
         self.df_word_embeddings_tsne = pd.read_csv(self.path2wordembeddingsTSNE,
                                               delimiter=';',
                                               header=None)
+        
+    def load_wordnet_ids(self):
+        self.df_wordnet_ids = pd.read_csv(self.path2worndetids, skip_blank_lines=False,
+                                              #delimiter=',',
+                                              header=None)
 
     def load_similarity_matrix(self): 
         self.similarity_matrix = pd.read_csv(self.path2semanticdata + 'similarityMatrix_' + self.metric + '.csv',
@@ -161,7 +170,31 @@ class DataHandler(object):
 
     def get_THINGS_indices(self, objects) : 
         return [np.where(object == self.df_metadata.uniqueID)[0][0] for object in objects]
+    
+    def get_category_similarities(self) : 
+        categories = self.df_categories
+        num_categories = len(categories.columns)
 
+        center_categories = []
+        binary_distances = []
+
+        for c1 in categories.columns : 
+            embeddings = self.df_word_embeddings[categories[c1] == 1].values
+            embeddings = embeddings[~np.isnan(embeddings).any(axis=1)]
+            center_categories.append(embeddings.mean(axis=0))
+
+        dist = pairwise_distances(center_categories)
+        #dist -= dist.min()
+        dist /= dist.max()
+
+        binary_distances = np.zeros((num_categories, num_categories))
+        for c1 in range(num_categories) : 
+            category_distances = dist[c1,:]
+            distance_indices = np.argsort(category_distances)
+            for c2 in range(num_categories) : 
+                binary_distances[c1][distance_indices[c2]] = c2
+        
+        return 1-dist, num_categories - binary_distances
 
 
 def load_matlab_file(file) :  
@@ -221,25 +254,32 @@ def get_mean_firing_rate_normalized(all_trials, objectnumbers, min_t = 0, max_t 
 
     mean_baselines = statistics.mean(baseline_firing_rates)
     mean_firing_rates = statistics.mean(firing_rates)
+    stddev_firing_rates = statistics.stdev(firing_rates)
+
     if mean_baselines == 0 : 
         print("WARNING! Baseline is 0 for this unit. Mean firing rate after onset: " + str(statistics.mean(firing_rates)))
-        stddev = 1.0
+        stddev_baselines = 1.0
     else : 
-        stddev = statistics.stdev(baseline_firing_rates)
+        stddev_baselines = statistics.stdev(baseline_firing_rates)
         #firing_rates = firing_rates / mean_baselines
 
-    mean_firing_rates = statistics.mean(firing_rates)
+    zscores = (firing_rates - mean_baselines) / stddev_baselines
+    #mean_firing_rates = statistics.mean(firing_rates)
     #zscores = (firing_rates - mean_firing_rates) / stddev / mean_baselines
-    zscores = (firing_rates - mean_baselines) / stddev
+    #zscores = (firing_rates - mean_baselines) / stddev
+    #zscores = stats.zscore(zscores)
+    #zscores = (zscores - statistics.mean(zscores)) / statistics.stdev(zscores)
+    normalized_firing_rates = (firing_rates - min(firing_rates))
+    normalized_firing_rates = normalized_firing_rates / max(normalized_firing_rates)
 
     #firing_rates = firing_rates - min(firing_rates)
     #firing_rates = firing_rates / max(firing_rates)
-    #zscores = zscores - min(zscores)
-    #zscores = zscores / max(zscores)
+    normalized_zscores = zscores - min(zscores)
+    normalized_zscores = normalized_zscores / max(normalized_zscores)
     #for stim in stimuli : 
     #    zscores[stim] = (firing_rates[stim] - mean_baselines) / stddev
 
-    return (firing_rates - min(firing_rates))/ max(firing_rates), zscores / max(zscores), consider
+    return normalized_firing_rates, zscores, consider
 
 
 def object2category(objectname, df_metadata, concept_source):

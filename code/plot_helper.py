@@ -89,7 +89,8 @@ def plotRaster(rasterInput, linewidth=1) :
         go.Scatter(x=[upperBound, upperBound], 
             y=[0, numTrials],
             mode='lines',
-            line_color='black', 
+            #rasterGrid['layout'][ax]['color']='lightskyblue'#(0.5,0.5,0.5,1.0)
+            line_color='lightskyblue', 
             line_dash='dash',
             #line = dict(color='royalblue', width=4, dash='dash')
             line_width=1.2*linewidth))
@@ -98,7 +99,7 @@ def plotRaster(rasterInput, linewidth=1) :
         go.Scatter(x=[0, 0], 
             y=[0, numTrials],
             mode='lines',
-            line_color='black', 
+            line_color='lightskyblue', 
             line_dash='dash',
             line_width=1.2*linewidth))
 
@@ -223,7 +224,7 @@ def createHistPlt(x, inputBins, factorY=1.0, labelX="", labelY="", color="blue",
     plot = sns.barplot(x=xPlot, y=yPlot, color=color) # .astype(int) TODO
     plot.set(xlabel=labelX, ylabel=labelY)
 
-def createHist(x, inputBins, factorY, labelX, labelY, color="blue") : 
+def createHist(x, inputBins, factorY=1.0, labelX="", labelY="", color="blue") : 
     counts, bins = np.histogram(x, bins=inputBins)
     fig = px.bar(x=bins[:-1], y=counts.astype(float)*float(factorY), labels={'x':labelX, 'y':labelY})
     fig.update_traces(marker_color=color)
@@ -293,7 +294,7 @@ def createBoxPlot(values, xNames, title, boxpoints='all') :
     )
     return fig
 
-def createStdErrorMeanPlt(x, data, title, yLabel, ylim = [], sort=False) :
+def createStdErrorMeanPlt(x, data, title, yLabel, ylim = [], sort=False, horizontal=False) :
     for i in range(len(data)) : 
         if len(data[i]) == 0 : 
             data[i] = [0]
@@ -302,19 +303,64 @@ def createStdErrorMeanPlt(x, data, title, yLabel, ylim = [], sort=False) :
     sems = [sem(data[i]) for i in range(len(data))] 
 
     if sort : 
-        sortIndices = np.argsort(y)[::-1] #np.asarray(y).sort(order="descending")
+        sortIndices = np.argsort(y)#[::-1] #np.asarray(y).sort(order="descending")
         y = np.asarray(y)[sortIndices]
         sems = np.asarray(sems)[sortIndices]
         x = np.asarray(x)[sortIndices]
 
-    plt.errorbar(x, y, sems, fmt='o', capsize=7)#, marker='s', mfc='red', mec='green', ms=20, mew=4)
+    if horizontal : 
+        plt.errorbar(y, x, xerr=sems, fmt='o', capsize=7)#, marker='s', mfc='red', mec='green', ms=20, mew=4)
+    else : 
+        plt.errorbar(x, y, sems, fmt='o', capsize=7)#, marker='s', mfc='red', mec='green', ms=20, mew=4)
     plt.ylabel(yLabel)
     plt.title(title)
 
     if len(ylim) > 0 : 
         plt.ylim(ylim)
 
-def createStdErrorMeanPlot(x, data, title, yLabel, minZero=True) : 
+
+def createStdErrorMeanPltCompare(x, data1, data2, title, label1="", label2="", yLabel="", ylim = [], sort=False, horizontal=False) :
+    for i in range(len(data1)) : 
+        if len(data1[i]) == 0 : 
+            data1[i] = [0]
+
+    for i in range(len(data2)) : 
+        if len(data2[i]) == 0 : 
+            data2[i] = [0]
+
+    y1 = [statistics.mean(data1[i]) for i in range(len(data1))] 
+    sems1 = [sem(data1[i]) for i in range(len(data1))] 
+    
+    y2 = [statistics.mean(data2[i]) for i in range(len(data2))] 
+    sems2 = [sem(data2[i]) for i in range(len(data2))] 
+
+    if len(y1) != len(y2) : 
+        print("ERROR! Data size does not match for stderrormean plot to compare!")
+        return
+
+    if sort : 
+        sortIndices = np.argsort(y1)#[::-1] #np.asarray(y).sort(order="descending")
+        y1 = np.asarray(y1)[sortIndices]
+        sems1 = np.asarray(sems1)[sortIndices]
+        x1 = np.asarray(x1)[sortIndices]
+
+        y2 = np.asarray(y2)[sortIndices]
+        sems2 = np.asarray(sems2)[sortIndices]
+
+    if horizontal : 
+        plt.errorbar(y1, x, xerr=sems1, fmt='o', capsize=7, label=label1)#, marker='s', mfc='red', mec='green', ms=20, mew=4)
+        plt.errorbar(y2, x, xerr=sems2, fmt='o', capsize=7, mfc='green', mec='green', label=label2)#, marker='s', mfc='red', mec='green', ms=20, mew=4)
+    else : 
+        plt.errorbar(x, y1, sems1, fmt='o', capsize=7, label=label1)#, marker='s', mfc='red', mec='green', ms=20, mew=4)
+        plt.errorbar(x, y2, sems2, fmt='o', capsize=7, mfc='green', mec='green', ecolor='green', label=label2)#, marker='s', mfc='red', mec='green', ms=20, mew=4)
+    plt.ylabel(yLabel)
+    plt.title(title)
+    plt.legend()
+
+    if len(ylim) > 0 : 
+        plt.ylim(ylim)
+
+def createStdErrorMeanPlot(x, data, title, yLabel, minZero=True, xLabel="Semantic similarity") : 
     fig = go.Figure()
 
     for i in range(len(data)) : 
@@ -334,7 +380,7 @@ def createStdErrorMeanPlot(x, data, title, yLabel, minZero=True) :
     
     fig.update_layout(
         title_text=title, ###
-        xaxis_title='Semantic similarity',
+        xaxis_title=xLabel,
         yaxis_title=yLabel,
         showlegend=False,
     )
@@ -344,7 +390,7 @@ def createStdErrorMeanPlot(x, data, title, yLabel, minZero=True) :
 
     return fig
 
-def createStepBoxPlot(similaritiesArray, title, yLabel="", alpha=0.001, boxpoints='all', addLog=True, addPartialGaussian=True, stepBox=0.1) :   
+def createStepBoxPlot(similaritiesArray, title, yLabel="", alpha=0.001, addLog=True, addPartialGaussian=False, stepBox=0.1, max=1.0) :   
     
     x = np.asarray(similaritiesArray.similarities)
     values = np.asarray(similaritiesArray.values)
@@ -361,7 +407,7 @@ def createStepBoxPlot(similaritiesArray, title, yLabel="", alpha=0.001, boxpoint
 
     fig = go.Figure()
 
-    xPlot = np.arange(-0.0001,1.0001,stepBox)
+    xPlot = np.arange(-0.0001, max+0.0001, stepBox)
     for step in xPlot : # due to rounding errors
         indices = np.where((x >= step) & (x < step+stepBox))[0]
         if len(indices) == 0 : 
@@ -462,7 +508,8 @@ def createStepBoxPlot(similaritiesArray, title, yLabel="", alpha=0.001, boxpoint
 
     fig.update_xaxes(
         tickmode = 'array',
-        tickvals = np.arange(0,1.05,0.1)
+        #tickvals = np.arange(0,1.05,0.1)
+        tickvals = np.arange(0,max+0.05,stepBox)
     )
     
     fig.update_yaxes(automargin=True)
@@ -580,6 +627,7 @@ def createFitPlot(regionFit, name) :
         meanFit, medianFit, stddevFit, meanParams, medianParams, paramsMedian = regionFit.getMeanMedianStddevFit()
 
         medianSlope = statistics.median(regionFit.steepestSlopes)
+        #sortedSlopes = sorted(regionFit.steepestSlopes)
         q1 = np.percentile(regionFit.steepestSlopes, 25)
         q3 = np.percentile(regionFit.steepestSlopes, 75)
         semSlope = sem(regionFit.steepestSlopes)

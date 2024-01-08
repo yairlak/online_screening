@@ -13,9 +13,11 @@ import time
 import argparse
 import itertools
 import statistics 
+import shutil
 
 from typing import List
 from dataclasses import dataclass, field
+#from collections import defaultdict
 from scipy import stats
 import plotly.graph_objects as go
 
@@ -45,7 +47,7 @@ parser.add_argument('--metric', default='cosine',
                     help='Distance metric')
 parser.add_argument('--similarity_matrix_delimiter', default=',', type=str,
                     help='Similarity metric delimiter')
-parser.add_argument('--response_metric', default='zscore', # zscores, or pvalues or firing_rates
+parser.add_argument('--response_metric', default='firing_rates', # zscores, or pvalues or firing_rates
                     help='Metric to rate responses') # best firing_rates = best zscore ?!
 
 # FLAGS
@@ -63,6 +65,10 @@ parser.add_argument('--alpha', type=float, default=0.001,
                     help='Alpha for responses') 
 parser.add_argument('--alpha_box', type=float, default=0.001,
                     help='Alpha for box plot significance')
+parser.add_argument('--alpha_fit', type=float, default=0.1,
+                    help='Alpha for logistic fit')
+parser.add_argument('--thresh_gof', type=float, default=-0.5,
+                    help='Goodness of fit threshold for logistic fit')
 
 # PLOT
 parser.add_argument('--step', type=float, default=0.1,
@@ -82,8 +88,12 @@ parser.add_argument('--step_correlation_split', type=int, default=10,
 parser.add_argument('--path2metadata',
                     default='../data/THINGS/things_concepts.tsv',
                     help='TSV file containing semantic categories, etc.')
+parser.add_argument('--path2categories',
+                    default='../data/THINGS/category_mat_manual.tsv')
 parser.add_argument('--path2wordembeddings',
                     default='../data/THINGS/sensevec_augmented_with_wordvec.csv')
+parser.add_argument('--path2worndetids',
+                    default='../data/THINGS/wordnet_id.csv')
 parser.add_argument('--path2semanticdata',
                     default='../data/semantic_data/')
 parser.add_argument('--path2data', 
@@ -163,6 +173,11 @@ class Region:
     numResponsesPerConcept : List = field (default_factory=lambda: np.zeros(len(data.df_metadata['uniqueID'])))
     zScoresNorm : SimilaritiesArray = field(default_factory=lambda: SimilaritiesArray())
     firingRatesNorm : SimilaritiesArray = field(default_factory=lambda: SimilaritiesArray())
+    similaritiesConcepts : SimilaritiesArray = field(default_factory=lambda: SimilaritiesArray())
+    similaritiesConceptsDiscrete : SimilaritiesArray = field(default_factory=lambda: SimilaritiesArray())
+    similaritiesResiduals : SimilaritiesArray = field(default_factory=lambda: SimilaritiesArray())
+    #oneDimData : defaultdict = field(default_factory=lambda: defaultdict())
+    #combinationsData : defaultdict = field(default_factory=lambda: defaultdict(lambda: [])) #defaultdict(lambda: "Not Present") 
     pvalues : SimilaritiesArray = field(default_factory=lambda: SimilaritiesArray())
     numResponsesHist : List = field (default_factory=lambda: [])
     similaritiesArray : List = field (default_factory=lambda: [])
@@ -184,6 +199,9 @@ class Region:
 
     logisticFit : Fitter = field(default_factory=lambda: 
         Fitter.getFitter(logFunc, logFuncParams, ["x0", "K", "A", "C"], p0=[0.5, 1, 0, 1], bounds=[[0, -1000, 0, 0], [1, 1000, 1, 1]]))
+        #Fitter.getFitter(logFunc, logFuncParams, ["x0", "K", "A", "C"], p0=[0.5, 1, 0, 1], bounds=[[0, -1000, -10, -10], [1, 1000, 10, 10]]))
+    logisticFitGood : Fitter = field(default_factory=lambda: 
+        Fitter.getFitter(logFunc, logFuncParams, ["x0", "K", "A", "C"], p0=[0.5, 1, 0, 1], bounds=[[0, -1000, -10, -10], [1, 1000, 10, 10]]))
     stepFit : Fitter = field(default_factory=lambda: 
         Fitter.getFitter(step, stepParams, ["x0", "a", "b"], p0=[0.5, 0, 1], bounds=[[0, 0, 0], [1, 1, 1]]))
     gaussFit : Fitter = field(default_factory=lambda: 
@@ -198,13 +216,17 @@ def createAndSave(func, filename) :
     saveImg(fig, filename)
     return fig
 
-def saveImg(fig, filename) : 
+def getImgpath() : 
+    return args.path2images + "_" + args.response_metric + os.sep + args.plot_regions
 
-    file = args.path2images + "_" + args.response_metric + os.sep + args.plot_regions + os.sep + filename 
+def saveImg(fig, filename) : 
+    pathWordEmbeddings = "" # args.path2wordembeddings.split(".")[-2].split("/")[-1] + "_"
+
+    file = getImgpath() + os.sep + filename 
 
     if not args.dont_plot : 
         os.makedirs(os.path.dirname(file), exist_ok=True)
-        fig.write_image(file + ".svg")
+        #fig.write_image(file + ".svg")
         fig.write_image(file + ".png")
 
 def getSite(site) : 
@@ -221,6 +243,15 @@ def getSite(site) :
 
     return site
 
+def getCategory(indexThings) : 
+    categoryResponse = np.where(data.df_categories.loc[indexThings] == 1)[0]
+    if isinstance(categoryResponse, (list, tuple, np.ndarray)) : 
+        if len(categoryResponse) == 0 : 
+            return -1
+        categoryResponse = categoryResponse[0]
+
+    return categoryResponse
+
 
 #############
 # LOAD DATA #
@@ -229,11 +260,16 @@ print("\n--- START ---")
 startLoadData = time.time()
 
 data = DataHandler(args) # class for handling neural and feature data
+#data.load_categories()
+#data.get_category_distances()
 data.load_metadata() # -> data.df_metadata
-data.load_neural_data() # -> data.neural_data
+data.load_categories() # -> data.df_categories
 data.load_word_embeddings() # -> data.df_word_embeddings
+data.load_wordnet_ids()
+categorySimilarities, categorySimilaritiesBinary = data.get_category_similarities()
 #data.load_word_embeddings_tsne() # -> data.df_word_embeddings_tsne
 data.load_similarity_matrix() # -> data.similarity_matrix
+data.load_neural_data() # -> data.neural_data
 
 # WHICH SESSION(S) TO RUN
 if args.session is None:
@@ -248,9 +284,11 @@ onlyTwoSessions = False  # for testing purposes (first session has no responses)
 paradigm = args.path2data.split(os.sep)[-1].split('/')[-2].split('_')[0]
 includeSelfSimilarity = False
 nTHINGS = len(data.df_metadata.uniqueID)
+numExludeConceptsResiduals = 4
 
 uniqueSimilarities = np.arange(0.0, 1.0 + (1.0 % args.step), args.step)
 nSimilarities = len(uniqueSimilarities)
+numConcepts = len(categorySimilarities)
 similarityMatrixToIndex = (data.similarity_matrix.to_numpy().round(decimals=4) / args.step).astype(int)
 corStepSize = 0.1
 numCorSteps = math.ceil(1.0 / corStepSize) + 1
@@ -261,18 +299,19 @@ numLogisticFit = math.ceil(1.0 / logisticFitStepSize) + 1
 #copresentationSpanX = np.arange(0.0, 1.0 + (1.0 % stepSpan), stepSpan)
 
 startBaseline = -500
-startTimeAvgFiringRate = 100 #100 #should fit response interval, otherwise spikes of best response can be outside of this interval and normalization fails
-stopTimeAvgFiringRate = 800 #800 # 800 for rodrigo
+#startTimeAvgFiringRate = 100 #100 #should fit response interval, otherwise spikes of best response can be outside of this interval and normalization fails
+#stopTimeAvgFiringRate = 800 #800 # 800 for rodrigo
 minRatioActiveTrials = 0.5
 minFiringRateConsider = 1
-firingRateFactor = (1000 / (stopTimeAvgFiringRate - startTimeAvgFiringRate))
-firingRateFactorBaselines = (1000 / (0 - startBaseline))
+#firingRateFactor = (1000 / (stopTimeAvgFiringRate - startTimeAvgFiringRate))
+#firingRateFactorBaselines = (1000 / (0 - startBaseline))
 
 allRegionsName = 'All'
 allSiteNames = [allRegionsName]
 regions = {}
 
 regions[allRegionsName] = Region(allRegionsName)
+#regions[allRegionsName].data[""]
 regions[allRegionsName].coactivationProb.normalizer = np.zeros((nTHINGS))
 regions[allRegionsName].coactivationProb.y = np.zeros((nTHINGS,nTHINGS))
 alphaBestResponse = []
@@ -361,14 +400,17 @@ for session in sessions:
         zscores = unitData['zscores'] 
         firingRates = unitData['firing_rates']
         responseStimuliIndices = unitData['responses']
+        responseIndicesFit = np.where((pvals < args.alpha_fit) & (unitData['consider']  == 1))[0] 
         #responseStimuliIndicesInverted = np.where((pvals >= args.alpha) | (consider == 0))[0]
         responses = [thingsIndices[i] for i in responseStimuliIndices]
+        zscoresSortedIndices = np.argsort(np.asarray(zscores))[::-1]
+        bestZscoresIndices = zscoresSortedIndices[:30] 
 
         similaritiesCor = []
         valuesCor = []
         similaritiesCorSteps = [[] for i in range(numCorSteps)]
         valuesCorSteps = [[] for i in range(numCorSteps)]
-        zscores = zscores / max(zscores)
+        #zscores = zscores / max(zscores)
         
         #if subjectNum == 103 and sessionNum == 1 and channel == 70 and cluster == 1 : # TODO!!!!!!!!!!!!! Here, there are many responses to car parts which drives the very high end of the coactivation plot
         #    continue
@@ -480,7 +522,7 @@ for session in sessions:
                     continue
 
                 similarity = data.similarity_matrix[index][indexBest]
-                similarityIndex = similarityMatrixToIndex[index, indexBest]
+                #similarityIndex = similarityMatrixToIndex[index, indexBest]
 
                 if not (index == indexBest and args.response_metric == "firing_rates" ): 
                     regions[allRegionsName].firingRatesNorm.addValue(similarity, firingRates[i])
@@ -491,11 +533,39 @@ for session in sessions:
                 if not (index == indexBest and args.response_metric == "zscores"): 
                     regions[allRegionsName].zScoresNorm.addValue(similarity, zscores[i])
                     regions[site].zScoresNorm.addValue(similarity, zscores[i])
+                    #regions[allRegionsName].combinationsData["zscores"].append(zscores[i])
+                    #regions[site].combinationsData["zscores"].append(zscores[i])
 
-                regions[allRegionsName].similaritiesArray.append(similarity)
-                regions[site].similaritiesArray.append(similarity) # 89 3 aos, channel 74 cluster 2, 1913, 1690
+                categoryResponse = getCategory(index)
+                categoryBest = getCategory(indexBest)
+                if not index==indexBest and categoryResponse >= 0 and categoryBest >= 0 : 
+                    similarityConcepts = categorySimilarities[categoryResponse][categoryBest]
+                    regions[allRegionsName].similaritiesConcepts.addValue(similarityConcepts, metric[i])
+                    regions[site].similaritiesConcepts.addValue(similarityConcepts, metric[i])
 
-                if not i == bestResponse : ##and index in responses: ###
+                    similarityConceptsDiscrete = categorySimilaritiesBinary[categoryResponse][categoryBest]
+                    regions[allRegionsName].similaritiesConceptsDiscrete.addValue(similarityConceptsDiscrete, metric[i])
+                    regions[site].similaritiesConceptsDiscrete.addValue(similarityConceptsDiscrete, metric[i])
+
+                    if similarityConceptsDiscrete < numConcepts - numExludeConceptsResiduals : 
+                        regions[allRegionsName].similaritiesResiduals.addValue(similarity, metric[i])
+                        regions[site].similaritiesResiduals.addValue(similarity, metric[i])
+
+                        #regions[allRegionsName].combinationsData["similarities_concepts"].append(similarityConcepts)
+                        #regions[site].combinationsData["similarities_concepts"].append(similarityConcepts) 
+                        #regions[allRegionsName].combinationsData["zscores_concepts"].append(zscores[i])
+                        #regions[site].combinationsData["zscores_concepts"].append(zscores[i]) 
+
+                #regions[allRegionsName].similaritiesArray.append(similarity)
+                #regions[site].similaritiesArray.append(similarity) # 89 3 aos, channel 74 cluster 2, 1913, 1690
+                #regions[allRegionsName].combinationsData["similarities"].append(similarity)
+                #regions[site].combinationsData["similarities"].append(similarity) 
+                #regions[allRegionsName].combinationsData["site"].append(site)
+                #regions[site].combinationsData["site"].append(site) 
+                
+                
+
+                if not i == bestResponse : # and i in responseIndicesFit : ### bestZscoresIndices #responseIndicesFit
                     corStep = int(similarity / corStepSize)
                     similaritiesCor.append(similarity)
                     valuesCor.append(metric[i])
@@ -667,6 +737,13 @@ saveImg(numUnitPlot, "num_units")
 numUnitPlot = px.bar(numUnit_df, x="sites", y="numUnitsResponsive")
 saveImg(numUnitPlot, "num_units_responsive")
 
+if not args.dont_plot :
+    try: 
+        shutil.rmtree(getImgpath() + os.sep + "fit" + os.sep + "logistic_fit_single")
+    except : 
+        print("Warning. Single fit plots can not be removed")
+#os.rmdir(getImgpath() + os.sep + "fit" + os.sep + "logistic_fit_single")
+
 for site in allSiteNames : 
 
     siteData = regions[site]
@@ -715,7 +792,15 @@ for site in allSiteNames :
             logisticFitFigSingle = go.Figure(
                 go.Scatter(
                     x=logFit.xFit,
-                    y=logFunc(logFit.xFit, pTmp[0][i], pTmp[1][i], pTmp[2][i], pTmp[3][i]),
+                    y=np.asarray(logFit.yFit).T[i],#logFunc(logFit.xFit, pTmp[0][i], pTmp[1][i], pTmp[2][i], pTmp[3][i]),
+                    marker = {'color' : 'blue'}
+                )
+            )
+            logisticFitFigSingle.add_trace(
+                go.Scatter(
+                    x=siteData.gaussFit.xFit,
+                    y=np.asarray(siteData.gaussFit.yFit).T[i],
+                    marker = {'color' : 'red'}
                 )
             )
 
@@ -727,15 +812,21 @@ for site in allSiteNames :
                     marker_color='blue'
                 )
             )
+            if args.response_metric == "firing_rates" : 
+                logisticFitFigSingle.update(layout_yaxis_range = [-0.05,1.05])
+
             rStr = str(round(logFit.rSquared[i],2))
+            gof = str(round(logFit.gof[i],2))
 
             logisticFitFigSingle.update_layout(
-                title_text="Logistic fit. R: " + rStr + ", X0: " + str(round(pTmp[0][i],2)) + ", K: " + str(round(pTmp[1][i],2)) + ", a: " + str(round(pTmp[2][i],2)) + ", c: " + str(round(pTmp[3][i],2)),
+                title_text="Logistic fit. R: " + rStr + ", gof: " + gof + ", X0: " + str(round(pTmp[0][i],2)) + ", K: " + str(round(pTmp[1][i],2)) + ", a: " + str(round(pTmp[2][i],2)) + ", c: " + str(round(pTmp[3][i],2)),
                 xaxis_title='Semantic similarity',
-                yaxis_title='Normalized firing rate',
+                yaxis_title='Firing rate',
                 showlegend=False 
             )
-            saveImg(logisticFitFigSingle, "fit" + os.sep + "logistic_fit_single" + os.sep + logFit.plotDetails[i] + "_" + site)
+            saveImg(logisticFitFigSingle, "fit" + os.sep + "logistic_fit_single" + os.sep + "session" + os.sep + logFit.plotDetails[i] + "_" + site)
+            #saveImg(logisticFitFigSingle, "fit" + os.sep + "logistic_fit_single" + os.sep + "sorted_gof" + os.sep + gof + "_" + logFit.plotDetails[i] + "_" + site)
+            saveImg(logisticFitFigSingle, "fit" + os.sep + "logistic_fit_single" + os.sep + "sorted_r" + os.sep + rStr + "_" + logFit.plotDetails[i] + "_" + site)
 
         #for i in range(len(regions[site].logisticFitK)) : 
         #    logisticFitFig.add_trace(go.Scatter(
@@ -748,10 +839,14 @@ for site in allSiteNames :
             if len(logFit.yNoFit[i]) == 0: 
                 continue
             logisticFitFigSingle = go.Figure(go.Scatter(x=logFit.xNoFit[i], y=logFit.yNoFit[i],mode='markers'))
-            saveImg(logisticFitFigSingle, "fit" + os.sep + "logistic_fit_single" + os.sep + logFit.plotDetailsNoFit[i] + "_" + site + "_nofit")
+            saveImg(logisticFitFigSingle, "fit" + os.sep + "logistic_fit_single" + os.sep + "session" + os.sep + logFit.plotDetailsNoFit[i] + "_" + site + "_nofit")
 
     regions[site].gaussFit.calculateSteepestSlopes()
     regions[site].logisticFit.calculateSteepestSlopes()
+    #goodFit = np.where(logFit.gof < args.thresh_gof)[0]
+
+    #regions[site].logisticFitGood = logFit.getGood(gof, -args.thresh_gof)
+    regions[site].logisticFitGood = logFit.getGood(logFit.rSquared, 0.1)
 
     spearman_slope_df = pd.DataFrame(data={'spearman': siteData.logisticFit.spearman, 'slope': siteData.logisticFit.steepestSlopes})    
     allRegionSpearmanSlopePlots.append(createAndSave(px.scatter(spearman_slope_df, x='spearman', y='slope'), 
@@ -766,6 +861,9 @@ for site in allSiteNames :
     allRegionLogisticFitPlots.append(createAndSave(
         createFitPlot(regions[site].logisticFit, "Logistic"), 
         "fit" + os.sep + "logistic_fit" + os.sep + fileDescription))
+    createAndSave(
+        createFitPlot(regions[site].logisticFitGood, "Logistic"), 
+        "fit" + os.sep + "logistic_fit_good" + os.sep + fileDescription)
     allRegionLogisticFitAlignedPlots.append(createAndSave(
         createFitPlotAligned(regions[site].logisticFit, "Logistic"), 
         "fit" + os.sep + "logistic_fit_aligned" + os.sep + fileDescription))
@@ -778,6 +876,19 @@ for site in allSiteNames :
     allRegionLogisticFitBoxRSquared.append(createAndSave(
         createBoxPlot([regions[site].logisticFit.rSquared, regions[site].gaussFit.rSquared, regions[site].stepFit.rSquared], ["Log", "Gauss", "Step"], "Fit R Squared"), 
         "fit" + os.sep + "box_r_squared" + os.sep + fileDescription))
+    #allRegionCoactivationProbPlots.append(createAndSave(
+    #    createStepBoxPlot(regions[site].logisticFit.rSquared, "rsquared logistic fit", "log_fit_rsquared", args.alpha_box), 
+    #    "log_fit_rsquared" + os.sep + fileDescription))
+    #allRegionCoactivationProbPlots.append(createAndSave(
+    #    createStepBoxPlot(regions[site].logisticFit.gof, "gof logistic fit", "log_fit_gof", args.alpha_box), 
+    #    "log_fit_gof" + os.sep + fileDescription))
+    createAndSave(createHist(regions[site].logisticFit.rSquared, np.arange(0,1.02,0.01), 1.0, 'r squared', 'Num Units'),
+        "fit" + os.sep + "logistic_fit_rsquared" + os.sep + fileDescription)
+    createAndSave(createHist(regions[site].logisticFit.gof, np.concatenate(([-np.inf],np.arange(-1.5,1.0,0.01), [np.inf])), 1.0, 'gof', 'Num Units'),
+        "fit" + os.sep + "logistic_fit_gof" + os.sep + fileDescription)
+
+    #createAndSave(createHist(siteData.logisticFit.gof, [0.0, 0.00001, 0.0001, 0.001, 0.01, 0.1, 1.0], labelX='Alpha value', labelY='Counts'), 
+    #    "fit" + os.sep + "gof" + os.sep + fileDescription)
     allRegionRDiffPlots.append(createAndSave(
         createBoxPlot([regions[site].rDiffLog, regions[site].rDiffGauss, regions[site].rDiffLogGauss], ["r(Log) - r(Step)", "r(Gauss) - r(Step)", "r(Log) - r(Gauss)"], "Diff of R squared of gaussian fit and R squared of step fit"), 
         "fit" + os.sep + "box_r_diff" + os.sep + fileDescription))
@@ -810,35 +921,70 @@ for site in allSiteNames :
         createPlot(siteData.coactivationNorm.similarity[:-1], siteData.coactivationNorm.y * 100, "Normalized coactivation probability in %", "coactivation normalized", True, ticktextCoactivation), 
         "coactivation_normalized" + os.sep + fileDescription))
     allRegionCoactivationProbPlots.append(createAndSave(
-        createStepBoxPlot(semanticProbabilitySimilarity, "Coactivation probability in %", "coactivation_probability", args.alpha_box, addPartialGaussian=True, addLog=False), 
+        createStepBoxPlot(semanticProbabilitySimilarity, "Coactivation probability in %", "coactivation_probability", args.alpha_box), 
         "coactivation_probability" + os.sep + fileDescription))
+    
+    #regions[allRegionsName].combinationsData["similarities_concepts"]
     allRegionZScoresPlots.append(createAndSave(
-        createStepBoxPlot(siteData.zScoresNorm, "Mean zscores", "zscores", args.alpha_box, addLog=True, addPartialGaussian=False), 
+        createStepBoxPlot(siteData.zScoresNorm, "Mean zscores", "zscores", args.alpha_box), 
         "zscores" + os.sep + fileDescription))
+    
+    #regions[allRegionsName].combinationsData = pd.DataFrame(regions[allRegionsName].combinationsData)
+    #siteCombinationsData = regions[allRegionsName].combinationsData
+    #if site != allRegionsName :  
+        #siteCombinationsDataIndices = np.where(np.asarray(regions[allRegionsName].combinationsData["site"]) == site)[0]
+        #siteCombinationsData = siteCombinationsData.loc[siteCombinationsData['site'] == site] #regions[allRegionsName].combinationsData[siteCombinationsDataIndices]
+    
+    #allRegionZScoresPlots.append(createAndSave(
+    #    createStepBoxPlot(SimilaritiesArray(values=siteCombinationsData["zscores"], similarities=siteCombinationsData["similarities"]), "Mean zscores", "zscores", args.alpha_box, addLog=True, addPartialGaussian=False), 
+    #    "zscores_combined" + os.sep + fileDescription))
+    
+    createAndSave(createStepBoxPlot(siteData.similaritiesResiduals, "Mean zscores for residuals", "zscores", args.alpha_box), "similarities_residuals" + os.sep + fileDescription)
+    createAndSave(createStepBoxPlot(siteData.similaritiesConcepts, "Mean zscores for concept distances", "zscores", args.alpha_box), "similarities_concepts" + os.sep + fileDescription)
+    createAndSave(createStepBoxPlot(siteData.similaritiesConceptsDiscrete, "Mean zscores for concept distances discrete", "zscores", args.alpha_box, stepBox=1.0, max=27.0), 
+                  "similarities_concepts_discrete" + os.sep + fileDescription)
+
+    #createAndSave(createBoxPlot(siteData.zScoresConceptsBinary.values, siteData.zScoresConceptsBinary.similarities, "Mean zscores for discrete concept distances"), "zscores_concepts_binary" + os.sep + fileDescription)
+    
+    #allRegionZScoresPlots.append(createAndSave(
+    #    createStepBoxPlot(siteData.zScoresConcepts, "Mean zscores", "zscores", args.alpha_box), 
+    #    "zscores_concepts" + os.sep + fileDescription))
+    
+    #zScoresConceptsBinary
+    #allRegionZScoresPlots.append(createAndSave(
+    #    createStepBoxPlot(SimilaritiesArray(values=siteCombinationsData["zscores_concepts"], similarities=siteCombinationsData["similarities_concepts"]), "Mean zscores", "zscores", args.alpha_box, addLog=True, addPartialGaussian=False), 
+    #    "zscores_concepts_combined" + os.sep + fileDescription))
+    
     allRegionPValuesPlots.append(createAndSave(
         createStepBoxPlot(siteData.pvalues, "Mean pvalues", "pvalues", args.alpha_box), 
         "pvalues" + os.sep + fileDescription))
     allRegionFiringRatesPlots.append(createAndSave(
-        createStepBoxPlot(siteData.firingRatesNorm, "Normalized firing rates", "Normalized firing rates", args.alpha_box, 'all', False, True), 
+        createStepBoxPlot(siteData.firingRatesNorm, "Normalized firing rates", "Normalized firing rates", args.alpha_box), 
         "firing_rates" + os.sep + fileDescription))
     allRegionSpearmanPlots.append(createAndSave(
-        createStepBoxPlot(siteData.spearmanCorSteps, "Spearman correlation dependent on semantic similarity", "spearmanCorSteps", args.alpha_box, 'all', False, False), 
+        createStepBoxPlot(siteData.spearmanCorSteps, "Spearman correlation dependent on semantic similarity", "spearmanCorSteps", args.alpha_box), 
         "spearmanCorSteps" + os.sep + fileDescription)) 
     allRegionSpearmanMSplitPlots.append(createAndSave(
         siteData.spearmanCorMSplit.createMedianSplitPlot("Spearman correlation median split", "spearmanCor"), 
         "spearmanCorMSplit" + os.sep + fileDescription)) 
     allRegionPearsonPlots.append(createAndSave(
-        createStepBoxPlot(siteData.pearsonCorSteps, "Pearson correlation dependent on semantic similarity", "pearsonCorSteps", args.alpha_box, 'all', False, False), 
+        createStepBoxPlot(siteData.pearsonCorSteps, "Pearson correlation dependent on semantic similarity", "pearsonCorSteps", args.alpha_box), 
         "pearsonCorSteps" + os.sep + fileDescription)) 
     allRegionSpearmanSplitPlots.append(createAndSave(
-        createStepBoxPlot(siteData.spearmanCorSplit, "Spearman correlation dependent on semantic similarity - stepsize: " + str(args.step_correlation_split), "spearmanSplit", args.alpha_box, 'all', False, False, 0.1), 
+        createStepBoxPlot(siteData.spearmanCorSplit, "Spearman correlation dependent on semantic similarity - stepsize: " + str(args.step_correlation_split), "spearmanSplit", args.alpha_box, addLog=False, addPartialGaussian=False), 
         "spearmanSplit" + os.sep + fileDescription)) 
     allRegionSlopePlots.append(createAndSave(
         createBoxPlot([regions[site].logisticFit.steepestSlopes], [""], "Steepest slope of fitted data per neuron"), 
         "fit" + os.sep + "slopes" + os.sep + fileDescription))
     createAndSave(
-        createHist([regions[site].logisticFit.steepestSlopes], np.arange(-10,12,1), factorY=1.0, labelX="Steepest slopes", labelY="Num"),
+        createBoxPlot([regions[site].logisticFitGood.steepestSlopes], [""], "Steepest slope of fitted data per neuron"), 
+        "fit" + os.sep + "slopes_good" + os.sep + fileDescription)
+    createAndSave(
+        createHist([regions[site].logisticFit.steepestSlopes], np.arange(-10,21,1), factorY=1.0, labelX="Steepest slopes", labelY="Num"),
         "fit" + os.sep + "slope_steps" + os.sep + fileDescription)
+    createAndSave(
+        createHist([regions[site].logisticFitGood.steepestSlopes], np.arange(-10,21,1), factorY=1.0, labelX="Steepest slopes", labelY="Num"),
+        "fit" + os.sep + "slope_steps_good" + os.sep + fileDescription)
     #allRegionSlopePlots.append(createAndSave(
     #    createBoxPlot([regions[site].logisticFit.steepestSlopes, regions[site].gaussFit.steepestSlopes], ["Log", "Gauss"], "Steepest slope of fitted data"), 
     #    "fit" + os.sep + "slopes" + os.sep + fileDescription))
@@ -929,6 +1075,8 @@ app.layout = html.Div(children=[
 #print("pvals best responses: " + str(alphaBestResponse))
 print("pvals median: " + str(statistics.median(alphaBestResponse)))
 print("pvals mean: " + str(statistics.mean(alphaBestResponse)))
+print("pvals < 0.01: " + str(len(np.where(np.asarray(alphaBestResponse) < 0.01)[0])))
+print("pvals > 0.01: " + str(len(np.where(np.asarray(alphaBestResponse) > 0.01)[0])))
 print("pvals < 0.001: " + str(len(np.where(np.asarray(alphaBestResponse) < 0.001)[0])))
 print("pvals > 0.001: " + str(len(np.where(np.asarray(alphaBestResponse) > 0.001)[0])))
 print("\n--- Ready! ---\n\n")
