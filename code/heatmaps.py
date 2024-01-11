@@ -22,6 +22,8 @@ import scipy.interpolate
 import plotly.graph_objects as go
 import plotly.express as px
 from plotly.subplots import make_subplots
+from statannotations.Annotator import Annotator
+#from statannot import add_stat_annotation
 import seaborn as sns
 from skimage.measure import label
 import matplotlib.pyplot as plt
@@ -37,6 +39,7 @@ from dash import html
 from dash.dependencies import Input, Output
 
 # utilility modules
+from utils import *
 from plot_helper import *
 from plot_helper import RasterInput
 from data_manip import DataHandler
@@ -51,7 +54,7 @@ parser.add_argument('--session', default=None, type=str,
                             e.g., '90_1'.")
 
 # ANALYSIS
-parser.add_argument('--data_type', default="firing_rates", type=str, # zscores or firing_rates or zsctatistics
+parser.add_argument('--data_type', default="zscores", type=str, # zscores or firing_rates or zsctatistics
                     help="Determines underlying datatype for heatmaps. \
                         Currently, zscores or firing_rate are implemented.")
 parser.add_argument('--min_t', default=0, type=int, #100
@@ -60,6 +63,8 @@ parser.add_argument('--min_t', default=0, type=int, #100
 parser.add_argument('--max_t', default=1000, type=int, # 800
                     help="Relevant for calculating mean firing_rate. \
                         Max time offset of spike after stimulus onset.")
+parser.add_argument('--min_num_trials', default=5, 
+                    help='Min number of trials for a stimulus to be used for creating heatmap')
 
 # FLAGS
 parser.add_argument('--show_all', default=True,
@@ -68,8 +73,6 @@ parser.add_argument('--dont_plot', action='store_true', default=False,
                     help='If True, plotting to figures folder is supressed')
 parser.add_argument('--only_SU', default=True, 
                     help='If True, only single units are considered')
-parser.add_argument('--only_8_trials', default=True, 
-                    help='If True, the heatmap is only plotted for units with 8 trials')
 parser.add_argument('--plot_all_rasters', default=False, 
                     help='If True, extended rasters are plotted')
 parser.add_argument('--num_rasters', default=150, #currently not in use
@@ -88,6 +91,8 @@ parser.add_argument('--interpolation_factor', type=float, default=100,
                     help='heatmap interpolation grid size')
 parser.add_argument('--padding_factor', type=float, default=1.1,
                     help='padding around datapoints')
+parser.add_argument('--plot_regions', default='collapse_hemispheres',
+                    help='"full"->all regions, "hemispheres"->split into hemispheres, "collapse_hemispheres"->regions of both hemispheres are collapsed')  
 
 # PATHS
 parser.add_argument('--path2metadata',
@@ -129,16 +134,16 @@ class Tuner:
 
 def save_img(filename, plotlyFig = None) : 
 
-    file = args.path2images + os.sep + args.data_type + os.sep + filename
+    file = args.path2images + os.sep + args.data_type + "_" + args.plot_regions + os.sep + filename
 
     if not args.dont_plot : 
         os.makedirs(os.path.dirname(file), exist_ok=True)
 
-        if plotlyFig : 
-            plotlyFig.write_image(file + ".png")
-        else : 
+        if plotlyFig is None: 
             plt.savefig(file + ".png", bbox_inches="tight")
             plt.clf()
+        else : 
+            plotlyFig.write_image(file + ".png")
 
     plt.close()
 
@@ -261,14 +266,13 @@ def getInterpolatedMap(x, y, z, pvalues=False) :
 
     return px.imshow(zi,aspect=0.8,color_continuous_scale='RdBu_r',origin='lower'), xi, yi #, zmax=1
 
-
 def createHeatMap(tuner, figureHeight, savePath="", addName=False) : 
 
-    outputPath = args.path2images + os.sep + args.data_type + os.sep + savePath
-    if args.only_8_trials : 
-        relevant = np.where(tuner.numTrials == 8)[0]
-    else : 
-        relevant = np.arange(len(tuner.pvals))
+    outputPath = args.path2images + os.sep + args.data_type + "_" + args.plot_regions + os.sep + savePath
+    #if args.only_8_trials : 
+    relevant = np.where(tuner.numTrials >= args.min_num_trials)[0]
+    #else : 
+    #    relevant = np.arange(len(tuner.pvals))
     
     if args.data_type == "firing_rates" :
         targetValue = tuner.firingRates
@@ -460,7 +464,7 @@ def createHeatMap(tuner, figureHeight, savePath="", addName=False) :
         html.Div(children=[dcc.Graph(id='rasterGrid-' + tuner.name, figure=rasterGrid)], style={'margin-top': 0})
     ])
 
-    return tunerDivGrid, numRegions, numStimPerRegion[1:], np.asarray(sizeFields[1:]), numNoRegionFound, numNoResponse
+    return tunerDivGrid, numRegions, numStimPerRegion[1:], np.asarray(sizeFields), numNoRegionFound, numNoResponse
 
 #############
 # LOAD DATA #
@@ -482,7 +486,9 @@ else:
 
 print("\nTime loading data: " + str(time.time() - startLoadData) + " s\n")
 
-sitesToExclude = ["LFa", "LTSA", "LTSP", "Fa", "TSA", "TSP", "LPL", "LTP", "LTB", "RMC", "RAI", "RAC", "RAT", "RFO", "RFa", "RFb", "RFc", "RT", "RFI", "RFM", "RIN", "LFI", "LFM", "LIN"]
+sitesToConsider = ["LA", "RA", "LEC", "REC", "LAH", "RAH", "LMH", "RMH", "LPHC", "RPHC", "LPIC", "RPIC"]
+#sitesToConsider = ["LPIC", "RPIC"]
+#sitesToExclude = ["LFa", "LTSA", "LTSP", "Fa", "TSA", "TSP", "LPL", "LTP", "LTB", "RMC", "RAI", "RAC", "RAT", "RFO", "RFa", "RFb", "RFc", "RT", "RFI", "RFM", "RIN", "LFI", "LFM", "LIN"]
 
 tuners = [ # clusters might not fit (manual clustering took place)
     #Tuner("088e03aos1", 17, 1, "Pacifier", "aos", [], [], [], [], []),
@@ -579,11 +585,13 @@ for session in sessions:
         #firingRates = get_mean_firing_rate_normalized(trials, stimuliIndices, args.min_t, args.max_t)[0]
         name = "pat " + str(subjectNum) + ", session " + str(sessionNum) + ", " + channelName + ", channel " + str(channel) + ", cluster " + str(cluster) + ", " + kind
         
-        if site in sitesToExclude : 
+        if site not in sitesToConsider : 
             continue
 
         if (not kind == "SU") and args.only_SU : 
             continue
+        
+        site = getSite(site, args.plot_regions)
 
         responses = []
         allRasters = []
@@ -668,6 +676,7 @@ startTimeFullAnalysis = time.time()
 numRegions = []
 allHeatmaps = []
 allSites = []
+allSitesFields = []
 numStimPerRegion = np.array([])#np.zeros((100,),dtype=int)
 sizeFieldsRegion = np.array([])#np.zeros((100,),dtype=int)
 numNoRegionFound = 0
@@ -677,6 +686,7 @@ sizeFieldsMatrixAllSites = []
 
 if args.show_all : 
     for unit in allUnits : 
+        site = unit.site
         heatMapData = createHeatMap(unit, figureHeight)
         heatMapFigure = heatMapData[0]
         numRegions.append(heatMapData[1])
@@ -689,15 +699,16 @@ if args.show_all :
         ##sizeFields = sizeFields[np.where(sizeFields > 0)[0]]
         numStimPerRegion = np.concatenate((numStimPerRegion, np.asarray(numStimPerRegionUnit)), axis=None)
         sizeFieldsRegion = np.concatenate((sizeFieldsRegion, np.asarray(sizeFields)), axis=None)
+        allSitesFields = np.concatenate((allSitesFields, np.repeat(site, len(sizeFields))), axis=None)
         numStimPerRegionMatrixAllSites.append(np.asarray(numStimPerRegionUnit))
         sizeFieldsMatrixAllSites.append(np.asarray(sizeFields))
         #numStimPerRegion.append(heatMapData[2])
-        site = unit.site
-        if site == "LAH" or site == "LMH" : 
-            site = "LH"
-        if site == "RAH" or site == "RMH" : 
-            site = "RH"
-        site = site[1:]
+        #site = unit.site
+        #if site == "LAH" or site == "LMH" : 
+        #    site = "LH"
+        #if site == "RAH" or site == "RMH" : 
+        #    site = "RH"
+        #site = site[1:]
         allSites.append(site)
         allHeatmaps.append(
             html.Div([
@@ -708,33 +719,20 @@ if args.show_all :
                 #], className="nine columns"),
             ], className="row"),
         ) 
-        print("Created heatmap for " + unit.name)
+        print("Created heatmap for " + unit.name + ", num stimuli per field: " + str(numStimPerRegionUnit))
 
     print("Done loading all heatmaps!")
 
 print("For " + str(numNoRegionFound) + " responses there was no region found!")
 print("For " + str(numNoResponseFound) + " regions there was no response found!")
 
-##lastZeroIndex = len(numStimPerRegion)
-##for i in range(len(numStimPerRegion)-1, 0, -1) : 
-##    if numStimPerRegion[i] > 0 : 
-##        lastZeroIndex = i + 1
-##        break
-##lastZeroIndex = max(lastZeroIndex, 10) 
-#numStimPerRegion = np.append(numStimPerRegion, [np.sum(numStimPerRegion)])
-##sns.barplot(x=np.arange(1,lastZeroIndex), y=numStimPerRegion[1:lastZeroIndex], color='blue')
-##save_img("numStimuliPerRegion")
-
-counts, bins = np.histogram(numStimPerRegion, bins=np.arange(1,max(numStimPerRegion), dtype=int))
+counts, bins = np.histogram(numStimPerRegion, bins=np.arange(1,max(numStimPerRegion)+1, dtype=int))
 sns.barplot(x=bins[:-1], y=counts, color='blue')
-#sns.histplot(x=numStimPerRegion, y=np.arange(1,max(numStimPerRegion)+1))
 save_img("numStimuliPerField")
-
 
 #createAndSave(createStep)
 #binsSizeFields = np.arange(0.0,max(sizeFieldsRegion)+0.001, 0.001)
 
-#sizeFieldsRegion = sizeFieldsRegion[np.where(sizeFieldsRegion > 0)[0]]
 binsSizeFields = np.round(np.append(np.arange(0.0, 0.05, 0.005), 1.0),3)
 binsSizeFields = np.append(np.array([0] + [0.001 * 2**i for i in range(10)]),1.0)
 #binsSizeFields = [0.0000001, 0.000001, 0.00001, 0.0001, 0.001, 0.1, 1.0]
@@ -748,29 +746,14 @@ plt.xticks(rotation=90, ha='right')
 #plt.xticks(xticksSizeFields)
 save_img("sizeFields")
 
-counts, bins = np.histogram(numRegions, bins=np.append(np.asarray(range(11)), 10000))
-sns.barplot(x=bins[1:-1], y=counts[1:], color='blue')
+counts, bins = np.histogram(numRegions, bins=np.append(np.arange(1,10), np.inf))
+sns.barplot(x=bins[:-1], y=counts, color='blue')
 save_img("numFields")
 
 allSites = np.array(allSites)
 uniqueSites = np.unique(allSites)
 numUnitsPerSite = pd.Series(allSites).value_counts()
 numRegions = np.array(numRegions)
-
-#for site in uniqueSites : 
-#    siteIndices = np.where(allSites == site)
-#    numRegionsSite = numRegions[siteIndices]
-#    counts, bins = np.histogram(numRegionsSite, bins=np.append(np.asarray(range(11)), 10000))
-#    numRegionsPlot = sns.barplot(x=bins[:-1], y=counts)
-#    save_img("numRegions_" + site)
-
-#    sizeFieldsSite = sizeFieldsRegion[siteIndices]
-#    sizeFieldsSite = sizeFieldsSite[np.where(sizeFieldsSite > 0)[0]]
-#    counts, bins = np.histogram(sizeFieldsSite, bins=binsSizeFields)
-#    sizeFieldsSitePlot = sns.barplot(x=bins[:-1], y=counts)
-    #plt.xticks(xticksSizeFields)
-    #sizeFieldsSitePlot.set_xticks(xticksSizeFields)
-#    save_img("sizeFields_" + site)
 
 #rightHemisphere = np.asarray([i for i in range(len(allSites)) if allSites[i][0] == "R"])
 #counts, bins = np.histogram(numRegions[rightHemisphere], bins=np.append(np.asarray(range(11)), 10000))
@@ -794,28 +777,17 @@ for site in uniqueSites :
     siteIndices = np.where(allSites == site)[0]
     
     numRegionsSite = numRegions[siteIndices] 
-    #numRegions[np.where(allSites == site)] = numRegions[np.where(allSites == site)] / numUnitsPerSite[site]
     counts, bins = np.histogram(numRegionsSite, bins=binsRegions)
-    #siteCounts = np.zeros((len(bins)+1))
-    #for bin in bins : 
-    #    if bin == bins[-1] : 
-    #        siteCounts[bin] = float(len(np.where(numRegionsSite >= bin)[0])) / numAtLeastOneField #numUnitsPerSite[site]
-    #    else : 
-    #        siteCounts[bin] = float(len(np.where(numRegionsSite == bin)[0])) / numAtLeastOneField #numUnitsPerSite[site]
-
     numRegionsPlot = sns.barplot(x=bins[:-1], y=counts)
     plt.xticks(rotation=90, ha='right')
     histMatrixRegions.append(counts.astype(np.float32) / sum(counts))
     save_img("numFields_" + site)
 
-    #totalNumRegionsSite = 0
     numStimSiteCounts = np.array([])
     sizeFieldsSiteCounts = np.array([])
     for siteIndex in siteIndices : 
         numStimSiteCounts = np.concatenate((numStimSiteCounts, np.asarray(numStimPerRegionMatrixAllSites[siteIndex])), axis=None)
         sizeFieldsSiteCounts = np.concatenate((sizeFieldsSiteCounts, np.asarray(sizeFieldsMatrixAllSites[siteIndex])), axis=None)
-        #totalNumRegionsSite += len(numStimSiteCounts)
-    #numStimSite = numStimPerRegionMatrixAllSites[np.where(allSites == site)] 
     sizeFieldsCountsSorted.append(sizeFieldsSiteCounts)
     counts, bins = np.histogram(numStimSiteCounts, bins=binsStim)
     numStimPlot = sns.barplot(x=bins[:-1], y=counts)
@@ -823,10 +795,6 @@ for site in uniqueSites :
     histMatrixStim.append(counts/float(sum(counts)))
     save_img("numStimuli_" + site)
     
-    #sizeFieldsMatrixAllSites
-    #sizeFieldsSite = sizeFieldsRegion[siteIndices]
-    #sizeFieldsSite = sizeFieldsSite[np.where(sizeFieldsSite > 0)[0]]
-    #sizeFieldsSiteCounts
     counts, bins = np.histogram(sizeFieldsSiteCounts[np.where(sizeFieldsSiteCounts > 0)[0]], bins=binsSizeFields)
     sizeFieldsSitePlot = sns.barplot(x=bins[:-1], y=counts)
     plt.xticks(rotation=90, ha='right')
@@ -834,14 +802,46 @@ for site in uniqueSites :
     save_img("sizeFields_" + site)
 
 
-sizeFieldsPlot = createStdErrorMeanPlot(uniqueSites, sizeFieldsCountsSorted, "Average size of semantic fields", xLabel="Size fields")
+siteFields_df = pd.DataFrame(data=sizeFieldsRegion, columns=["size"])
+siteFields_df["sites"] = allSitesFields
+siteFieldsPlot = sns.boxplot(data=siteFields_df, x="sites", y="size")
+
+
+#:param pvalue_thresholds: list of lists, or tuples. Default is: For "star" text_format: `[[1e-4, "****"], [1e-3, "***"], [1e-2, "**"], [0.05, "*"], [1, "ns"]]`. For "simple" text_format : `[[1e-5, "1e-5"], [1e-4, "1e-4"], [1e-3, "0.001"], [1e-2, 
+#add_stat_annotation(siteFieldsPlot, data=siteFields_df, x="sites", y="size", 
+#                    box_pairs=[("A", "H"), ("A", "EC"), ("A", "PIC"), ("A", "PHC"), ("H", "EC"), ("H", "PIC"), ("H", "PHC"), ("EC", "PIC"), ("EC", "PHC"), ("PIC", "PHC")],
+#                    box_pairs=[("A", "H"), ("A", "EC"), ("PIC", "PHC")],
+                    
+#                    test='Mann-Whitney', text_format='star', loc='outside', verbose=2)
+
+#boxPairs=[("A", "H"), ("A", "EC"), ("A", "PIC"), ("A", "PHC"), ("H", "EC"), ("H", "PIC"), ("H", "PHC"), ("EC", "PIC"), ("EC", "PHC"), ("PIC", "PHC")]
+#boxPairs=[ ("A", "EC"), ("A", "PIC"), ("A", "PHC"), ("H", "PIC"), ("EC", "PIC")]
+#boxPairs = [("A", "H"), ("A", "EC"), ("H", "EC")]
+#annotator = Annotator(siteFieldsPlot, boxPairs, data=siteFields_df, x="sites", y="size")
+
+if args.plot_regions == "collapse_hemispheres" : 
+    annotator = Annotator(siteFieldsPlot, 
+            [("A", "H"), ("A", "EC"), ("A", "PIC"), ("A", "PHC"), ("H", "EC"), ("H", "PIC"), ("H", "PHC"), ("EC", "PIC"), ("EC", "PHC"), ("PIC", "PHC")], 
+            data=siteFields_df, x="sites", y="size")
+    annotator.configure(test='Mann-Whitney', text_format='star', loc='outside')
+    annotator.apply_and_annotate()
+if args.plot_regions == "hemispheres" : 
+    annotator = Annotator(siteFieldsPlot, 
+        [("L", "R")], 
+        data=siteFields_df, x="sites", y="size")
+    annotator.configure(test='Mann-Whitney', text_format='star', loc='outside')
+    annotator.apply_and_annotate()
+save_img("sizeFieldsBox")
+
+
+sizeFieldsPlot = createStdErrorMeanPlot(uniqueSites, sizeFieldsCountsSorted, "Average size of semantic fields", yLabel="", xLabel="Size fields")
 save_img("sizeFieldsBars", sizeFieldsPlot)
 
 numRegions_df = pd.DataFrame(np.asarray(histMatrixRegions).transpose(), columns = uniqueSites)
 numRegions_df["index"] = binsRegions[:-1] #np.append(binsRegions[1:], [len(binsRegions)])
-numRegions_df.plot(kind="bar", x="index", figsize=(10,6), ylabel="Fraction of number of fields per unit", xaxis_title="")
+numRegions_df.plot(kind="bar", x="index", figsize=(10,6), ylabel="Fraction of number of fields per unit", xlabel="")
 #numRegionsPlot.set_xticklabels(np.append(bins, [bins[-1]+1]))
-#plt.xticks(rotation=90, ha='right')
+plt.xticks(rotation=90, ha='right')
 plt.legend(loc='center left', bbox_to_anchor=(1.0, 0.5))
 save_img("numFields_grouped")
 
@@ -849,7 +849,7 @@ numStim_df = pd.DataFrame(np.asarray(histMatrixStim).transpose(), columns = uniq
 #binsStim[-1] = len(binsStim)-1
 numStim_df["index"] = binsStim[:-1] #np.append(binsStim[1:], [len(binsStim)])
 numStim_df.plot(kind="bar", x="index", figsize=(10,6), ylabel="Fraction of number of stimuli per field")
-#plt.xticks(rotation=90, ha='right')
+plt.xticks(rotation=90, ha='right')
 #numRegionsPlot.set_xticklabels(np.append(binsStim, [bins[-1]+1]))
 plt.legend(loc='center left', bbox_to_anchor=(1.0, 0.5))
 save_img("numStimuli_grouped")
@@ -858,7 +858,7 @@ numStim_df = pd.DataFrame(np.asarray(histMatrixSize).transpose(), columns = uniq
 #binsStim[-1] = len(binsStim)-1
 numStim_df["index"] = np.round(binsSizeFields[:-1],3) #np.append(binsStim[1:], [len(binsStim)])
 numStim_df.plot(kind="bar", x="index", figsize=(10,6), ylabel="Fraction of field sizes")
-#plt.xticks(rotation=90, ha='right')
+plt.xticks(rotation=90, ha='right')
 #numRegionsPlot.set_xticklabels(np.append(binsStim, [bins[-1]+1]))
 plt.legend(loc='center left', bbox_to_anchor=(1.0, 0.5))
 save_img("sizeFields_grouped")

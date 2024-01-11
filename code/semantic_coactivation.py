@@ -229,20 +229,6 @@ def saveImg(fig, filename) :
         #fig.write_image(file + ".svg")
         fig.write_image(file + ".png")
 
-def getSite(site) : 
-    
-    if site == "RAH" or site == "RMH" :
-        site = "RH"
-    if site == "LAH" or site == "LMH" :
-        site = "LH"
-
-    if args.plot_regions == "collapse_hemispheres" : 
-        site = site[1:]
-    elif args.plot_regions == "hemispheres" : 
-        site = site[0]
-
-    return site
-
 def getCategory(indexThings) : 
     categoryResponse = np.where(data.df_categories.loc[indexThings] == 1)[0]
     if isinstance(categoryResponse, (list, tuple, np.ndarray)) : 
@@ -357,7 +343,7 @@ for session in sessions:
         if site in sitesToExclude : 
             continue
 
-        site = getSite(site)
+        site = getSite(site, args.plot_regions)
 
         if site not in allSitesSession : 
             allSitesSession.append(site)
@@ -393,7 +379,7 @@ for session in sessions:
         if (not unitData['kind'] == 'SU' and args.only_SU) or unitData['site'] in sitesToExclude : 
             continue
         pvals = unitData['p_vals']
-        site = getSite(unitData['site'])
+        site = getSite(unitData['site'], args.plot_regions)
         trials = unitData['trial']
         channel = unitData['channel_num']
         cluster = unitData['class_num']
@@ -565,7 +551,7 @@ for session in sessions:
                 
                 
 
-                if not i == bestResponse : # and i in responseIndicesFit : ### bestZscoresIndices #responseIndicesFit
+                if not i == bestResponse and i in responseIndicesFit : #responseIndicesFit, bestZscoresIndices
                     corStep = int(similarity / corStepSize)
                     similaritiesCor.append(similarity)
                     valuesCor.append(metric[i])
@@ -796,13 +782,13 @@ for site in allSiteNames :
                     marker = {'color' : 'blue'}
                 )
             )
-            logisticFitFigSingle.add_trace(
-                go.Scatter(
-                    x=siteData.gaussFit.xFit,
-                    y=np.asarray(siteData.gaussFit.yFit).T[i],
-                    marker = {'color' : 'red'}
-                )
-            )
+            #logisticFitFigSingle.add_trace(
+            #    go.Scatter(
+            #        x=siteData.gaussFit.xFit,
+            #        y=np.asarray(siteData.gaussFit.yFit).T[i],
+            #        marker = {'color' : 'red'}
+            #    )
+            #)
 
             logisticFitFigSingle.add_trace(
                 go.Scatter(
