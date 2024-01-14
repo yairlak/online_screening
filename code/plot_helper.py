@@ -234,6 +234,67 @@ def createHistCompleteXTick(x, inputBins, factorY, labelX, labelY="count", color
     hist = createHist(x, inputBins, factorY, labelX, labelY, color)
     return hist.update_xaxes(dtick=1)
 
+def createHistCombined(x, y1, y2, factorY, yLabel1, yLabel2) : 
+    counts1, bins1 = np.histogram(y1, bins=x)
+    counts2, bins2 = np.histogram(y2, bins=x)
+    counts1 = counts1.astype(float)*float(factorY)
+    counts2 = counts2.astype(float)*float(factorY)
+
+    xLine = [-0.015]
+    yLine1 = [0, 0]
+    yLine2 = [0, 0]
+
+    for i in range(len(counts1)) : 
+        xLine.append(bins1[i])
+        xLine.append(bins1[i])
+        yLine1.append(counts1[i]) 
+        yLine1.append(counts1[i])
+        yLine2.append(counts2[i]) 
+        yLine2.append(counts2[i])
+    
+    yLine1.append(0)
+    yLine1.append(0)
+    yLine1.append(0)
+    yLine2.append(0)
+    yLine2.append(0)
+    yLine2.append(0)
+    xLine.append(max(xLine)+0.01)
+    xLine.append(max(xLine))
+    xLine.append(max(xLine)+0.01)
+    #xLine.append(1.1)
+    xticks = np.arange(stop=1.1, step=0.2).round(1)
+
+    fig = go.Figure(data=[
+        go.Scatter(name=yLabel1, x=xLine, y=yLine1, yaxis='y', mode='lines', offsetgroup=1, line_color='red'),
+        go.Scatter(name=yLabel2, x=xLine, y=yLine2, yaxis='y2', mode='lines', offsetgroup=2, line_color='blue'),
+        #go.Scatter(x=[0,1], y=[-0.2,-0.2], line_color='white')
+        #go.Bar(name=yLabel1, x=bins1[:-1], y=counts1.astype(float)*float(factorY), yaxis='y', offsetgroup=1),
+        #go.Bar(name=yLabel2, x=bins1[:-1], y=counts2.astype(float)*float(factorY), yaxis='y2', offsetgroup=2)
+    ],layout={
+        'yaxis': dict(title=yLabel1, color='red', showline=True, mirror=True, linecolor='grey', showgrid=True, gridcolor='lightgray'),
+        'yaxis2': dict(title=yLabel2, color='blue', showline=True, mirror=True, linecolor='grey', showgrid=False, overlaying='y', side='right'),
+        'xaxis': dict(showgrid=False, showline=True, mirror=True, linecolor='grey', tickvals=xticks, ticktext=xticks),
+        'xaxis_range': [-0.015,1.02],
+        'autosize':False,
+        'width':1000,
+        'height':600,
+        #'yaxis_range': [-0.2,max(yLine1)+max(yLine1)*0.02],
+        #'yaxis2_range': [-0.2,max(yLine2)+max(yLine2)*0.02],
+        'barmode': 'group',
+        'legend': dict(y=0.8, xref="container", yref="container")})
+    
+    return updateFigure(fig)
+
+def updateFigure(fig) : 
+    fig.update_layout(
+        font=dict(size=28), 
+        #zeroline = False,
+        #paper_bgcolor='rgba(0,0,0,0)',
+        plot_bgcolor='rgba(0,0,0,0)', 
+        )
+    return fig
+
+
 def createCorrelationPlot(sitename, correlation) : 
     return go.Box(
         y=correlation, 
@@ -360,7 +421,7 @@ def createStdErrorMeanPltCompare(x, data1, data2, title, label1="", label2="", y
     if len(ylim) > 0 : 
         plt.ylim(ylim)
 
-def createStdErrorMeanPlot(x, data, title, yLabel, minZero=True, xLabel="Semantic similarity") : 
+def createStdErrorMeanPlot(x, data, title, yLabel="", minZero=True, xLabel="Semantic similarity") : 
     fig = go.Figure()
 
     for i in range(len(data)) : 

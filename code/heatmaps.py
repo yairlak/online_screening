@@ -385,25 +385,6 @@ def createHeatMap(tuner, figureHeight, savePath="", addName=False) :
     targetValues = np.copy(targetValue)
     targetValues -= min(targetValues)
     targetValues /= max(targetValues)
-
-    ## Text / labels 
-    #for stimulusNum in range(len(tuner.stimuliNames)) :
-    #    opacityStim = targetValues[stimulusNum]
-    #    heatmap.add_trace(
-    #        go.Scatter(
-    #            mode='text',
-    #            x=rescaleX([tuner.stimuliX[stimulusNum]]), y=rescaleY([tuner.stimuliY[stimulusNum]]),
-    #            #text=[tuner.stimuliNames[stimulusNum]],
-    #            hovertext=[tuner.stimuliNames[stimulusNum] + ", z: " + str(round(targetValues[stimulusNum], 2))],
-    #            opacity=opacityStim,
-    #            textfont=dict(
-    #                size=20,
-    #                color="black"
-    #            ),
-    #            name='zscore'
-    #        )
-    #    )
-
     
     for stimulusNum in tuner.responseIndices :
         textTrace = go.Scatter(
