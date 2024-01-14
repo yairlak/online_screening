@@ -48,5 +48,27 @@ def smooth_with_gaussian(time_series, sfreq=1000, gaussian_width = 50, N=1000):
     return smoothed_time_series
 
 
+def get_indexed_array(input, indices) : 
+    output = []
+
+    for i in indices : 
+        output.append(input[i])
+
+    return output
+
+
+def getSite(site, plot_regions) : 
+    
+    if site == "RAH" or site == "RMH" :
+        site = "RH"
+    if site == "LAH" or site == "LMH" :
+        site = "LH"
+
+    if plot_regions == "collapse_hemispheres" : 
+        site = site[1:]
+    elif plot_regions == "hemispheres" : 
+        site = site[0]
+
+    return site
 
 

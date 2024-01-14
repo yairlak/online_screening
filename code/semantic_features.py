@@ -52,7 +52,9 @@ parser.add_argument('--only_SU', default=True,
 parser.add_argument('--load_cat2object', default=False, 
                     help='If True, cat2object is loaded')
 parser.add_argument('--plot_regions', default='full',
-                    help='"full"->all regions, "hemispheres"->split into hemispheres, "collapse_hemispheres"->regions of both hemispheres are collapsed')     
+                    help='"full"->all regions, "hemispheres"->split into hemispheres, "collapse_hemispheres"->regions of both hemispheres are collapsed')    
+parser.add_argument('--response_metric', default='zscores', # zscores, or pvalues or firing_rates
+                    help='Metric to rate responses') # best firing_rates = best zscore ?! 
 
 # STATS
 parser.add_argument('--alpha', type=float, default=0.001,
@@ -83,7 +85,7 @@ parser.add_argument('--path2semanticdata',
 parser.add_argument('--path2categories',
                     default='../data/THINGS/category_mat_manual.tsv')
 parser.add_argument('--path2data', 
-                    default='../data/aos_one_session/') #aos_after_manual_clustering aos_one_session
+                    default='../data/aos_after_manual_clustering/') #aos_after_manual_clustering aos_one_session
 parser.add_argument('--path2images', 
                     default='../figures/semantic_features') 
 
@@ -103,14 +105,14 @@ def get_lofo_score(firing_rates_consider, categories_consider) :
 
     return lofo_score
 
-def plot_lofo_score(regression_df, column_name) : 
+def plot_lofo_score(regression_df, column_name, labelsize=40) : 
     
     regression_df = regression_df.sort_values(column_name, ascending=False)
     plt.figure(figsize=(barplotWidth, barplotHeight))
     lofo_fig = sns.barplot(y="category_names", x=column_name, data=regression_df, color='blue', orient = 'h')#, width=1.2)#, palette=regression_df["color"])
     #lofo_fig.set_xticklabels(lofo_fig.get_xticklabels(), rotation=90)
     lofo_fig.set(xlabel=None, ylabel=None)
-    plt.tick_params(axis='both', which='major', labelsize=24)
+    plt.tick_params(axis='both', which='major', labelsize=labelsize)
     #plt.title("lofo score")
     save_plt(column_name + os.sep + fileDescription)
 
@@ -160,7 +162,7 @@ def create_category_map(categories, concepts) :
 
 def save_plt(filename) : 
 
-    file = args.path2images + os.sep + args.analyze + os.sep + args.plot_regions + os.sep + filename 
+    file = args.path2images + os.sep + args.analyze + "_" + args.response_metric + os.sep + args.plot_regions + os.sep + filename 
 
     if not args.dont_plot : 
         os.makedirs(os.path.dirname(file), exist_ok=True)
@@ -276,7 +278,8 @@ sitesToExclude = ["LFa", "LTSA", "LTSP", "Fa", "TSA", "TSP", "LPL", "LTP", "LTB"
 #"RT": pat 102 session 1: anteater unit
 #LPL: pat 102 session 3, channel 36, cluster1: mug, teapot
 barplotWidth = 10
-barplotHeight = 20
+barplotHeight = 30
+labelsize = 40
 
 for session in sessions:
 
@@ -311,7 +314,8 @@ for session in sessions:
         unit_counter += 1
         channel = unit_data['channel_num']
         cluster = unit_data['class_num']
-        firing_rates = unit_data['firing_rates']
+        #if args.response_metric == "firing_rates"
+        firing_rates = unit_data[args.response_metric]
         #firing_rates = unit_data['zscores']
         response_stimuli_indices = unit_data['responses'] 
 
@@ -422,13 +426,13 @@ for session in sessions:
             #    pValueSites[site] = [pvalue]
             #    rsquaredSites[site] = [rsquared]
 
-            if meanScore > 1.0 : 
-                print("WARNING! High cv score")
-            else : 
+            if meanScore <= 1.0 : 
                 if site in meanScoresSites : 
                     meanScoresSites[site].append(meanScore)
                 else : 
                     meanScoresSites[site] = [meanScore]
+            #else:
+            #    print("WARNING! High cv score")
 
 
             pValueSites["all"].append(pvalue)
@@ -474,7 +478,7 @@ for session in sessions:
             regression_df["category_names"] = categories.columns
             regression_df = regression_df.sort_values("params", ascending=False)
 
-            plt.figure(figsize=(20, 20))
+            plt.figure(figsize=(barplotWidth, barplotHeight))
             #coef_fig = sns.barplot(x=text_categories, y=params, palette=color_sequence)
             coef_fig = sns.barplot(y="category_names", x="params", data=regression_df, palette=regression_df["color"], orient = 'h')
             #coef_fig.set_xticklabels(coef_fig.get_xticklabels(), rotation=90)
@@ -483,7 +487,7 @@ for session in sessions:
                 title += ", cv mean: " + str(round(meanScore, 4)) + ", stddev: " + str(round(stddevScore, 4))
             #plt.title(title)
             coef_fig.set(xlabel=None, ylabel=None)
-            plt.tick_params(axis='both', which='major', labelsize=24)
+            plt.tick_params(axis='both', which='major', labelsize=labelsize)
             save_plt("coef_regression" + os.sep + fileDescription)
             
             plot_lofo_score(regression_df, "lofo_score_categories")
@@ -494,7 +498,7 @@ for session in sessions:
             category_names_presented = category_names_presented[categories_sorted_indices]
             plt.figure(figsize=(barplotWidth, barplotHeight))
             plt.barh(category_names_presented, categories_presented)
-            plt.tick_params(axis='both', which='major', labelsize=24)
+            plt.tick_params(axis='both', which='major', labelsize=labelsize)
             save_plt("categories_presented" + os.sep + fileDescription)
 
 

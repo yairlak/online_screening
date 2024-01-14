@@ -17,9 +17,10 @@ import shutil
 
 from typing import List
 from dataclasses import dataclass, field
-#from collections import defaultdict
+from collections import defaultdict
 from scipy import stats
 import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 
 import dash
 from dash import dcc
@@ -212,7 +213,7 @@ class Region:
 
 
 def createAndSave(func, filename) : 
-    fig = func 
+    fig = func #updateFigure(func) 
     saveImg(fig, filename)
     return fig
 
@@ -301,7 +302,8 @@ regions[allRegionsName] = Region(allRegionsName)
 regions[allRegionsName].coactivationProb.normalizer = np.zeros((nTHINGS))
 regions[allRegionsName].coactivationProb.y = np.zeros((nTHINGS,nTHINGS))
 alphaBestResponse = []
-sitesToExclude = ["LFa", "LTSA", "LTSP", "Fa", "TSA", "TSP", "LPL", "LTP", "LTB", "RMC", "RAI", "RAC", "RAT", "RFO", "RFa", "RFb", "RFc", "RT", "RFI", "RFM", "RIN", "LFI", "LFM", "LIN"]
+sitesToConsider = ["LA", "RA", "LEC", "REC", "LAH", "RAH", "LMH", "RMH", "LPHC", "RPHC", "LPIC", "RPIC"]
+#sitesToExclude = ["LFa", "LTSA", "LTSP", "Fa", "TSA", "TSP", "LPL", "LTP", "LTB", "RMC", "RAI", "RAC", "RAT", "RFO", "RFa", "RFb", "RFc", "RT", "RFI", "RFM", "RIN", "LFI", "LFM", "LIN"]
 #sitesToExclude = ["LFa", "LTSA", "LTSP", "Fa", "TSA", "TSP", "LTP", "LTB", "RMC", "RAI", "RAC", "RAT", "RFO", "RFa", "RFb", "RFc"] 
 
 unitCounter = 0
@@ -313,6 +315,8 @@ responsiveUnitCounterRight = 0
 sessionCounter = 0
 unitsPerSite = []
 unitsPerSiteResponsive = []
+numUnitsTotal = {}
+numUnitsResponsive = {}
 
 for session in sessions:
 
@@ -340,7 +344,7 @@ for session in sessions:
     for unit in units:
         site = data.neural_data[session]['units'][unit]['site']
 
-        if site in sitesToExclude : 
+        if not site in sitesToConsider : 
             continue
 
         site = getSite(site, args.plot_regions)
@@ -356,10 +360,15 @@ for session in sessions:
         
         if not (not data.neural_data[session]['units'][unit]['kind'] == 'SU' and args.only_SU): 
             numUnits = numUnits + 1
+            
+            if site in numUnitsTotal : 
+                numUnitsTotal[site] = numUnitsTotal[site] + 1 
+            else : 
+                numUnitsTotal[site] = 1
 
 
     for site in allSitesSession :  
-        if site in sitesToExclude : 
+        if not site in sitesToConsider : 
             continue
         for i1, i2 in itertools.product(thingsIndices, thingsIndices) : 
             if i2 > i1 or (i1 == i2 and not includeSelfSimilarity) :
@@ -376,7 +385,7 @@ for session in sessions:
 
     for unit in units:
         unitData = data.neural_data[session]['units'][unit]
-        if (not unitData['kind'] == 'SU' and args.only_SU) or unitData['site'] in sitesToExclude : 
+        if (not unitData['kind'] == 'SU' and args.only_SU) or not unitData['site'] in sitesToConsider : 
             continue
         pvals = unitData['p_vals']
         site = getSite(unitData['site'], args.plot_regions)
@@ -461,6 +470,11 @@ for session in sessions:
                 responsiveUnitCounterRight += 1 
             regions[allRegionsName].numResponsesHist.append(len(responses))
             regions[site].numResponsesHist.append(len(responses))
+
+            if site in numUnitsResponsive : 
+                numUnitsResponsive[site] += 1 
+            else : 
+                numUnitsResponsive[site] = 1
 
             # zscores
             #metric_only_consider = metric
@@ -712,6 +726,23 @@ pearsonPlot = go.Figure()
 #    regions[allRegionsName].rDiffGauss.extend(regions[site].rDiffGauss)
 #    regions[allRegionsName].rDiffLogGauss.extend(regions[site].rDiffLogGauss)
 
+colorDiscreteMap={'A':'purple',
+                    'EC':'blue',
+                    'PHC':'green',
+                    'H':'red',
+                    'PIC':'orange'}
+if args.plot_regions == "hemispheres" :  
+    colorDiscreteMap={'R':'blue',
+                        'L':'yellow',}
+
+
+#colorKeys = colorDiscreteMap.keys()
+#for colorSite in colorKeys : 
+#    if colorSite not in allSiteNames : 
+#        del colorDiscreteMap[colorSite]
+
+#sitesToConsider = ["LA", "RA", "LEC", "REC", "LAH", "RAH", "LMH", "RMH", "LPHC", "RPHC", "LPIC", "RPIC"]
+
 numUnit_df = pd.DataFrame()
 numUnit_df["sites"] = allSiteNames[1:]
 numUnit_df["numUnits"] = unitsPerSite[1:]
@@ -722,6 +753,48 @@ saveImg(numUnitPlot, "num_units")
  
 numUnitPlot = px.bar(numUnit_df, x="sites", y="numUnitsResponsive")
 saveImg(numUnitPlot, "num_units_responsive")
+
+pieLabelsFull = ['A', 'H', 'EC', 'PHC', 'PIC']
+pieLabels = [label for label in pieLabelsFull if label in list(numUnitsTotal.keys())] #np.sort(np.array(list(numUnitsTotal.keys())))
+colorDiscreteMapAll = { key:val for key, val in colorDiscreteMap.items() if key in pieLabels} 
+pieValues = np.array([numUnitsTotal[p] for p in pieLabels])
+pieTotalPlot = go.Figure(
+    go.Pie(values=pieValues, 
+        labels=pieLabels, sort=False,
+        direction ='clockwise',
+        #textfont_size=20,
+        marker_colors=[colorDiscreteMapAll[p] for p in pieLabels], 
+        title=str(sum(pieValues)) + " units in total"))
+pieTotalPlot.update_layout(font=dict(size=18))
+pieTotalPlot.update_traces(textinfo='label+value')
+if args.only_SU : 
+    saveImg(pieTotalPlot, "num_units_pie_SU")
+else: 
+    saveImg(pieTotalPlot, "num_units_pie_SU_MU")
+
+#pieTotalPlot = px.pie(values=[numUnitsTotal[p] for p in pieLabels], names=pieLabels, color=colorDiscreteMapAll)
+#pieTotalPlot.update_traces(textinfo='label+value')
+#pieTotalPlot.update(textinfo='value')
+#px.pie([numUnitsTotal[p] for p in pieLabels], labels=pieLabels, autopct='')
+#saveImg(pieTotalPlot, "num_units_pie")
+
+pieLabels = [label for label in pieLabelsFull if label in list(numUnitsResponsive.keys())]
+colorDiscreteMapResponsive = { key:val for key, val in colorDiscreteMap.items() if key in pieLabels} 
+pieValues = np.array([numUnitsResponsive[p] for p in pieLabels])
+pieResponsivePlot = go.Figure(
+    go.Pie(values=pieValues, labels=pieLabels, sort=False, 
+        direction ='clockwise',
+        marker_colors=[colorDiscreteMapResponsive[p] for p in pieLabels], 
+        title=str(sum(pieValues)) + " responsive units in total"))
+pieResponsivePlot.update_traces(textinfo='label+value')
+pieResponsivePlot.update_layout(font=dict(size=18))
+if args.only_SU : 
+    saveImg(pieResponsivePlot, "num_units_pie_responsive_SU")
+else: 
+    saveImg(pieResponsivePlot, "num_units_pie_responsive_SU_MU")
+#pieResponsivePlot = px.pie(values=[numUnitsResponsive[p] for p in pieLabels], names=pieLabels, color=colorDiscreteMapResponsive)
+#pieResponsivePlot.update_traces(textinfo='label+value')
+#saveImg(pieResponsivePlot, "num_units_pie_responsive")
 
 if not args.dont_plot :
     try: 
@@ -872,7 +945,6 @@ for site in allSiteNames :
         "fit" + os.sep + "logistic_fit_rsquared" + os.sep + fileDescription)
     createAndSave(createHist(regions[site].logisticFit.gof, np.concatenate(([-np.inf],np.arange(-1.5,1.0,0.01), [np.inf])), 1.0, 'gof', 'Num Units'),
         "fit" + os.sep + "logistic_fit_gof" + os.sep + fileDescription)
-
     #createAndSave(createHist(siteData.logisticFit.gof, [0.0, 0.00001, 0.0001, 0.001, 0.01, 0.1, 1.0], labelX='Alpha value', labelY='Counts'), 
     #    "fit" + os.sep + "gof" + os.sep + fileDescription)
     allRegionRDiffPlots.append(createAndSave(
@@ -881,18 +953,89 @@ for site in allSiteNames :
     #allRegionRDiffGaussPlots.append(createAndSave(
     #    createBoxPlot([regions[site].rDiffLog], ["r(Log) - r(Step)"], "Diff of R squared of logistic fit and R squared of step fit"), 
     #    "fit" + os.sep + "box_r_diff_log" + os.sep + fileDescription))
-    allRegionRespStrengthHistPlots.append(createAndSave(
-        createHist(siteData.responseStrengthHistResp, np.arange(0,1.02,0.01), 100.0 / float(totalNumResponseStrengthHist), 'Normalized firing rate', 'Stimuli in %', "blue"),
+
+
+    #respHistCombinedFig = go.Figure(data=[
+    #    go.Bar(name='Responses', x=np.arange(0,1.02,0.01), y=siteData.responseStrengthHistResp, yaxis='y', offsetgroup=1),
+    #    go.Bar(name='Non Responses', x=np.arange(0,1.02,0.01), y=siteData.responseStrengthHistNoResp, yaxis='y2', offsetgroup=2)
+    #],layout={
+    #    'yaxis': dict(title='Responses', showgrid=False),
+    #    'yaxis2': dict(title='Non Responses', overlaying='y', side='right', showgrid=False),#{'title': 'Non Responses', 'overlaying': 'y', 'side': 'right'}, 
+    #    'xaxis': dict(showgrid=False),
+    #    'barmode': 'group',
+        #'yaxis': dict(showgrid=False),
+        #'yaxis2': dict(showgrid=False),
+    #    'legend': {
+            #"x": 0.9,
+    #        "y": 0.8,
+    #        "xref": "container",
+    #        "yref": "container",
+    #    },})
+    #respHistCombinedFig.update_layout(barmode='group')
+    #respHistCombinedFig.show()
+    createAndSave(createHistCombined2(
+        np.arange(0,1.02,0.01), siteData.responseStrengthHistNoResp, siteData.responseStrengthHistResp, 100.0 / float(totalNumResponseStrengthHist), 'Non-Responses', 'Responses'), 
+        "response_strength_hist_combined" + os.sep + fileDescription)
+    #respHistCombinedFig = createHistCombined(
+    #    np.arange(0,1.02,0.01), siteData.responseStrengthHistResp, siteData.responseStrengthHistNoResp, 'Responses', 'Non Responses')
+    #saveImg(respHistCombinedFig, "response_strength_hist_combined" + os.sep + fileDescription)
+
+    #respHistCombinedSelfFig = go.Figure(data=[
+    #    go.Bar(name='Responses', x=np.arange(0,1.02,0.01), y=siteData.responseStrengthHistRespSelf, yaxis='y', offsetgroup=1),
+    #    go.Bar(name='No Responses', x=np.arange(0,1.02,0.01), y=siteData.responseStrengthHistNoRespSelf, yaxis='y2', offsetgroup=2)
+    #],layout={
+    #    'yaxis': {'title': 'Responses'},
+    #    'yaxis2': {'title': 'Non Responses', 'overlaying': 'y', 'side': 'right'}})
+    #respHistCombinedSelfFig.update_layout(barmode='group')
+    createAndSave(createHistCombined2(
+        np.arange(0,1.02,0.01), siteData.responseStrengthHistNoRespSelf, siteData.responseStrengthHistRespSelf, 100.0 / float(totalNumResponseStrengthHistSelf), 'Non-Responses', 'Responses'), 
+        "response_strength_hist_combined_self" + os.sep + fileDescription)
+    #respHistCombinedSelfFig.show()
+    #saveImg(respHistCombinedSelfFig, "response_strength_hist_combined_self" + os.sep + fileDescription)
+
+    #respHist_df =pd.DataFrame(dict(
+    #    response=np.concatenate((["Responses"]*len(siteData.responseStrengthHistResp), ["Non Responses"]*len(siteData.responseStrengthHistNoResp))), 
+    #    data  =np.concatenate((siteData.responseStrengthHistResp,siteData.responseStrengthHistNoResp))
+    #))
+    #respHistFig = px.histogram(respHist_df, x="data", color="response", barmode="overlay")
+    #saveImg(respHistFig, "response_strength_hist_combined" + os.sep + fileDescription)
+
+
+
+    #combinedHistResp = make_subplots(specs=[[{"secondary_y": True}]])
+    #histResp = createAndSave(createHist(
+    #    siteData.responseStrengthHistResp, np.arange(0,1.02,0.01), 100.0 / float(totalNumResponseStrengthHist), 'Normalized firing rate', 'Stimuli in %', "blue"),
+    #    "response_strength_hist" + os.sep + fileDescription)
+    #histRespNo = createAndSave(createHist(
+    #    siteData.responseStrengthHistNoResp, np.arange(0,1.02,0.01), 100.0 / float(totalNumResponseStrengthHist), 'Normalized firing rate', 'Stimuli in %', "red"),
+    #    "response_strength_hist_no" + os.sep + fileDescription)
+    #combinedHistResp.add_traces(histResp, secondary_y=False)
+    #combinedHistResp.add_trace(histResp, secondary_y=True)
+    allRegionRespStrengthHistPlots.append(createAndSave(createHist(
+        siteData.responseStrengthHistResp, np.arange(0,1.02,0.01), 100.0 / float(totalNumResponseStrengthHist), 'Normalized firing rate', 'Stimuli in %', "blue"),
         "response_strength_hist" + os.sep + fileDescription)) 
-    allRegionRespStrengthHistPlotsNo.append(createAndSave(
-        createHist(siteData.responseStrengthHistNoResp, np.arange(0,1.02,0.01), 100.0 / float(totalNumResponseStrengthHist), 'Normalized firing rate', 'Stimuli in %', "red"),
+    allRegionRespStrengthHistPlotsNo.append(createAndSave(createHist(
+        siteData.responseStrengthHistNoResp, np.arange(0,1.02,0.01), 100.0 / float(totalNumResponseStrengthHist), 'Normalized firing rate', 'Stimuli in %', "red"),
         "response_strength_hist_no" + os.sep + fileDescription))
-    allRegionRespStrengthHistSelfPlots.append(createAndSave(
-        createHist(siteData.responseStrengthHistRespSelf, np.arange(0,1.02,0.01), 100.0 / float(totalNumResponseStrengthHistSelf), 'Normalized firing rate', 'Stimuli in %', "blue"),
+    #saveImg(combinedHistResp, "response_strength_hist_combined")
+    
+    #combinedHistRespSelf = make_subplots(specs=[[{"secondary_y": True}]])
+    #histRespSelf = createAndSave(createHist(
+    #    siteData.responseStrengthHistRespSelf, np.arange(0,1.02,0.01), 100.0 / float(totalNumResponseStrengthHistSelf), 'Normalized firing rate', 'Stimuli in %', "blue"),
+    #    "response_strength_hist_self" + os.sep + fileDescription)
+    #histRespSelfNo = createAndSave(createHist(
+    #    siteData.responseStrengthHistNoRespSelf, np.arange(0,1.02,0.01), 100.0 / float(totalNumResponseStrengthHistSelf), 'Normalized firing rate', 'Stimuli in %', "red"),
+    #    "response_strength_hist_no_self" + os.sep + fileDescription)
+    #combinedHistRespSelf.add_trace(histRespSelf, secondary_y=False)
+    #combinedHistRespSelf.add_trace(histRespSelfNo, secondary_y=True)
+    allRegionRespStrengthHistSelfPlots.append(createAndSave(createHist(
+        siteData.responseStrengthHistRespSelf, np.arange(0,1.02,0.01), 100.0 / float(totalNumResponseStrengthHistSelf), 'Normalized firing rate', 'Stimuli in %', "blue"),
         "response_strength_hist_self" + os.sep + fileDescription)) 
-    allRegionRespStrengthHistSelfPlotsNo.append(createAndSave(
-        createHist(siteData.responseStrengthHistNoRespSelf, np.arange(0,1.02,0.01), 100.0 / float(totalNumResponseStrengthHistSelf), 'Normalized firing rate', 'Stimuli in %', "red"),
+    allRegionRespStrengthHistSelfPlotsNo.append(createAndSave(createHist(
+        siteData.responseStrengthHistNoRespSelf, np.arange(0,1.02,0.01), 100.0 / float(totalNumResponseStrengthHistSelf), 'Normalized firing rate', 'Stimuli in %', "red"),
         "response_strength_hist_no_self" + os.sep + fileDescription))
+    #saveImg(combinedHistRespSelf, "response_strength_hist_combined_self")
+
     allRegionNumResponsesPlots.append(createAndSave(
         createHist(siteData.numResponsesHist, range(args.max_responses_unit + 1), 1, 'Number of responses', 'Number of units', "blue"),
         "num_responses" + os.sep + fileDescription))
@@ -971,6 +1114,9 @@ for site in allSiteNames :
     createAndSave(
         createHist([regions[site].logisticFitGood.steepestSlopes], np.arange(-10,21,1), factorY=1.0, labelX="Steepest slopes", labelY="Num"),
         "fit" + os.sep + "slope_steps_good" + os.sep + fileDescription)
+    createAndSave(
+        createHist([regions[site].logisticFitGood.params[0]], np.arange(0.0,1.0,0.1), factorY=1.0, labelX="x0", labelY="Num"),
+        "fit" + os.sep + "x0_steps_good" + os.sep + fileDescription)
     #allRegionSlopePlots.append(createAndSave(
     #    createBoxPlot([regions[site].logisticFit.steepestSlopes, regions[site].gaussFit.steepestSlopes], ["Log", "Gauss"], "Steepest slope of fitted data"), 
     #    "fit" + os.sep + "slopes" + os.sep + fileDescription))

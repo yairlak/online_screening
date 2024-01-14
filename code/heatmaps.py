@@ -56,7 +56,7 @@ parser.add_argument('--session', default=None, type=str,
 # ANALYSIS
 parser.add_argument('--data_type', default="zscores", type=str, # zscores or firing_rates or zsctatistics
                     help="Determines underlying datatype for heatmaps. \
-                        Currently, zscores or firing_rate are implemented.")
+                        Currently, zscores or firing_rates are implemented.")
 parser.add_argument('--min_t', default=0, type=int, #100
                     help="Relevant for calculating mean firing_rate. \
                         Min time offset of spike after stimulus onset.")
@@ -103,7 +103,7 @@ parser.add_argument('--path2wordembeddings',
 parser.add_argument('--path2wordembeddingsTSNE',
                     default='../data/THINGS/sensevec_TSNE.csv')
 parser.add_argument('--path2data', 
-                    default='../data/aos_after_manual_clustering/') # also work with nos? aos_after_manual_clustering, aos_selected_sessions, aos_one_session
+                    default='../data/aos_one_session/') # also work with nos? aos_after_manual_clustering, aos_selected_sessions, aos_one_session
 parser.add_argument('--path2images', 
                     default='../figures/heatmaps/') 
 
@@ -131,10 +131,12 @@ class Tuner:
     zstatistics : List[float] = field(default_factory=lambda: []) 
     numTrials : List[int] = field(default_factory=lambda: [])
 
+def getImgPath() : 
+    return args.path2images + os.sep + args.data_type + "_" + args.plot_regions
 
 def save_img(filename, plotlyFig = None) : 
 
-    file = args.path2images + os.sep + args.data_type + "_" + args.plot_regions + os.sep + filename
+    file = getImgPath() + os.sep + filename
 
     if not args.dont_plot : 
         os.makedirs(os.path.dirname(file), exist_ok=True)
@@ -150,7 +152,7 @@ def save_img(filename, plotlyFig = None) :
 def createRasterPlot(rasterToPlot, figureWidth, figureHeight) : 
     
     ## Raster plots
-    numCols = 5
+    numCols = 3
     numRowsRaster = int(len(rasterToPlot) / numCols) + 1
 
     specs=[]
@@ -174,7 +176,7 @@ def createRasterPlot(rasterToPlot, figureWidth, figureHeight) :
     rasterGrid = make_subplots(rows=numRowsRaster, cols=numCols, specs=specs, subplot_titles=subplot_titles)
 
     for title in rasterGrid['layout']['annotations']:
-        title['font'] = dict(size=10)
+        title['font'] = dict(size=32)
 
     rowNum = 0
     colNum = 0
@@ -191,7 +193,7 @@ def createRasterPlot(rasterToPlot, figureWidth, figureHeight) :
     rasterGrid.update_layout(go.Layout(
         showlegend=False, 
         autosize=False,
-        height = int(figureHeight / 4) * numRowsRaster + 100,
+        height = int(0.8 * figureWidth / numCols * numRowsRaster), #figureWidth, # int(figureHeight / 4) * numRowsRaster + 100,
         width = int(figureWidth), 
         paper_bgcolor='lightgrey',
         plot_bgcolor='white',
@@ -203,7 +205,7 @@ def createRasterPlot(rasterToPlot, figureWidth, figureHeight) :
             #rasterGrid['layout'][ax]['color']='lightskyblue'#(0.5,0.5,0.5,1.0)
             rasterGrid['layout'][ax]['tickmode']='array'
             rasterGrid['layout'][ax]['tickvals']=[0, 1000]
-            rasterGrid['layout'][ax]['tickfont']=dict(size=8)
+            rasterGrid['layout'][ax]['tickfont']=dict(size=20)
             #rasterGrid['layout'][ax]['plot_bgcolor']='white'
         if ax[:5]=='yaxis':
             rasterGrid['layout'][ax]['visible']=False
@@ -213,6 +215,13 @@ def createRasterPlot(rasterToPlot, figureWidth, figureHeight) :
             
     return rasterGrid
 
+
+def addStimNames(heatmap, x, y, names): 
+    heatmap.add_trace(go.Scatter(mode='text', x=rescaleX(x), y=rescaleY(y), text=names, textfont=dict(size=12,color="black"),))
+    heatmap.update_layout(go.Layout(showlegend=False))
+    return heatmap
+
+
 def rescaleX(x) :
     xPadding = np.asarray([xOut / args.padding_factor for xOut in x])
     return args.interpolation_factor * (xPadding - xMinThings) / (xMaxThings - xMinThings) - 0.5
@@ -220,6 +229,13 @@ def rescaleX(x) :
 def rescaleY(y) :
     yPadding = np.asarray([yOut / args.padding_factor for yOut in y])
     return args.interpolation_factor * (yPadding - yMinThings) / (yMaxThings - yMinThings) - 0.5
+
+def heatmapFromZ(z) : 
+    fig = px.imshow(z,aspect=1.0,color_continuous_scale='RdBu_r',origin='lower')
+    font = dict(weight='bold', size=32)
+
+    plt.rc('font', **font)
+    return fig
 
 def getInterpolatedMap(x, y, z, pvalues=False) : 
     xMin = xMinThings * args.padding_factor
@@ -264,7 +280,7 @@ def getInterpolatedMap(x, y, z, pvalues=False) :
         rbf = scipy.interpolate.Rbf(xWithBorder, yWithBorder, zWithBorder, function='linear')
         zi = rbf(xi, yi)
 
-    return px.imshow(zi,aspect=0.8,color_continuous_scale='RdBu_r',origin='lower'), xi, yi #, zmax=1
+    return heatmapFromZ(zi), xi, yi #, zmax=1
 
 def createHeatMap(tuner, figureHeight, savePath="", addName=False) : 
 
@@ -292,6 +308,7 @@ def createHeatMap(tuner, figureHeight, savePath="", addName=False) :
     regionsHeatmap = heatmapOnlyResponses.data[0].z.copy()
     regionsHeatmap[regionsHeatmap != 0.0] = 1.0
     regionsLabels = label(regionsHeatmap, connectivity=2)
+    heatmapCopy = heatmap.data[0].z.copy()
 
     
     #remove areas without response (including consider)
@@ -370,22 +387,22 @@ def createHeatMap(tuner, figureHeight, savePath="", addName=False) :
     targetValues /= max(targetValues)
 
     ## Text / labels 
-    for stimulusNum in range(len(tuner.stimuliNames)) :
-        opacityStim = targetValues[stimulusNum]
-        heatmap.add_trace(
-            go.Scatter(
-                mode='text',
-                x=rescaleX([tuner.stimuliX[stimulusNum]]), y=rescaleY([tuner.stimuliY[stimulusNum]]),
-                #text=[tuner.stimuliNames[stimulusNum]],
-                hovertext=[tuner.stimuliNames[stimulusNum] + ", z: " + str(round(targetValues[stimulusNum], 2))],
-                opacity=opacityStim,
-                textfont=dict(
-                    size=12,
-                    color="black"
-                ),
-                name='zscore'
-            )
-        )
+    #for stimulusNum in range(len(tuner.stimuliNames)) :
+    #    opacityStim = targetValues[stimulusNum]
+    #    heatmap.add_trace(
+    #        go.Scatter(
+    #            mode='text',
+    #            x=rescaleX([tuner.stimuliX[stimulusNum]]), y=rescaleY([tuner.stimuliY[stimulusNum]]),
+    #            #text=[tuner.stimuliNames[stimulusNum]],
+    #            hovertext=[tuner.stimuliNames[stimulusNum] + ", z: " + str(round(targetValues[stimulusNum], 2))],
+    #            opacity=opacityStim,
+    #            textfont=dict(
+    #                size=20,
+    #                color="black"
+    #            ),
+    #            name='zscore'
+    #        )
+    #    )
 
     
     for stimulusNum in tuner.responseIndices :
@@ -394,16 +411,19 @@ def createHeatMap(tuner, figureHeight, savePath="", addName=False) :
                 text=tuner.stimuliNames[stimulusNum],
                 x=rescaleX([tuner.stimuliX[stimulusNum]]), y=rescaleY([tuner.stimuliY[stimulusNum]]),
                 #hovertext=[tuner.stimuliNames[stimulusNum] + ", z: " + str(round(targetValues[stimulusNum], 2))],
-                textfont=dict(size=12,color="black"),
+                textfont=dict(size=40,color="black"),
                 #name='zscore'
             )
         heatmapOnlyResponses.add_trace(textTrace)
         heatmap.add_trace(textTrace)
 
-    figureWidth = figureHeight*3/2
+    figureWidth = figureHeight#*3/2
     titleText = "session: " + tuner.subjectsession + ", channel: " + str(tuner.channel) + ", cluster: " + str(tuner.cluster) + ", " + tuner.unitType + ", " + tuner.site
     graphLayout = go.Layout(
-        title_text=titleText, 
+        title=dict(
+            text=titleText,
+            font=dict(size=42,)),
+        #title_text=titleText, 
         xaxis=dict(ticks='', showticklabels=False),
         yaxis=dict(ticks='', showticklabels=False),
         showlegend=False, 
@@ -416,9 +436,11 @@ def createHeatMap(tuner, figureHeight, savePath="", addName=False) :
     heatmapOnlyResponses.update_layout(graphLayout)
     heatmapOnlyResponses.update_layout(go.Layout(title_text = titleText + ", numRegions: " + str(numRegions)))
     
+    figureWidthRaster = figureWidth #figureHeightRaster*3/2
+    figureHeightRaster = figureWidthRaster * 2/3
     if args.plot_all_rasters : 
-        allRasters = createRasterPlot(tuner.allRasters, figureWidth, figureHeight)
-    rasterGrid = createRasterPlot(tuner.responses, figureWidth, figureHeight)
+        allRasters = createRasterPlot(tuner.allRasters, figureWidthRaster, figureHeightRaster)
+    rasterGrid = createRasterPlot(tuner.responses, figureWidthRaster, figureHeightRaster)
 
     if not args.dont_plot : 
         filename = tuner.subjectsession + "_ch" + str(tuner.channel) + "_cl" + str(tuner.cluster) 
@@ -464,7 +486,7 @@ def createHeatMap(tuner, figureHeight, savePath="", addName=False) :
         html.Div(children=[dcc.Graph(id='rasterGrid-' + tuner.name, figure=rasterGrid)], style={'margin-top': 0})
     ])
 
-    return tunerDivGrid, numRegions, numStimPerRegion[1:], np.asarray(sizeFields), numNoRegionFound, numNoResponse
+    return tunerDivGrid, numRegions, numStimPerRegion[1:], np.asarray(sizeFields), numNoRegionFound, numNoResponse, heatmapCopy
 
 #############
 # LOAD DATA #
@@ -524,10 +546,13 @@ tuners = [ # clusters might not fit (manual clustering took place)
     Tuner("103_1", 58, 2, [], "Car2", "aos",  [], [], [], [], [], []),
     Tuner("100_1", 107, 1, [], "Animals and clothing", "aos",  [], [], [], [], [], []),
     Tuner("103_3", 64, 1, [], "Sea animals and dolly", "aos",  [], [], [], [], [], []),
+    Tuner("104_1", 16, 2, [], "Wood", "aos",  [], [], [], [], [], []),
+    Tuner("104_1", 15, 1, [], "Charcoal, Eyedropper", "aos",  [], [], [], [], [], []),
+    Tuner("104_1", 89, 2, [], "Backpack", "aos",  [], [], [], [], [], []),
 ]
 
-figureHeight = 600
-figureHeightBig = 750
+figureHeight = 1200
+figureHeightBig = 1500
 
 nConcepts = data.df_word_embeddings_tsne.shape[0]
 xThings = data.df_word_embeddings_tsne[:][1]
@@ -683,6 +708,7 @@ numNoRegionFound = 0
 numNoResponseFound = 0
 numStimPerRegionMatrixAllSites = []
 sizeFieldsMatrixAllSites = []
+heatmaps = []
 
 if args.show_all : 
     for unit in allUnits : 
@@ -694,6 +720,9 @@ if args.show_all :
         sizeFields = heatMapData[3]
         numNoRegionFound += heatMapData[4]
         numNoResponseFound += heatMapData[5]
+        heatmap = heatMapData[6]
+        heatmaps.append(heatmap)
+        #heatmap.data[0].z
         #for i in range(len(numStimPerRegionUnit)) : 
         #    numStimPerRegion[i] += numStimPerRegionUnit[i]
         ##sizeFields = sizeFields[np.where(sizeFields > 0)[0]]
@@ -702,13 +731,6 @@ if args.show_all :
         allSitesFields = np.concatenate((allSitesFields, np.repeat(site, len(sizeFields))), axis=None)
         numStimPerRegionMatrixAllSites.append(np.asarray(numStimPerRegionUnit))
         sizeFieldsMatrixAllSites.append(np.asarray(sizeFields))
-        #numStimPerRegion.append(heatMapData[2])
-        #site = unit.site
-        #if site == "LAH" or site == "LMH" : 
-        #    site = "LH"
-        #if site == "RAH" or site == "RMH" : 
-        #    site = "RH"
-        #site = site[1:]
         allSites.append(site)
         allHeatmaps.append(
             html.Div([
@@ -772,15 +794,103 @@ histMatrixStim = []
 histMatrixSize = []
 sizeFieldsCountsSorted = []
 numAtLeastOneField = len(np.where(numRegions > 0))
+heatmapsSites = []
+
+combinedPath = getImgPath() + os.sep + "combined" + os.sep 
+combinedPathAverage = combinedPath + "average" + os.sep
+combinedResponsesPath = combinedPath + "responses" + os.sep
+combinedAllPath = combinedPath + "all_stimuli" + os.sep
+os.makedirs(os.path.dirname(combinedPathAverage), exist_ok=True)
+os.makedirs(os.path.dirname(combinedResponsesPath), exist_ok=True)
+os.makedirs(os.path.dirname(combinedAllPath), exist_ok=True)
 
 for site in uniqueSites : 
     siteIndices = np.where(allSites == site)[0]
+
+    bestX = []
+    bestY = []
+    bestZ = []
+    bestNames = []
+    for unit in np.array(allUnits)[siteIndices] : 
+        if args.data_type == "zscores" : 
+            bestIndex = np.argmax(unit.zscores)
+            bestValue = unit.zscores[bestIndex]
+        else : 
+            bestIndex = np.argmax(unit.firingRates)
+            bestValue = unit.firingRates[bestIndex]
+        #if unit.stimuliX[bestIndex] in bestX : 
+        #    xIndex = np.where(bestX = unit.stimuliX[bestIndex])[0]
+        #else : 
+        bestX.append(unit.stimuliX[bestIndex])
+        bestY.append(unit.stimuliY[bestIndex])
+        bestZ.append(bestValue)
+        bestNames.append(unit.stimuliNames[bestIndex])
+
+    newBestX = []
+    newBestY = []
+    newBestZ = []
+    newBestNames = []
+    for x in np.unique(bestX) : 
+        indicesBest = np.where(bestX == x)[0]
+        newBestX.append(x)
+        newBestY.append(bestY[indicesBest[0]])
+        newBestZ.append(np.average(np.array(bestZ)[indicesBest]))
+        newBestNames.append(bestNames[indicesBest[0]])
+
+    allX = np.array([])
+    allY = np.array([])
+    allZ = np.array([])
+    allNames = np.array([])
+    for unit in np.array(allUnits)[siteIndices] :
+        allX = np.concatenate((allX, np.asarray(unit.stimuliX)), axis=None)
+        allY = np.concatenate((allY, np.asarray(unit.stimuliY)), axis=None)
+        if args.data_type == "zscores" : 
+            allZ = np.concatenate((allZ, np.asarray(unit.zscores)), axis=None)
+        else : 
+            allZ = np.concatenate((allZ, np.asarray(unit.firingRates)), axis=None)
+        allNames = np.concatenate((allNames, np.asarray(unit.stimuliNames)), axis=None)
+
+    newAllX = []
+    newAllY = []
+    newAllZ = []
+    newAllNames = []
+    for x in np.unique(allX) :
+        indices = np.where(allX == x)[0]
+        newAllX.append(x)
+        newAllY.append(allY[indices[0]])
+        newAllZ.append(np.average(allZ[indices]))
+        newAllNames.append(allNames[indices[0]])
+
+    #if args.data_type == "zscores" : 
+    #    bestResponsesSite = [max(unit.zscores) for unit in allUnits[siteIndices]]
+    #    bestResponsesX = 
+    #else : 
+    #    bestResponsesSite = [max(unit.firingRates) for unit in allUnits[siteIndices]]
+    heatmapBestResponsesSite = getInterpolatedMap(np.array(newBestX), np.array(newBestY), np.array(newBestZ))[0]
+    heatmapBestResponsesSite = addStimNames(heatmapBestResponsesSite, newBestX, newBestY, newBestNames)
+    heatmapBestResponsesSite.write_image(combinedResponsesPath + site + ".png")
+
+    heatmapAllResponsesSite = getInterpolatedMap(np.array(newAllX), np.array(newAllY), np.array(newAllZ))[0]
+    heatmapAllResponsesSite = addStimNames(heatmapAllResponsesSite, newBestX, newBestY, newBestNames)
+    #heatmapAllResponsesSite = addStimNames(heatmapAllResponsesSite, newAllX, newAllY, newAllNames)
+    heatmapAllResponsesSite.write_image(combinedAllPath + site + ".png")
+
+
+    heatmapsSite = np.matrix(heatmaps[siteIndices[0]])
+    for unit in range(1,len(siteIndices)) : 
+        heatmapsSite += np.matrix(heatmaps[siteIndices[unit]])
+    heatmapsSite = heatmapsSite / len(siteIndices)
+    heatmapsSites.append(heatmapsSite) 
+    heatmapIm = heatmapFromZ(heatmapsSite)
+    heatmapIm = addStimNames(heatmapIm, bestX, bestY, bestNames)
+    heatmapIm.write_image(combinedPathAverage + site + ".png")
     
     numRegionsSite = numRegions[siteIndices] 
     counts, bins = np.histogram(numRegionsSite, bins=binsRegions)
     numRegionsPlot = sns.barplot(x=bins[:-1], y=counts)
     plt.xticks(rotation=90, ha='right')
-    histMatrixRegions.append(counts.astype(np.float32) / sum(counts))
+    sumCounts = max(1.0, float(sum(counts)))
+    histMatrixRegions.append(counts.astype(np.float32) / sumCounts)
     save_img("numFields_" + site)
 
     numStimSiteCounts = np.array([])
@@ -792,19 +902,24 @@ for site in uniqueSites :
     counts, bins = np.histogram(numStimSiteCounts, bins=binsStim)
     numStimPlot = sns.barplot(x=bins[:-1], y=counts)
     plt.xticks(rotation=90, ha='right')
-    histMatrixStim.append(counts/float(sum(counts)))
+    sumCounts = max(1.0, float(sum(counts)))
+    histMatrixStim.append(counts/sumCounts)
     save_img("numStimuli_" + site)
     
     counts, bins = np.histogram(sizeFieldsSiteCounts[np.where(sizeFieldsSiteCounts > 0)[0]], bins=binsSizeFields)
     sizeFieldsSitePlot = sns.barplot(x=bins[:-1], y=counts)
     plt.xticks(rotation=90, ha='right')
-    histMatrixSize.append(counts/float(sum(counts)))
+    sumCounts = max(1.0, float(sum(counts)))
+    histMatrixSize.append(counts/sumCounts)
     save_img("sizeFields_" + site)
+
 
 
 siteFields_df = pd.DataFrame(data=sizeFieldsRegion, columns=["size"])
 siteFields_df["sites"] = allSitesFields
 siteFieldsPlot = sns.boxplot(data=siteFields_df, x="sites", y="size")
+anova = stats.f_oneway(*histMatrixSize)
+#stats.f_oneway(tillamook, newport, petersburg, magadan, tvarminne)
 
 
 #:param pvalue_thresholds: list of lists, or tuples. Default is: For "star" text_format: `[[1e-4, "****"], [1e-3, "***"], [1e-2, "**"], [0.05, "*"], [1, "ns"]]`. For "simple" text_format : `[[1e-5, "1e-5"], [1e-4, "1e-4"], [1e-3, "0.001"], [1e-2, 
@@ -819,22 +934,36 @@ siteFieldsPlot = sns.boxplot(data=siteFields_df, x="sites", y="size")
 #boxPairs = [("A", "H"), ("A", "EC"), ("H", "EC")]
 #annotator = Annotator(siteFieldsPlot, boxPairs, data=siteFields_df, x="sites", y="size")
 
-if args.plot_regions == "collapse_hemispheres" : 
-    annotator = Annotator(siteFieldsPlot, 
-            [("A", "H"), ("A", "EC"), ("A", "PIC"), ("A", "PHC"), ("H", "EC"), ("H", "PIC"), ("H", "PHC"), ("EC", "PIC"), ("EC", "PHC"), ("PIC", "PHC")], 
-            data=siteFields_df, x="sites", y="size")
-    annotator.configure(test='Mann-Whitney', text_format='star', loc='outside')
-    annotator.apply_and_annotate()
-if args.plot_regions == "hemispheres" : 
-    annotator = Annotator(siteFieldsPlot, 
-        [("L", "R")], 
-        data=siteFields_df, x="sites", y="size")
-    annotator.configure(test='Mann-Whitney', text_format='star', loc='outside')
-    annotator.apply_and_annotate()
+uniqueSitesFields = np.unique(allSitesFields)
+if len(uniqueSitesFields) > 1 :
+    annotationSites = [(uniqueSitesFields[site1], uniqueSitesFields[site2]) for site1 in range(len(uniqueSitesFields)) for site2 in range(len(uniqueSitesFields)) if site1 < site2]
+    annotator = Annotator(siteFieldsPlot, annotationSites, data=siteFields_df, x="sites", y="size")
+    annotator.configure(test='t-test_ind', text_format='star', loc='outside')
+    annotator.apply_and_annotate() 
+
+#if args.plot_regions == "collapse_hemispheres" : 
+#    uniqueSitesFields = np.unique(allSitesFields)
+#    annotationSites = [(uniqueSitesFields[site1], uniqueSitesFields[site2]) for site1 in range(len(uniqueSitesFields)) for site2 in range(len(uniqueSitesFields)) if site1 < site2]
+#    annotator = Annotator(siteFieldsPlot, annotationSites, data=siteFields_df, x="sites", y="size")
+    #annotator = Annotator(siteFieldsPlot, 
+    #        [("A", "H"), ("A", "EC"), ("A", "PIC"), ("A", "PHC"), ("H", "EC"), ("H", "PIC"), ("H", "PHC"), ("EC", "PIC"), ("EC", "PHC"), ("PIC", "PHC")], 
+    #        data=siteFields_df, x="sites", y="size")
+    #Annotator(siteFieldsPlot, 
+    #        [("A", "EC"), ("A", "H"), ("A", "PHC"), ("EC", "H"), ("EC", "PHC"), ("H", "PHC")], 
+    #        data=siteFields_df, x="sites", y="size")
+#    annotator.configure(test='t-test_ind', text_format='star', loc='outside')
+#    annotator.apply_and_annotate()
+#if args.plot_regions == "hemispheres" : 
+#    if "L" in allSites and "R" in allSites : 
+#        annotator = Annotator(siteFieldsPlot, 
+#            [("L", "R")], 
+#            data=siteFields_df, x="sites", y="size")
+#        annotator.configure(test='Mann-Whitney', text_format='star', loc='outside')
+#        annotator.apply_and_annotate()
 save_img("sizeFieldsBox")
 
 
-sizeFieldsPlot = createStdErrorMeanPlot(uniqueSites, sizeFieldsCountsSorted, "Average size of semantic fields", yLabel="", xLabel="Size fields")
+sizeFieldsPlot = createStdErrorMeanPlot(uniqueSites, sizeFieldsCountsSorted, "Average size of semantic fields, p: " + str(anova.pvalue), yLabel="", xLabel="Size fields")
 save_img("sizeFieldsBars", sizeFieldsPlot)
 
 numRegions_df = pd.DataFrame(np.asarray(histMatrixRegions).transpose(), columns = uniqueSites)
