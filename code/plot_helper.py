@@ -39,6 +39,11 @@ class RasterInput:
     maxX : int = field (default_factory=lambda: 1500)
 
 
+def adjustFontSize() : 
+    #plt.xticks(fontsize=20)
+    #plt.yticks(fontsize=20)
+    plt.tick_params(axis='both', which='major', labelsize=14)
+
 def plotRaster(rasterInput, linewidth=1) : 
 
     upperBound = 1000
@@ -227,7 +232,7 @@ def createHistPlt(x, inputBins, factorY=1.0, labelX="", labelY="", color="blue",
 def createHist(x, inputBins, factorY=1.0, labelX="", labelY="", color="blue") : 
     counts, bins = np.histogram(x, bins=inputBins)
     fig = px.bar(x=bins[:-1], y=counts.astype(float)*float(factorY), labels={'x':labelX, 'y':labelY})
-    fig.update_traces(marker_color=color)
+    fig.update_traces(marker_color=color)#, font=dict(size=24))
     return fig
 
 def createHistCompleteXTick(x, inputBins, factorY, labelX, labelY="count", color="blue") :
@@ -284,6 +289,32 @@ def createHistCombined(x, y1, y2, factorY, yLabel1, yLabel2) :
         'legend': dict(y=0.8, xref="container", yref="container")})
     
     return updateFigure(fig)
+
+def createGroupedHist(values, sites, binsStart, binsStop, binsStep=1, title="", xLabel="") : 
+    values = np.asarray(values)
+    sites = np.array(sites)
+    fig = go.Figure()
+    for site in np.unique(sites) : 
+        fig.add_trace(go.Histogram(
+            x=values[np.where(sites==site)[0]],
+            #histnorm='percent',
+            name=site, # name used in legend and hover labels
+            xbins=dict( start=binsStart, end=binsStop, size=binsStep),
+            #marker_color='#EB89B5',
+            #opacity=0.75
+        ))
+
+    fig.update_layout(
+        font=dict(size=24), 
+        title_text=title,
+        xaxis_title_text=xLabel, # xaxis label
+        yaxis_title_text='Count', # yaxis label
+    #    bargap=0.2, # gap between bars of adjacent location coordinates
+    #    bargroupgap=0.1 # gap between bars of the same location coordinates
+    )
+
+    return fig
+
 
 def updateFigure(fig) : 
     fig.update_layout(

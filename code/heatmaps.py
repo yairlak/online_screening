@@ -54,7 +54,7 @@ parser.add_argument('--session', default=None, type=str,
                             e.g., '90_1'.")
 
 # ANALYSIS
-parser.add_argument('--data_type', default="zscores", type=str, # zscores or firing_rates or zsctatistics
+parser.add_argument('--data_type', default="firing_rates", type=str, # zscores or firing_rates or zsctatistics
                     help="Determines underlying datatype for heatmaps. \
                         Currently, zscores or firing_rates are implemented.")
 parser.add_argument('--min_t', default=0, type=int, #100
@@ -132,7 +132,16 @@ class Tuner:
     numTrials : List[int] = field(default_factory=lambda: [])
 
 def getImgPath() : 
-    return args.path2images + os.sep + args.data_type + "_" + args.plot_regions
+    if args.only_SU : 
+        unitPath = "SU"
+    else : 
+        unitPath = "MU_SU"
+    return args.path2images + os.sep + args.data_type + "_" + args.plot_regions + "_" + unitPath
+
+def saveImgFont(filename, plotlyFig = None): 
+    adjustFontSize()
+    plt.xticks(rotation='horizontal')
+    #saveImgFont(filename, plotlyFig)
 
 def save_img(filename, plotlyFig = None) : 
 
@@ -215,7 +224,6 @@ def createRasterPlot(rasterToPlot, figureWidth, figureHeight) :
             
     return rasterGrid
 
-
 def addStimNames(heatmap, x, y, names): 
     heatmap.add_trace(go.Scatter(mode='text', x=rescaleX(x), y=rescaleY(y), text=names, textfont=dict(size=12,color="black"),))
     heatmap.update_layout(go.Layout(showlegend=False))
@@ -231,6 +239,16 @@ def rescaleY(y) :
     return args.interpolation_factor * (yPadding - yMinThings) / (yMaxThings - yMinThings) - 0.5
 
 def heatmapFromZ(z) : 
+    #fig = plt.imshow(z, cmap='RdBu_r', interpolation='nearest')
+    #fig = sns.heatmap(z, cmap='RdBu')
+    
+    # Plot the heatmap
+    #fig = ax.imshow(data, **kwargs)
+
+    # Create colorbar
+    #cbar = ax.figure.colorbar(im, ax=ax, **cbar_kw)
+    #cbar.ax.set_ylabel(cbarlabel, rotation=-90, va="bottom")
+
     fig = px.imshow(z,aspect=1.0,color_continuous_scale='RdBu_r',origin='lower')
     font = dict(weight='bold', size=32)
 
@@ -280,11 +298,11 @@ def getInterpolatedMap(x, y, z, pvalues=False) :
         rbf = scipy.interpolate.Rbf(xWithBorder, yWithBorder, zWithBorder, function='linear')
         zi = rbf(xi, yi)
 
-    return heatmapFromZ(zi), xi, yi #, zmax=1
+    return heatmapFromZ(zi), xi, yi#, zmax=1
 
 def createHeatMap(tuner, figureHeight, savePath="", addName=False) : 
 
-    outputPath = args.path2images + os.sep + args.data_type + "_" + args.plot_regions + os.sep + savePath
+    outputPath = getImgPath() + os.sep + savePath
     #if args.only_8_trials : 
     relevant = np.where(tuner.numTrials >= args.min_num_trials)[0]
     #else : 
@@ -310,7 +328,6 @@ def createHeatMap(tuner, figureHeight, savePath="", addName=False) :
     regionsLabels = label(regionsHeatmap, connectivity=2)
     heatmapCopy = heatmap.data[0].z.copy()
 
-    
     #remove areas without response (including consider)
     numRegionsStart = np.amax(regionsLabels)
     regionsLabels[regionsLabels > 0] += 1000
@@ -379,6 +396,7 @@ def createHeatMap(tuner, figureHeight, savePath="", addName=False) :
         sizeFields.append(numFieldsReg / numTotalFields)
 
     mask = heatmapOnlyResponses.data[0].z
+    mask[np.where(regionsLabels == 0)] = 0.3
     mask[np.where(regionsLabels > 0)] = 1
 
     numRegions = len(np.where(numStimPerRegion > 1)[0]) # np.amax(regionsLabels) = np.where(numStimPerRegion > 0) # criterion: at least 2 stim in blob
@@ -408,14 +426,15 @@ def createHeatMap(tuner, figureHeight, savePath="", addName=False) :
         xaxis=dict(ticks='', showticklabels=False),
         yaxis=dict(ticks='', showticklabels=False),
         showlegend=False, 
-        autosize=False,
+        autosize=True,
         height=figureHeight,
         width=figureWidth
     )
 
-    heatmap.update_layout(graphLayout)
     heatmapOnlyResponses.update_layout(graphLayout)
     heatmapOnlyResponses.update_layout(go.Layout(title_text = titleText + ", numRegions: " + str(numRegions)))
+    heatmap.update_layout(graphLayout)
+    heatmap.update_layout(go.Layout(width=figureWidth+140))
     
     figureWidthRaster = figureWidth #figureHeightRaster*3/2
     figureHeightRaster = figureWidthRaster * 2/3
@@ -430,17 +449,31 @@ def createHeatMap(tuner, figureHeight, savePath="", addName=False) :
         else : 
             filename = outputPath + os.sep + str(numRegions) + "regions" + os.sep + filename
         heatmapFilename = filename + "_heatmap.png"
+        heatmapMaskedFilename = filename + "_heatmap_masked.png"
         heatmapOnlyResponsesFilename = filename + "_heatmap_responses.png"
         rasterFilename = filename + "_rasterplots.png"
         rastersAllFilename = filename + "_rasterplots_all.png"
         completeFilename = filename 
         os.makedirs(os.path.dirname(filename), exist_ok=True)
 
+        heatmap.update_coloraxes(colorbar_tickfont_size=50)
+        heatmap.update_coloraxes(colorbar_thickness=100)
+        #heatmap.update_layout(width=2000)
         heatmapOnlyResponses.write_image(heatmapOnlyResponsesFilename)
         heatmap.write_image(heatmapFilename)
         heatmap.write_image(filename + "_heatmap.svg")
-        heatmap.data[0].z *= mask
-        heatmap.write_image(filename + "_heatmap_masked.png")
+        #go.Image(z=images[1], opacity=0.1)
+        #heatmap.add_trace(go.Image(z=mask, opacity=0.1))
+        #px.imshow(mask, alpha=alphas, **imshow_kwargs)
+        heatmapTmp = heatmap.data[0].z.copy()
+        heatmap.data[0].z = mask * heatmap.data[0].z 
+        heatmap.update_coloraxes(showscale=False)
+        heatmap.update_layout(go.Layout(width=figureWidth, title_text=""))
+        heatmap.update_layout(go.Layout(margin=go.layout.Margin(l=30, r=30, b=30, t=30)))
+        heatmap.write_image(heatmapMaskedFilename)
+        #heatmapTmp.data[0].z = heatmapTmp
+        #heatmap.update_coloraxes(showscale=False)
+
         rasterGrid.write_image(rasterFilename)
         rasterGrid.write_image(filename + "_rasterplots.svg")
         if args.plot_all_rasters : 
@@ -448,6 +481,7 @@ def createHeatMap(tuner, figureHeight, savePath="", addName=False) :
 
         pltHeatmap = Image.open(heatmapFilename)
         pltRaster = Image.open(rasterFilename)
+        pltMask = Image.open(heatmapMaskedFilename)
 
         totalWidth = max([pltHeatmap.size[0], pltRaster.size[0]])
         totalHeight = pltHeatmap.size[1] + pltRaster.size[1]
@@ -457,9 +491,15 @@ def createHeatMap(tuner, figureHeight, savePath="", addName=False) :
         completeImage.paste(pltRaster, (0,pltHeatmap.size[1]))
         completeImage.save(completeFilename + ".png")
         #completeImage.save(completeFilename + ".svg")
+        
+        ##pltMask.putalpha(127)  # Half alpha; alpha argument must be an int
+        pltHeatmap.paste(pltMask, (0, 0))
+        #pltHeatmap.imshow(pltMask, alpha=0.5)
+        pltHeatmap.save(heatmapMaskedFilename)
+        #ax.set_axis_off()
 
-        os.remove(heatmapFilename)
-        os.remove(rasterFilename)
+        #os.remove(heatmapFilename)
+        #os.remove(rasterFilename)
 
 
     tunerDivGrid = html.Div([
@@ -729,9 +769,14 @@ if args.show_all :
 print("For " + str(numNoRegionFound) + " responses there was no region found!")
 print("For " + str(numNoResponseFound) + " regions there was no response found!")
 
+#font = dict(weight='bold', size=8)
+#plt.rc('font', **font)
+
 counts, bins = np.histogram(numStimPerRegion, bins=np.arange(1,max(numStimPerRegion)+1, dtype=int))
 sns.barplot(x=bins[:-1], y=counts, color='blue')
-save_img("numStimuliPerField")
+#plt.xticks(fontsize=20)
+#plt.yticks(fontsize=20)
+saveImgFont("numStimuliPerField")
 
 #createAndSave(createStep)
 #binsSizeFields = np.arange(0.0,max(sizeFieldsRegion)+0.001, 0.001)
@@ -742,16 +787,16 @@ binsSizeFields = np.append(np.array([0] + [0.001 * 2**i for i in range(10)]),1.0
 #xticksSizeFields = np.arange(0.0,max(sizeFieldsRegion)+0.001, 0.005)
 counts, bins = np.histogram(sizeFieldsRegion[np.where(sizeFieldsRegion > 0)[0]], bins=binsSizeFields)
 sizeFieldsPlot = sns.barplot(x=bins[:-1], y=counts, color='blue')
-plt.xticks(rotation=90, ha='right')
+#plt.xticks(rotation=90, ha='right')
 #sizeFieldsPlot.set_xticks(range(len(xticksSizeFields)), labels=xticksSizeFields)
 #sizeFieldsPlot.set_xticks(xticksSizeFields)
 #sns.histplot(x=numStimPerRegion, y=np.arange(1,max(numStimPerRegion)+1))
 #plt.xticks(xticksSizeFields)
-save_img("sizeFields")
+saveImgFont("sizeFields")
 
 counts, bins = np.histogram(numRegions, bins=np.append(np.arange(1,10), np.inf))
 sns.barplot(x=bins[:-1], y=counts, color='blue')
-save_img("numFields")
+saveImgFont("numFields")
 
 allSites = np.array(allSites)
 uniqueSites = np.unique(allSites)
@@ -872,7 +917,7 @@ for site in uniqueSites :
     plt.xticks(rotation=90, ha='right')
     sumCounts = max(1.0, float(sum(counts)))
     histMatrixRegions.append(counts.astype(np.float32) / sumCounts)
-    save_img("numFields_" + site)
+    saveImgFont("numFields_" + site)
 
     numStimSiteCounts = np.array([])
     sizeFieldsSiteCounts = np.array([])
@@ -883,16 +928,18 @@ for site in uniqueSites :
     counts, bins = np.histogram(numStimSiteCounts, bins=binsStim)
     numStimPlot = sns.barplot(x=bins[:-1], y=counts)
     plt.xticks(rotation=90, ha='right')
+    adjustFontSize()
     sumCounts = max(1.0, float(sum(counts)))
     histMatrixStim.append(counts/sumCounts)
-    save_img("numStimuli_" + site)
+    saveImgFont("numStimuli_" + site)
     
     counts, bins = np.histogram(sizeFieldsSiteCounts[np.where(sizeFieldsSiteCounts > 0)[0]], bins=binsSizeFields)
     sizeFieldsSitePlot = sns.barplot(x=bins[:-1], y=counts)
+    adjustFontSize()
     plt.xticks(rotation=90, ha='right')
     sumCounts = max(1.0, float(sum(counts)))
     histMatrixSize.append(counts/sumCounts)
-    save_img("sizeFields_" + site)
+    saveImgFont("sizeFields_" + site)
 
 
 
@@ -941,11 +988,11 @@ if len(uniqueSitesFields) > 1 :
 #            data=siteFields_df, x="sites", y="size")
 #        annotator.configure(test='Mann-Whitney', text_format='star', loc='outside')
 #        annotator.apply_and_annotate()
-save_img("sizeFieldsBox")
+saveImgFont("sizeFieldsBox")
 
 
 sizeFieldsPlot = createStdErrorMeanPlot(uniqueSites, sizeFieldsCountsSorted, "Average size of semantic fields, p: " + str(anova.pvalue), yLabel="", xLabel="Size fields")
-save_img("sizeFieldsBars", sizeFieldsPlot)
+saveImgFont("sizeFieldsBars", sizeFieldsPlot)
 
 numRegions_df = pd.DataFrame(np.asarray(histMatrixRegions).transpose(), columns = uniqueSites)
 numRegions_df["index"] = binsRegions[:-1] #np.append(binsRegions[1:], [len(binsRegions)])
@@ -953,7 +1000,7 @@ numRegions_df.plot(kind="bar", x="index", figsize=(10,6), ylabel="Fraction of nu
 #numRegionsPlot.set_xticklabels(np.append(bins, [bins[-1]+1]))
 plt.xticks(rotation=90, ha='right')
 plt.legend(loc='center left', bbox_to_anchor=(1.0, 0.5))
-save_img("numFields_grouped")
+saveImgFont("numFields_grouped")
 
 numStim_df = pd.DataFrame(np.asarray(histMatrixStim).transpose(), columns = uniqueSites)
 #binsStim[-1] = len(binsStim)-1
@@ -962,7 +1009,7 @@ numStim_df.plot(kind="bar", x="index", figsize=(10,6), ylabel="Fraction of numbe
 plt.xticks(rotation=90, ha='right')
 #numRegionsPlot.set_xticklabels(np.append(binsStim, [bins[-1]+1]))
 plt.legend(loc='center left', bbox_to_anchor=(1.0, 0.5))
-save_img("numStimuli_grouped")
+saveImgFont("numStimuli_grouped")
 
 numStim_df = pd.DataFrame(np.asarray(histMatrixSize).transpose(), columns = uniqueSites)
 #binsStim[-1] = len(binsStim)-1
@@ -971,7 +1018,7 @@ numStim_df.plot(kind="bar", x="index", figsize=(10,6), ylabel="Fraction of field
 plt.xticks(rotation=90, ha='right')
 #numRegionsPlot.set_xticklabels(np.append(binsStim, [bins[-1]+1]))
 plt.legend(loc='center left', bbox_to_anchor=(1.0, 0.5))
-save_img("sizeFields_grouped")
+saveImgFont("sizeFields_grouped")
 
 
 
