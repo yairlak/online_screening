@@ -93,7 +93,7 @@ parser.add_argument('--interpolation_factor', type=float, default=100,
                     help='heatmap interpolation grid size')
 parser.add_argument('--padding_factor', type=float, default=1.1,
                     help='padding around datapoints')
-parser.add_argument('--plot_regions', default='collapse_hemispheres',
+parser.add_argument('--plot_regions', default='hemispheres',
                     help='"full"->all regions, "hemispheres"->split into hemispheres, "collapse_hemispheres"->regions of both hemispheres are collapsed')  
 
 # PATHS
@@ -105,7 +105,7 @@ parser.add_argument('--path2wordembeddings',
 parser.add_argument('--path2wordembeddingsTSNE',
                     default='../data/THINGS/sensevec_TSNE.csv')
 parser.add_argument('--path2data', 
-                    default='../data/aos_one_session/') # also work with nos? aos_after_manual_clustering, aos_selected_sessions, aos_one_session
+                    default='../data/aos_after_manual_clustering/') # also work with nos? aos_after_manual_clustering, aos_selected_sessions, aos_one_session
 parser.add_argument('--path2heatmapdata', 
                     default='../data/heatmaps') # also work with nos? aos_after_manual_clustering, aos_selected_sessions, aos_one_session
 parser.add_argument('--path2images', 
@@ -531,9 +531,6 @@ data.load_word_embeddings_tsne() # -> data.df_word_embeddings_tsne
 print("\nTime loading data: " + str(time.time() - startLoadData) + " s\n")
 
 sitesToConsider = ["LA", "RA", "LEC", "REC", "LAH", "RAH", "LMH", "RMH", "LPHC", "RPHC", "LPIC", "RPIC"]
-#sitesToConsider = ["LPIC", "RPIC"]
-#sitesToExclude = ["LFa", "LTSA", "LTSP", "Fa", "TSA", "TSP", "LPL", "LTP", "LTB", "RMC", "RAI", "RAC", "RAT", "RFO", "RFa", "RFb", "RFc", "RT", "RFI", "RFM", "RIN", "LFI", "LFM", "LIN"]
-
 tuners = [ # clusters might not fit (manual clustering took place)
     #Tuner("088e03aos1", 17, 1, "Pacifier", "aos", [], [], [], [], []),
     Tuner("103_1", 70, 1, [], "Car parts", "aos", [], [], [], [], [], []),
@@ -594,35 +591,23 @@ outputPath =  args.path2images + os.sep + args.data_type
 
 allUnits = []
 
-
 print("Time preparing data: " + str(time.time() - startPrepareData) + " s\n")
 
-#external_stylesheets = ['https://codepen.io/chriddyp/pen/bWLwgP.css']
-#app = dash.Dash(__name__, external_stylesheets=external_stylesheets)
-
-#table_options_heatmap = [{'tuners-heatmap-column': tuners[i].name, 'id': i} for i in range(len(tuners))]
-
-
-#startHeatmap = getInterpolatedMap(np.array(tuners[0].stimuliX), np.array(tuners[0].stimuliY), np.array(tuners[0].zscores))
-
-
-
 startTimeFullAnalysis = time.time()
-numRegions = []
-allHeatmaps = []
+#numRegions = []
+#allHeatmaps = []
 #allSitesComplete = []
-allSites = []
-allSitesFields = []
-numStimPerRegion = np.array([])#np.zeros((100,),dtype=int)
-sizeFieldsRegion = np.array([])#np.zeros((100,),dtype=int)
-numStimPerRegionMatrixAllSites = []
-sizeFieldsMatrixAllSites = []
-heatmaps = []
+#allSites = []
+#allSitesFields = []
+#numStimPerRegion = np.array([])#np.zeros((100,),dtype=int)
+#sizeFieldsRegion = np.array([])#np.zeros((100,),dtype=int)
+#numStimPerRegionMatrixAllSites = []
+#sizeFieldsMatrixAllSites = []
+#heatmaps = []
 heatmapsComplete = []
 numStimPerRegionUnitComplete = []
 sizeFieldsComplete = []
 numRegionsComplete = []
-
 
 
 if args.load_data : 
@@ -670,25 +655,14 @@ else :
             trials = data.neural_data[session]['units'][unit]['trial']
             kind = data.neural_data[session]['units'][unit]['kind']
             firingRates = data.neural_data[session]['units'][unit]['firing_rates']
-            #firingRates = get_mean_firing_rate_normalized(trials, stimuliIndices, args.min_t, args.max_t)[0]
             name = "pat " + str(subjectNum) + ", session " + str(sessionNum) + ", " + channelName + ", channel " + str(channel) + ", cluster " + str(cluster) + ", " + kind
             
             if site not in sitesToConsider : 
                 continue
 
-            #if (not kind == "SU") and args.only_SU : 
-            #    continue
-            
-            #site = getSite(site, args.plot_regions)
-
             responses = []
             allRasters = []
             responseIndices = data.neural_data[session]['units'][unit]['responses']
-            #for responseIndex in responseIndices : 
-            #    stimulusName = stimuliNames[responseIndex]
-            #    trialIndices = np.where(np.asarray(stimuliNamesTrials) == stimulusName)[0]
-            #    stimulusTrials = trials[trialIndices]
-            #    responses.append(RasterInput(stimulusName, pvals[responseIndex], trials[trialIndices]))
             numTrials = []
 
             for i in range(len(pvals)) : 
@@ -752,12 +726,6 @@ else :
 
 
     for unit in allUnits : 
-        #site = unit.site
-
-        #if args.load_data : 
-        #    heatmap_load_df["numStimPerRegionUnit"]
-
-        #else : 
         heatMapData = createHeatMap(unit, figureHeight)
         heatMapFigure = heatMapData[0]
         numStimPerRegionUnit = heatMapData[2]
@@ -770,19 +738,6 @@ else :
         sizeFieldsComplete.append(sizeFields)
         numStimPerRegionUnitComplete.append(numStimPerRegionUnit)
         numRegionsComplete.append(heatMapData[1])
-        #allSitesComplete.append(site)
-        #site = getSite(site, args.plot_regions)
-        #if (not unit.unitType == "SU") and args.only_SU : 
-        #    continue
-
-        #heatmaps.append(heatmap)
-        #numRegions.append(heatMapData[1])
-        #numStimPerRegion = np.concatenate((numStimPerRegion, np.asarray(numStimPerRegionUnit)), axis=None)
-        #sizeFieldsRegion = np.concatenate((sizeFieldsRegion, np.asarray(sizeFields)), axis=None)
-        #allSitesFields = np.concatenate((allSitesFields, np.repeat(site, len(sizeFields))), axis=None)
-        #numStimPerRegionMatrixAllSites.append(np.asarray(numStimPerRegionUnit))
-        #sizeFieldsMatrixAllSites.append(np.asarray(sizeFields))
-        #allSites.append(site)
         print("Created heatmap for " + unit.name + ", num stimuli per field: " + str(numStimPerRegionUnit))
 
     print("For " + str(numNoRegionFound) + " responses there was no region found!")
@@ -829,59 +784,27 @@ heatmap_df["sites"] = allSites
 numStimPerRegionMatrixAllSites = heatmap_df["numStimPerRegion"]
 sizeFieldsMatrixAllSites = heatmap_df["sizeFields"]
 numRegions = heatmap_df["numRegions"]
+numStimPerRegion = np.array([])
+sizeFieldsRegion = np.array([])
+allSitesFields = np.array([])
 
 for index, unit in heatmap_df.iterrows() : 
     sizeFields = unit["sizeFields"]
-    #heatmaps = unit["heatmaps"]
     numStimPerRegionUnit = unit["numStimPerRegion"]
     site = unit["sites"]
 
-    #heatmaps.append(heatmap)
-    #numRegions.append(heatMapData[1])
     numStimPerRegion = np.concatenate((numStimPerRegion, np.asarray(numStimPerRegionUnit)), axis=None)
     sizeFieldsRegion = np.concatenate((sizeFieldsRegion, np.asarray(sizeFields)), axis=None)
     allSitesFields = np.concatenate((allSitesFields, np.repeat(site, len(sizeFields))), axis=None)
-    #numStimPerRegionMatrixAllSites.append(np.asarray(numStimPerRegionUnit))
-    #sizeFieldsMatrixAllSites.append(np.asarray(sizeFields))
-    #allSites.append(site)
-    
-    #allUnits.append(Tuner(0, 0, 0, 
-    #                    heatmap_df["unitType"][unitId], 
-    #                    heatmap_df["names"][unitId], "aos", [], 
-    #                    heatmap_df["stimulix"][unitId], 
-    #                    heatmap_df["stimuliY"][unitId], 
-    #                    heatmap_df["names"][unitId], 
-    #                    heatmap_df["zscores"][unitId], 
-    #                    heatmap_df["firingRates"][unitId], 
-    #                    heatmap_df["pvals"][unitId], 
-    #                    heatmap_df["responses"][unitId], allRasters, 
-    #                    heatmap_df["responseIndices"][unitId], 
-    #                    heatmap_df["sites"][unitId], [], 
-    #                    heatmap_df["numTrials"][unitId]))
-
-#font = dict(weight='bold', size=8)
-#plt.rc('font', **font)
 
 counts, bins = np.histogram(numStimPerRegion, bins=np.arange(1,max(numStimPerRegion)+1, dtype=int))
 sns.barplot(x=bins[:-1], y=counts, color='blue')
-#plt.xticks(fontsize=20)
-#plt.yticks(fontsize=20)
 saveImgFont("numStimuliPerField")
-
-#createAndSave(createStep)
-#binsSizeFields = np.arange(0.0,max(sizeFieldsRegion)+0.001, 0.001)
 
 binsSizeFields = np.round(np.append(np.arange(0.0, 0.05, 0.005), 1.0),3)
 binsSizeFields = np.append(np.array([0] + [0.001 * 2**i for i in range(10)]),1.0)
-#binsSizeFields = [0.0000001, 0.000001, 0.00001, 0.0001, 0.001, 0.1, 1.0]
-#xticksSizeFields = np.arange(0.0,max(sizeFieldsRegion)+0.001, 0.005)
 counts, bins = np.histogram(sizeFieldsRegion[np.where(sizeFieldsRegion > 0)[0]], bins=binsSizeFields)
 sizeFieldsPlot = sns.barplot(x=bins[:-1], y=counts, color='blue')
-#plt.xticks(rotation=90, ha='right')
-#sizeFieldsPlot.set_xticks(range(len(xticksSizeFields)), labels=xticksSizeFields)
-#sizeFieldsPlot.set_xticks(xticksSizeFields)
-#sns.histplot(x=numStimPerRegion, y=np.arange(1,max(numStimPerRegion)+1))
-#plt.xticks(xticksSizeFields)
 saveImgFont("sizeFields")
 
 counts, bins = np.histogram(numRegions, bins=np.append(np.arange(1,10), np.inf))
@@ -922,30 +845,19 @@ os.makedirs(os.path.dirname(combinedAllPath), exist_ok=True)
 
 for site in uniqueSites : 
     siteIndices = np.where(allSites == site)[0]
-    heatmap_site_df = heatmap_df.loc[heatmap_df['sites'] == 'site']
+    heatmap_site_df = heatmap_df.loc[heatmap_df['sites'] == site]
 
     bestX = []
     bestY = []
     bestZ = []
     bestNames = []
-    #for unit in np.array(allUnits)[siteIndices] : 
     for index, unit in heatmap_site_df.iterrows():
-    
-    #if args.data_type == "zscores" : 
         bestIndex = unit[args.data_type].argmax()
-        bestValue = unit[args.data_type].loc[bestIndex]
-            #bestIndex = np.argmax(unit.zscores)
-            #bestValue = unit.zscores[bestIndex]
-        #else : 
-        #    bestIndex = np.argmax(unit.firingRates)
-        #    bestValue = unit.firingRates[bestIndex]
-        #if unit.stimuliX[bestIndex] in bestX : 
-        #    xIndex = np.where(bestX = unit.stimuliX[bestIndex])[0]
-        #else : 
-        bestX.append(unit["stimuliX"].loc[bestIndex])
-        bestY.append(unit["stimuliY"].loc[bestIndex])
+        bestValue = unit[args.data_type][bestIndex]
+        bestX.append(unit["stimuliX"][bestIndex])
+        bestY.append(unit["stimuliY"][bestIndex])
         bestZ.append(bestValue)
-        bestNames.append(unit["stimuliNames"].loc[bestIndex])
+        bestNames.append(unit["stimuliNames"][bestIndex])
 
     newBestX = []
     newBestY = []
@@ -965,10 +877,7 @@ for site in uniqueSites :
     for index, unit in heatmap_site_df.iterrows() :
         allX = np.concatenate((allX, np.asarray(unit["stimuliX"])), axis=None)
         allY = np.concatenate((allY, np.asarray(unit["stimuliY"])), axis=None)
-        #if args.data_type == "zscores" : 
         allZ = np.concatenate((allZ, np.asarray(unit[args.data_type])), axis=None)
-        #else : 
-            #allZ = np.concatenate((allZ, np.asarray(unit.firingRates)), axis=None)
         allNames = np.concatenate((allNames, np.asarray(unit["stimuliNames"])), axis=None)
 
     newAllX = []
@@ -982,20 +891,13 @@ for site in uniqueSites :
         newAllZ.append(np.average(allZ[indices]))
         newAllNames.append(allNames[indices[0]])
 
-    #if args.data_type == "zscores" : 
-    #    bestResponsesSite = [max(unit.zscores) for unit in allUnits[siteIndices]]
-    #    bestResponsesX = 
-    #else : 
-    #    bestResponsesSite = [max(unit.firingRates) for unit in allUnits[siteIndices]]
     heatmapBestResponsesSite = getInterpolatedMap(np.array(newBestX), np.array(newBestY), np.array(newBestZ))[0]
     heatmapBestResponsesSite = addStimNames(heatmapBestResponsesSite, newBestX, newBestY, newBestNames)
     heatmapBestResponsesSite.write_image(combinedResponsesPath + site + ".png")
 
     heatmapAllResponsesSite = getInterpolatedMap(np.array(newAllX), np.array(newAllY), np.array(newAllZ))[0]
     heatmapAllResponsesSite = addStimNames(heatmapAllResponsesSite, newBestX, newBestY, newBestNames)
-    #heatmapAllResponsesSite = addStimNames(heatmapAllResponsesSite, newAllX, newAllY, newAllNames)
     heatmapAllResponsesSite.write_image(combinedAllPath + site + ".png")
-
 
     heatmapsSite = np.matrix(heatmaps[siteIndices[0]])
     for unit in range(1,len(siteIndices)) : 
@@ -1049,7 +951,6 @@ if len(uniqueSitesFields) > 1 :
     annotator = Annotator(siteFieldsPlot, annotationSites, data=siteFields_df, x="sites", y="size")
     annotator.configure(test='t-test_ind', text_format='star', loc='outside')
     annotator.apply_and_annotate() 
-
 saveImgFont("sizeFieldsBox")
 
 
