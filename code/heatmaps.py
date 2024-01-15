@@ -54,9 +54,9 @@ parser.add_argument('--session', default=None, type=str,
                             e.g., '90_1'.")
 
 # ANALYSIS
-parser.add_argument('--data_type', default="firing_rates", type=str, # zscores or firing_rates or zsctatistics
+parser.add_argument('--data_type', default="zscores", type=str, # zscores or firingRates or zsctatistics
                     help="Determines underlying datatype for heatmaps. \
-                        Currently, zscores or firing_rates are implemented.")
+                        Currently, zscores or firingRates are implemented.")
 parser.add_argument('--min_t', default=0, type=int, #100
                     help="Relevant for calculating mean firing_rate. \
                         Min time offset of spike after stimulus onset.")
@@ -67,8 +67,10 @@ parser.add_argument('--min_num_trials', default=5,
                     help='Min number of trials for a stimulus to be used for creating heatmap')
 
 # FLAGS
-parser.add_argument('--show_all', default=True,
-                    help='If True, all heatmaps are calculated, shown on dashboard and saved')
+parser.add_argument('--save_data', default=False,
+                    help='If True, all heatmaps are saved')
+parser.add_argument('--load_data', default=True,
+                    help='If True, all heatmaps are loaded')
 parser.add_argument('--dont_plot', action='store_true', default=False, 
                     help='If True, plotting to figures folder is supressed')
 parser.add_argument('--only_SU', default=True, 
@@ -104,6 +106,8 @@ parser.add_argument('--path2wordembeddingsTSNE',
                     default='../data/THINGS/sensevec_TSNE.csv')
 parser.add_argument('--path2data', 
                     default='../data/aos_one_session/') # also work with nos? aos_after_manual_clustering, aos_selected_sessions, aos_one_session
+parser.add_argument('--path2heatmapdata', 
+                    default='../data/heatmaps') # also work with nos? aos_after_manual_clustering, aos_selected_sessions, aos_one_session
 parser.add_argument('--path2images', 
                     default='../figures/heatmaps/') 
 
@@ -138,10 +142,14 @@ def getImgPath() :
         unitPath = "MU_SU"
     return args.path2images + os.sep + args.data_type + "_" + args.plot_regions + "_" + unitPath
 
+def getHeatmapPath() : 
+
+    return args.path2heatmapdata + '_' + str(args.interpolation_factor) + os.sep
+
 def saveImgFont(filename, plotlyFig = None): 
     adjustFontSize()
     plt.xticks(rotation='horizontal')
-    #saveImgFont(filename, plotlyFig)
+    save_img(filename, plotlyFig)
 
 def save_img(filename, plotlyFig = None) : 
 
@@ -228,7 +236,6 @@ def addStimNames(heatmap, x, y, names):
     heatmap.add_trace(go.Scatter(mode='text', x=rescaleX(x), y=rescaleY(y), text=names, textfont=dict(size=12,color="black"),))
     heatmap.update_layout(go.Layout(showlegend=False))
     return heatmap
-
 
 def rescaleX(x) :
     xPadding = np.asarray([xOut / args.padding_factor for xOut in x])
@@ -396,7 +403,7 @@ def createHeatMap(tuner, figureHeight, savePath="", addName=False) :
         sizeFields.append(numFieldsReg / numTotalFields)
 
     mask = heatmapOnlyResponses.data[0].z
-    mask[np.where(regionsLabels == 0)] = 0.3
+    mask[np.where(regionsLabels == 0)] = 0.5
     mask[np.where(regionsLabels > 0)] = 1
 
     numRegions = len(np.where(numStimPerRegion > 1)[0]) # np.amax(regionsLabels) = np.where(numStimPerRegion > 0) # criterion: at least 2 stim in blob
@@ -517,15 +524,9 @@ startLoadData = time.time()
 data = DataHandler(args) # class for handling neural and feature data
 data.load_metadata() # -> data.df_metadata
 #data.load_neural_data(min_active_trials=4) # -> data.neural_data
-data.load_neural_data(min_active_trials=6) # -> data.neural_data
 #data.load_word_embeddings() # -> data.df_word_embeddings
 data.load_word_embeddings_tsne() # -> data.df_word_embeddings_tsne
 
-# WHICH SESSION(S) TO RUN
-if args.session is None:
-    sessions = list(data.neural_data.keys())
-else:
-    sessions = [args.session]
 
 print("\nTime loading data: " + str(time.time() - startLoadData) + " s\n")
 
@@ -584,8 +585,8 @@ xMaxThings = xThings.max()
 yMinThings = yThings.min()
 yMaxThings = yThings.max()
 
-xThingsRescaled = rescaleX(xThings)
-yThingsRescaled = rescaleY(yThings)
+#xThingsRescaled = rescaleX(xThings)
+#yThingsRescaled = rescaleY(yThings)
 
 startPrepareData = time.time()
 inputPath = args.path2data #+ tuner.paradigm + "_after_manual_clustering/"
@@ -593,181 +594,270 @@ outputPath =  args.path2images + os.sep + args.data_type
 
 allUnits = []
 
-for session in sessions:
-    if not hasattr(args, 'unit'):
-        units = list(set(data.neural_data[session]['units'].keys()))
-    else:
-        units = [args.unit]
-
-    subjectNum = int(session.split("_")[0])
-    sessionNum = int(session.split("_")[1])
-    sessionParadigm = session.split("_")[2]
-
-    stimuliIndices = data.neural_data[session]['objectindices_session']
-    stimuliNames = data.neural_data[session]['stimlookup']
-    stimuliNamesTrials = data.neural_data[session]['objectnames']
-
-    stimuliNums = []
-    stimuliX = []
-    stimuliY = []
-
-    for stim in stimuliNames : 
-        stimInThings = np.where(data.df_metadata.uniqueID == stim)[0][0]
-        stimuliNums.append(stimInThings)
-        stimuliX.append(xThings[stimInThings])
-        stimuliY.append(yThings[stimInThings])
-    
-    for unit in units:
-        site = data.neural_data[session]['units'][unit]['site']
-        pvals = data.neural_data[session]['units'][unit]['p_vals']
-        zscores = data.neural_data[session]['units'][unit]['zscores']
-        zstatistics = data.neural_data[session]['units'][unit]['zstatistics']
-        channelName = data.neural_data[session]['units'][unit]['channel_name']
-        channel = data.neural_data[session]['units'][unit]['channel_num']
-        cluster = data.neural_data[session]['units'][unit]['class_num']
-        trials = data.neural_data[session]['units'][unit]['trial']
-        kind = data.neural_data[session]['units'][unit]['kind']
-        firingRates = data.neural_data[session]['units'][unit]['firing_rates']
-        #firingRates = get_mean_firing_rate_normalized(trials, stimuliIndices, args.min_t, args.max_t)[0]
-        name = "pat " + str(subjectNum) + ", session " + str(sessionNum) + ", " + channelName + ", channel " + str(channel) + ", cluster " + str(cluster) + ", " + kind
-        
-        if site not in sitesToConsider : 
-            continue
-
-        if (not kind == "SU") and args.only_SU : 
-            continue
-        
-        site = getSite(site, args.plot_regions)
-
-        responses = []
-        allRasters = []
-        responseIndices = data.neural_data[session]['units'][unit]['responses']
-        #for responseIndex in responseIndices : 
-        #    stimulusName = stimuliNames[responseIndex]
-        #    trialIndices = np.where(np.asarray(stimuliNamesTrials) == stimulusName)[0]
-        #    stimulusTrials = trials[trialIndices]
-        #    responses.append(RasterInput(stimulusName, pvals[responseIndex], trials[trialIndices]))
-        numTrials = []
-
-        for i in range(len(pvals)) : 
-            stimulusName = stimuliNames[i]
-            trialIndices = np.where(np.asarray(stimuliNamesTrials) == stimulusName)[0]
-            stimulusTrials = trials[trialIndices]
-            allRasters.append(RasterInput(stimulusName, pvals[i], stimulusTrials))
-            numTrials.append(len(stimulusTrials))
-
-            if i in responseIndices : 
-                responses.append(RasterInput(stimulusName, pvals[i], stimulusTrials))
-
-        if args.plot_all_rasters : 
-            allRasters = sorted(allRasters, key=lambda x: x.pval)
-            #allRasters = allRasters[:args.num_rasters]
-        else : 
-            allRasters = []
-        #allRasters.sort(key=operator.attrgetter('pvalues'))
-        numTrials = np.asarray(numTrials)
-
-        for tuner in tuners : 
-            if tuner.subjectsession + "_" + tuner.paradigm == session and tuner.channel == channel and tuner.cluster == cluster : 
-                tuner.zscores = zscores
-                tuner.firingRates = firingRates
-                tuner.stimuli = stimuliNums
-                tuner.stimuliNames = stimuliNames
-                tuner.stimuliX = stimuliX
-                tuner.stimuliY = stimuliY
-                tuner.responses = responses
-                tuner.unitType = kind
-                tuner.allRasters = allRasters
-                tuner.responseIndices = responseIndices
-                tuner.pvalues = pvals
-                tuner.site = site
-                tuner.zstatistics = zstatistics
-                tuner.numTrials = numTrials
-
-        #if all(pval >= args.alpha for pval in pvals) : 
-            #print("Skipping " + subjectSession + ", cell " + str(cellNum))
-            #continue
-
-        if len(responseIndices) > 0 : 
-            allUnits.append(Tuner(session, channel, cluster, kind, name, "aos", 
-                stimuliNums, stimuliX, stimuliY, stimuliNames, zscores, firingRates, pvals, responses, allRasters, responseIndices, site, zstatistics, numTrials))
-
-    print("Prepared session " + session)
 
 print("Time preparing data: " + str(time.time() - startPrepareData) + " s\n")
 
-external_stylesheets = ['https://codepen.io/chriddyp/pen/bWLwgP.css']
-app = dash.Dash(__name__, external_stylesheets=external_stylesheets)
+#external_stylesheets = ['https://codepen.io/chriddyp/pen/bWLwgP.css']
+#app = dash.Dash(__name__, external_stylesheets=external_stylesheets)
 
-table_options_heatmap = [{'tuners-heatmap-column': tuners[i].name, 'id': i} for i in range(len(tuners))]
+#table_options_heatmap = [{'tuners-heatmap-column': tuners[i].name, 'id': i} for i in range(len(tuners))]
 
 
-startHeatmap = getInterpolatedMap(np.array(tuners[0].stimuliX), np.array(tuners[0].stimuliY), np.array(tuners[0].zscores))
+#startHeatmap = getInterpolatedMap(np.array(tuners[0].stimuliX), np.array(tuners[0].stimuliY), np.array(tuners[0].zscores))
 
-startTimeTunerPlots = time.time()
-tunerHeatmaps = []
-for tuner in tuners : 
-    if len(tuner.pvalues) == 0 : 
-        print("WARNING! Tuner " + tuner.name + " not found ")
-        continue
-    tunerHeatmaps.append(
-        createHeatMap(tuner, figureHeightBig, "interesting", True)[0])
-
-    print("Created heatmap for " + tuner.name)    
-
-print("Time preparing tuner plots: " + str(time.time() - startTimeTunerPlots) + " s\n")
 
 
 startTimeFullAnalysis = time.time()
 numRegions = []
 allHeatmaps = []
+#allSitesComplete = []
 allSites = []
 allSitesFields = []
 numStimPerRegion = np.array([])#np.zeros((100,),dtype=int)
 sizeFieldsRegion = np.array([])#np.zeros((100,),dtype=int)
-numNoRegionFound = 0
-numNoResponseFound = 0
 numStimPerRegionMatrixAllSites = []
 sizeFieldsMatrixAllSites = []
 heatmaps = []
+heatmapsComplete = []
+numStimPerRegionUnitComplete = []
+sizeFieldsComplete = []
+numRegionsComplete = []
 
-if args.show_all : 
+
+
+if args.load_data : 
+    heatmap_df = pd.read_pickle(getHeatmapPath() + "heatmaps.pk1")
+else : 
+    
+    data.load_neural_data() # -> data.neural_data
+    sessions = list(data.neural_data.keys())
+
+    numNoRegionFound = 0
+    numNoResponseFound = 0
+
+    for session in sessions:
+        if not hasattr(args, 'unit'):
+            units = list(set(data.neural_data[session]['units'].keys()))
+        else:
+            units = [args.unit]
+
+        subjectNum = int(session.split("_")[0])
+        sessionNum = int(session.split("_")[1])
+        sessionParadigm = session.split("_")[2]
+
+        stimuliIndices = data.neural_data[session]['objectindices_session']
+        stimuliNames = data.neural_data[session]['stimlookup']
+        stimuliNamesTrials = data.neural_data[session]['objectnames']
+
+        stimuliNums = []
+        stimuliX = []
+        stimuliY = []
+
+        for stim in stimuliNames : 
+            stimInThings = np.where(data.df_metadata.uniqueID == stim)[0][0]
+            stimuliNums.append(stimInThings)
+            stimuliX.append(xThings[stimInThings])
+            stimuliY.append(yThings[stimInThings])
+        
+        for unit in units:
+            site = data.neural_data[session]['units'][unit]['site']
+            pvals = data.neural_data[session]['units'][unit]['p_vals']
+            zscores = data.neural_data[session]['units'][unit]['zscores']
+            zstatistics = data.neural_data[session]['units'][unit]['zstatistics']
+            channelName = data.neural_data[session]['units'][unit]['channel_name']
+            channel = data.neural_data[session]['units'][unit]['channel_num']
+            cluster = data.neural_data[session]['units'][unit]['class_num']
+            trials = data.neural_data[session]['units'][unit]['trial']
+            kind = data.neural_data[session]['units'][unit]['kind']
+            firingRates = data.neural_data[session]['units'][unit]['firing_rates']
+            #firingRates = get_mean_firing_rate_normalized(trials, stimuliIndices, args.min_t, args.max_t)[0]
+            name = "pat " + str(subjectNum) + ", session " + str(sessionNum) + ", " + channelName + ", channel " + str(channel) + ", cluster " + str(cluster) + ", " + kind
+            
+            if site not in sitesToConsider : 
+                continue
+
+            #if (not kind == "SU") and args.only_SU : 
+            #    continue
+            
+            #site = getSite(site, args.plot_regions)
+
+            responses = []
+            allRasters = []
+            responseIndices = data.neural_data[session]['units'][unit]['responses']
+            #for responseIndex in responseIndices : 
+            #    stimulusName = stimuliNames[responseIndex]
+            #    trialIndices = np.where(np.asarray(stimuliNamesTrials) == stimulusName)[0]
+            #    stimulusTrials = trials[trialIndices]
+            #    responses.append(RasterInput(stimulusName, pvals[responseIndex], trials[trialIndices]))
+            numTrials = []
+
+            for i in range(len(pvals)) : 
+                stimulusName = stimuliNames[i]
+                trialIndices = np.where(np.asarray(stimuliNamesTrials) == stimulusName)[0]
+                stimulusTrials = trials[trialIndices]
+                allRasters.append(RasterInput(stimulusName, pvals[i], stimulusTrials))
+                numTrials.append(len(stimulusTrials))
+
+                if i in responseIndices : 
+                    responses.append(RasterInput(stimulusName, pvals[i], stimulusTrials))
+
+            if args.plot_all_rasters : 
+                allRasters = sorted(allRasters, key=lambda x: x.pval)
+                #allRasters = allRasters[:args.num_rasters]
+            else : 
+                allRasters = []
+            #allRasters.sort(key=operator.attrgetter('pvalues'))
+            numTrials = np.asarray(numTrials)
+
+            for tuner in tuners : 
+                if tuner.subjectsession + "_" + tuner.paradigm == session and tuner.channel == channel and tuner.cluster == cluster : 
+                    tuner.zscores = zscores
+                    tuner.firingRates = firingRates
+                    tuner.stimuli = stimuliNums
+                    tuner.stimuliNames = stimuliNames
+                    tuner.stimuliX = stimuliX
+                    tuner.stimuliY = stimuliY
+                    tuner.responses = responses
+                    tuner.unitType = kind
+                    tuner.allRasters = allRasters
+                    tuner.responseIndices = responseIndices
+                    tuner.pvalues = pvals
+                    tuner.site = site
+                    tuner.zstatistics = zstatistics
+                    tuner.numTrials = numTrials
+
+            #if all(pval >= args.alpha for pval in pvals) : 
+                #print("Skipping " + subjectSession + ", cell " + str(cellNum))
+                #continue
+
+            if len(responseIndices) > 0 : 
+                allUnits.append(Tuner(session, channel, cluster, kind, name, "aos", 
+                    stimuliNums, stimuliX, stimuliY, stimuliNames, zscores, firingRates, pvals, responses, allRasters, responseIndices, site, zstatistics, numTrials))
+
+        print("Prepared session " + session)
+
+        
+    startTimeTunerPlots = time.time()
+    tunerHeatmaps = []
+    for tuner in tuners :
+        if len(tuner.pvalues) == 0 : 
+            print("WARNING! Tuner " + tuner.name + " not found ")
+            continue
+        tunerHeatmaps.append(
+            createHeatMap(tuner, figureHeightBig, "interesting", True)[0])
+
+        print("Created heatmap for " + tuner.name)    
+
+    print("Time preparing tuner plots: " + str(time.time() - startTimeTunerPlots) + " s\n")
+
+
     for unit in allUnits : 
-        site = unit.site
+        #site = unit.site
+
+        #if args.load_data : 
+        #    heatmap_load_df["numStimPerRegionUnit"]
+
+        #else : 
         heatMapData = createHeatMap(unit, figureHeight)
         heatMapFigure = heatMapData[0]
-        numRegions.append(heatMapData[1])
         numStimPerRegionUnit = heatMapData[2]
         sizeFields = heatMapData[3]
         numNoRegionFound += heatMapData[4]
         numNoResponseFound += heatMapData[5]
         heatmap = heatMapData[6]
-        heatmaps.append(heatmap)
-        #heatmap.data[0].z
-        #for i in range(len(numStimPerRegionUnit)) : 
-        #    numStimPerRegion[i] += numStimPerRegionUnit[i]
-        ##sizeFields = sizeFields[np.where(sizeFields > 0)[0]]
-        numStimPerRegion = np.concatenate((numStimPerRegion, np.asarray(numStimPerRegionUnit)), axis=None)
-        sizeFieldsRegion = np.concatenate((sizeFieldsRegion, np.asarray(sizeFields)), axis=None)
-        allSitesFields = np.concatenate((allSitesFields, np.repeat(site, len(sizeFields))), axis=None)
-        numStimPerRegionMatrixAllSites.append(np.asarray(numStimPerRegionUnit))
-        sizeFieldsMatrixAllSites.append(np.asarray(sizeFields))
-        allSites.append(site)
-        allHeatmaps.append(
-            html.Div([
-                html.H3(children='Activation heatmap ' + unit.name),
-                html.Div(children=[heatMapFigure]),
-                #html.Div([
-                #    dcc.Graph(id='heatmap-' + cell.name, figure=heatMapFigure)
-                #], className="nine columns"),
-            ], className="row"),
-        ) 
+
+        heatmapsComplete.append(heatmap)
+        sizeFieldsComplete.append(sizeFields)
+        numStimPerRegionUnitComplete.append(numStimPerRegionUnit)
+        numRegionsComplete.append(heatMapData[1])
+        #allSitesComplete.append(site)
+        #site = getSite(site, args.plot_regions)
+        #if (not unit.unitType == "SU") and args.only_SU : 
+        #    continue
+
+        #heatmaps.append(heatmap)
+        #numRegions.append(heatMapData[1])
+        #numStimPerRegion = np.concatenate((numStimPerRegion, np.asarray(numStimPerRegionUnit)), axis=None)
+        #sizeFieldsRegion = np.concatenate((sizeFieldsRegion, np.asarray(sizeFields)), axis=None)
+        #allSitesFields = np.concatenate((allSitesFields, np.repeat(site, len(sizeFields))), axis=None)
+        #numStimPerRegionMatrixAllSites.append(np.asarray(numStimPerRegionUnit))
+        #sizeFieldsMatrixAllSites.append(np.asarray(sizeFields))
+        #allSites.append(site)
         print("Created heatmap for " + unit.name + ", num stimuli per field: " + str(numStimPerRegionUnit))
 
-    print("Done loading all heatmaps!")
+    print("For " + str(numNoRegionFound) + " responses there was no region found!")
+    print("For " + str(numNoResponseFound) + " regions there was no response found!")
 
-print("For " + str(numNoRegionFound) + " responses there was no region found!")
-print("For " + str(numNoResponseFound) + " regions there was no response found!")
+
+    heatmap_df = pd.DataFrame()
+    heatmap_df["heatmaps"] = heatmapsComplete
+    heatmap_df["sizeFields"] = sizeFieldsComplete
+    heatmap_df["numRegions"] = numRegionsComplete
+    heatmap_df["numStimPerRegion"] = numStimPerRegionUnitComplete
+    heatmap_df["sites"] = np.array([unit.site for unit in allUnits])
+    heatmap_df["names"] = np.array([unit.name for unit in allUnits])
+    heatmap_df["zscores"] = [unit.zscores for unit in allUnits]
+    heatmap_df["stimuli"] = [unit.stimuli for unit in allUnits]
+    heatmap_df["stimuliNames"] = [unit.stimuliNames for unit in allUnits]
+    heatmap_df["stimuliX"] = [unit.stimuliX for unit in allUnits]
+    heatmap_df["stimuliY"] = [unit.stimuliY for unit in allUnits]
+    heatmap_df["unitType"] = [unit.unitType for unit in allUnits]
+    heatmap_df["allRasters"] = [unit.allRasters for unit in allUnits]
+    heatmap_df["responseIndices"] = [unit.responseIndices for unit in allUnits]
+    heatmap_df["pvalues"] = [unit.pvalues for unit in allUnits]
+    heatmap_df["numTrials"] = [unit.numTrials for unit in allUnits]
+    heatmap_df["firingRates"] = [unit.firingRates for unit in allUnits]
+    heatmap_df["pvals"] = [unit.pvalues for unit in allUnits]
+
+
+print("Done loading all heatmaps!")
+
+if args.save_data : 
+    os.makedirs(os.path.dirname(getHeatmapPath()), exist_ok=True)
+    heatmap_df.to_pickle(getHeatmapPath() + "heatmaps.pk1")
+    
+
+#unitIndices = np.range(len(allUnits))
+if args.only_SU : 
+    #unitIndices = np.where(heatmap_df["unitType"] == 'SU')[0]
+    heatmap_df = heatmap_df.loc[heatmap_df['unitType'] == 'SU']
+    heatmap_df.index = range(len(heatmap_df))
+
+heatmaps = heatmap_df["heatmaps"]
+allSites = [getSite(site, args.plot_regions) for site in heatmap_df["sites"]]
+heatmap_df["sites"] = allSites
+numStimPerRegionMatrixAllSites = heatmap_df["numStimPerRegion"]
+sizeFieldsMatrixAllSites = heatmap_df["sizeFields"]
+numRegions = heatmap_df["numRegions"]
+
+for index, unit in heatmap_df.iterrows() : 
+    sizeFields = unit["sizeFields"]
+    #heatmaps = unit["heatmaps"]
+    numStimPerRegionUnit = unit["numStimPerRegion"]
+    site = unit["sites"]
+
+    #heatmaps.append(heatmap)
+    #numRegions.append(heatMapData[1])
+    numStimPerRegion = np.concatenate((numStimPerRegion, np.asarray(numStimPerRegionUnit)), axis=None)
+    sizeFieldsRegion = np.concatenate((sizeFieldsRegion, np.asarray(sizeFields)), axis=None)
+    allSitesFields = np.concatenate((allSitesFields, np.repeat(site, len(sizeFields))), axis=None)
+    #numStimPerRegionMatrixAllSites.append(np.asarray(numStimPerRegionUnit))
+    #sizeFieldsMatrixAllSites.append(np.asarray(sizeFields))
+    #allSites.append(site)
+    
+    #allUnits.append(Tuner(0, 0, 0, 
+    #                    heatmap_df["unitType"][unitId], 
+    #                    heatmap_df["names"][unitId], "aos", [], 
+    #                    heatmap_df["stimulix"][unitId], 
+    #                    heatmap_df["stimuliY"][unitId], 
+    #                    heatmap_df["names"][unitId], 
+    #                    heatmap_df["zscores"][unitId], 
+    #                    heatmap_df["firingRates"][unitId], 
+    #                    heatmap_df["pvals"][unitId], 
+    #                    heatmap_df["responses"][unitId], allRasters, 
+    #                    heatmap_df["responseIndices"][unitId], 
+    #                    heatmap_df["sites"][unitId], [], 
+    #                    heatmap_df["numTrials"][unitId]))
 
 #font = dict(weight='bold', size=8)
 #plt.rc('font', **font)
@@ -832,25 +922,30 @@ os.makedirs(os.path.dirname(combinedAllPath), exist_ok=True)
 
 for site in uniqueSites : 
     siteIndices = np.where(allSites == site)[0]
+    heatmap_site_df = heatmap_df.loc[heatmap_df['sites'] == 'site']
 
     bestX = []
     bestY = []
     bestZ = []
     bestNames = []
-    for unit in np.array(allUnits)[siteIndices] : 
-        if args.data_type == "zscores" : 
-            bestIndex = np.argmax(unit.zscores)
-            bestValue = unit.zscores[bestIndex]
-        else : 
-            bestIndex = np.argmax(unit.firingRates)
-            bestValue = unit.firingRates[bestIndex]
+    #for unit in np.array(allUnits)[siteIndices] : 
+    for index, unit in heatmap_site_df.iterrows():
+    
+    #if args.data_type == "zscores" : 
+        bestIndex = unit[args.data_type].argmax()
+        bestValue = unit[args.data_type].loc[bestIndex]
+            #bestIndex = np.argmax(unit.zscores)
+            #bestValue = unit.zscores[bestIndex]
+        #else : 
+        #    bestIndex = np.argmax(unit.firingRates)
+        #    bestValue = unit.firingRates[bestIndex]
         #if unit.stimuliX[bestIndex] in bestX : 
         #    xIndex = np.where(bestX = unit.stimuliX[bestIndex])[0]
         #else : 
-        bestX.append(unit.stimuliX[bestIndex])
-        bestY.append(unit.stimuliY[bestIndex])
+        bestX.append(unit["stimuliX"].loc[bestIndex])
+        bestY.append(unit["stimuliY"].loc[bestIndex])
         bestZ.append(bestValue)
-        bestNames.append(unit.stimuliNames[bestIndex])
+        bestNames.append(unit["stimuliNames"].loc[bestIndex])
 
     newBestX = []
     newBestY = []
@@ -867,14 +962,14 @@ for site in uniqueSites :
     allY = np.array([])
     allZ = np.array([])
     allNames = np.array([])
-    for unit in np.array(allUnits)[siteIndices] :
-        allX = np.concatenate((allX, np.asarray(unit.stimuliX)), axis=None)
-        allY = np.concatenate((allY, np.asarray(unit.stimuliY)), axis=None)
-        if args.data_type == "zscores" : 
-            allZ = np.concatenate((allZ, np.asarray(unit.zscores)), axis=None)
-        else : 
-            allZ = np.concatenate((allZ, np.asarray(unit.firingRates)), axis=None)
-        allNames = np.concatenate((allNames, np.asarray(unit.stimuliNames)), axis=None)
+    for index, unit in heatmap_site_df.iterrows() :
+        allX = np.concatenate((allX, np.asarray(unit["stimuliX"])), axis=None)
+        allY = np.concatenate((allY, np.asarray(unit["stimuliY"])), axis=None)
+        #if args.data_type == "zscores" : 
+        allZ = np.concatenate((allZ, np.asarray(unit[args.data_type])), axis=None)
+        #else : 
+            #allZ = np.concatenate((allZ, np.asarray(unit.firingRates)), axis=None)
+        allNames = np.concatenate((allNames, np.asarray(unit["stimuliNames"])), axis=None)
 
     newAllX = []
     newAllY = []
@@ -947,20 +1042,6 @@ siteFields_df = pd.DataFrame(data=sizeFieldsRegion, columns=["size"])
 siteFields_df["sites"] = allSitesFields
 siteFieldsPlot = sns.boxplot(data=siteFields_df, x="sites", y="size")
 anova = stats.f_oneway(*histMatrixSize)
-#stats.f_oneway(tillamook, newport, petersburg, magadan, tvarminne)
-
-
-#:param pvalue_thresholds: list of lists, or tuples. Default is: For "star" text_format: `[[1e-4, "****"], [1e-3, "***"], [1e-2, "**"], [0.05, "*"], [1, "ns"]]`. For "simple" text_format : `[[1e-5, "1e-5"], [1e-4, "1e-4"], [1e-3, "0.001"], [1e-2, 
-#add_stat_annotation(siteFieldsPlot, data=siteFields_df, x="sites", y="size", 
-#                    box_pairs=[("A", "H"), ("A", "EC"), ("A", "PIC"), ("A", "PHC"), ("H", "EC"), ("H", "PIC"), ("H", "PHC"), ("EC", "PIC"), ("EC", "PHC"), ("PIC", "PHC")],
-#                    box_pairs=[("A", "H"), ("A", "EC"), ("PIC", "PHC")],
-                    
-#                    test='Mann-Whitney', text_format='star', loc='outside', verbose=2)
-
-#boxPairs=[("A", "H"), ("A", "EC"), ("A", "PIC"), ("A", "PHC"), ("H", "EC"), ("H", "PIC"), ("H", "PHC"), ("EC", "PIC"), ("EC", "PHC"), ("PIC", "PHC")]
-#boxPairs=[ ("A", "EC"), ("A", "PIC"), ("A", "PHC"), ("H", "PIC"), ("EC", "PIC")]
-#boxPairs = [("A", "H"), ("A", "EC"), ("H", "EC")]
-#annotator = Annotator(siteFieldsPlot, boxPairs, data=siteFields_df, x="sites", y="size")
 
 uniqueSitesFields = np.unique(allSitesFields)
 if len(uniqueSitesFields) > 1 :
@@ -969,25 +1050,6 @@ if len(uniqueSitesFields) > 1 :
     annotator.configure(test='t-test_ind', text_format='star', loc='outside')
     annotator.apply_and_annotate() 
 
-#if args.plot_regions == "collapse_hemispheres" : 
-#    uniqueSitesFields = np.unique(allSitesFields)
-#    annotationSites = [(uniqueSitesFields[site1], uniqueSitesFields[site2]) for site1 in range(len(uniqueSitesFields)) for site2 in range(len(uniqueSitesFields)) if site1 < site2]
-#    annotator = Annotator(siteFieldsPlot, annotationSites, data=siteFields_df, x="sites", y="size")
-    #annotator = Annotator(siteFieldsPlot, 
-    #        [("A", "H"), ("A", "EC"), ("A", "PIC"), ("A", "PHC"), ("H", "EC"), ("H", "PIC"), ("H", "PHC"), ("EC", "PIC"), ("EC", "PHC"), ("PIC", "PHC")], 
-    #        data=siteFields_df, x="sites", y="size")
-    #Annotator(siteFieldsPlot, 
-    #        [("A", "EC"), ("A", "H"), ("A", "PHC"), ("EC", "H"), ("EC", "PHC"), ("H", "PHC")], 
-    #        data=siteFields_df, x="sites", y="size")
-#    annotator.configure(test='t-test_ind', text_format='star', loc='outside')
-#    annotator.apply_and_annotate()
-#if args.plot_regions == "hemispheres" : 
-#    if "L" in allSites and "R" in allSites : 
-#        annotator = Annotator(siteFieldsPlot, 
-#            [("L", "R")], 
-#            data=siteFields_df, x="sites", y="size")
-#        annotator.configure(test='Mann-Whitney', text_format='star', loc='outside')
-#        annotator.apply_and_annotate()
 saveImgFont("sizeFieldsBox")
 
 
@@ -1020,54 +1082,4 @@ plt.xticks(rotation=90, ha='right')
 plt.legend(loc='center left', bbox_to_anchor=(1.0, 0.5))
 saveImgFont("sizeFields_grouped")
 
-
-
 print("Time accumulated analysis: " + str(time.time() - startTimeFullAnalysis) + " s\n")
-
-app.layout = html.Div(children=[
-    html.H1(children='Tuners'),
-    html.H2(children='Activation heatmap'),
-
-    html.Div([
-        
-        html.Div(id='heatmapDiv', className = "nine columns"),
-
-        html.Div([
-            dash_table.DataTable(
-                id='tuners-heatmap-table',
-                style_cell={'textAlign': 'left'},
-                columns=[{"name": "Tuners", "id": "tuners-heatmap-column", "deletable": False, "selectable": True}],
-                data=table_options_heatmap, 
-                editable=False,
-                page_action='none',
-                style_table={
-                    'margin-top': 100,
-                    'height': figureHeightBig - 200,
-                    'overflowY': 'scroll'
-                }
-            ), 
-        ], className="two columns"),
-    ], className="row"),
-
-    html.Div(children = allHeatmaps),
-])
-
-print("\n--- Ready! ---\n\n")
-
-
-@app.callback(
-    Output(component_id='heatmapDiv', component_property='children'), #src
-    Input('tuners-heatmap-table', 'active_cell')
-)
-def update_output_div(active_cell):
- 
-    if(active_cell == None) :
-        tunerIndex = 0
-    else : 
-        tunerIndex = active_cell['row']
-
-    return tunerHeatmaps[tunerIndex]
-
-
-if __name__ == '__main__':
-    app.run_server(debug=False) # why ?
