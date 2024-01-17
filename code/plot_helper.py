@@ -8,6 +8,7 @@
 import os
 
 import numpy as np
+import pandas as pd
 import statistics 
 from fit_data import *
 from scipy import stats
@@ -197,7 +198,7 @@ def create2DhemispherePlt(valuesSites, sitenames) :
                 right.append(statistics.mean(valuesSites["R" + site_general_name]))
                 sitename_r_squared.append(site_general_name)
 
-    if len(sitenames) == 0: 
+    if len(sitename_r_squared) == 0: 
         print("WARNING! 2D hemisphere plots could not be created. This happens when the hemispheres are collapsed.")
         return
 
@@ -239,10 +240,12 @@ def createHistPlt(x, inputBins, factorY=1.0, labelX="", labelY="", color="blue",
     plot = sns.barplot(x=xPlot, y=yPlot, color=color) # .astype(int) TODO
     plot.set(xlabel=labelX, ylabel=labelY)
 
-def createHist(x, inputBins, factorY=1.0, labelX="", labelY="", color="blue") : 
+def createHist(x, inputBins, factorY=1.0, labelX="", labelY="", color="blue", title="") : 
     counts, bins = np.histogram(x, bins=inputBins)
     fig = px.bar(x=bins[:-1], y=counts.astype(float)*float(factorY), labels={'x':labelX, 'y':labelY})
     fig.update_traces(marker_color=color)#, font=dict(size=24))
+    if len(title) > 0 : 
+        fig.update_layout(title=title)
     return fig
 
 def createHistCompleteXTick(x, inputBins, factorY, labelX, labelY="count", color="blue") :
@@ -306,20 +309,39 @@ def createHistCombined(x, y1, y2, factorY, yLabel1, yLabel2) :
 
     return updateFigure(fig)
 
+def createGroupedHistNew(values, sites, bins, title="", xLabel="") : 
+
+    newBins = np.append(np.round(np.asarray(bins), 2), np.inf)
+    uniqueSites = np.unique(sites)
+    hist_df = pd.DataFrame(columns=uniqueSites)
+    hist_df['bins'] = newBins[:-1]
+    hist_df.set_index('bins', inplace=True)
+
+    for site in uniqueSites : 
+        counts, bins = np.histogram(np.asarray(values)[np.where(np.asarray(sites)==site)[0]], bins=newBins)
+        hist_df[site] = counts
+
+    hist_df.plot(kind="bar", stacked=False)
+    plt.xlabel(xLabel)
+    plt.title(title)
+
+
 def createGroupedHist(values, sites, binsStart, binsStop, binsStep=1, title="", xLabel="") : 
     values = np.asarray(values)
     sites = np.array(sites)
+
     fig = go.Figure()
     for site in np.unique(sites) : 
         fig.add_trace(
-            go.Histogram(
-            x=values[np.where(sites==site)[0]],
+            createHist(values[np.where(sites==site)[0]], np.arange(binsStart, binsStop+binsStep, binsStep))
+            ##go.Histogram(
+            ##x=values[np.where(sites==site)[0]],
             #histnorm='percent',
-            name=site, # name used in legend and hover labels
-            xbins=dict( start=binsStart, end=binsStop, size=binsStep),
+            ##name=site, # name used in legend and hover labels
+            ##xbins=dict( start=binsStart, end=binsStop, size=binsStep),
             #marker_color='#EB89B5',
             #opacity=0.75
-            )
+            ##)
         )
         #fig.add_trace(createHist(values[np.where(sites==site)[0]], np.append(np.arange(binsStart, binsStop, binsStep), np.inf)))
 
@@ -330,11 +352,13 @@ def createGroupedHist(values, sites, binsStart, binsStop, binsStep=1, title="", 
         yaxis_title_text='Count', # yaxis label
     #    bargap=0.2, # gap between bars of adjacent location coordinates
     #    bargroupgap=0.1 # gap between bars of the same location coordinates
-        xaxis = dict(
+        #xaxis = dict(
+        #    tickvals = np.arange(binsStart, binsStop+binsStep, binsStep),
+        #    ticktext = np.arange(binsStart, binsStop+binsStep, binsStep)
             #tickmode = 'linear',
-            tick0 = binsStart,
-            dtick = binsStep
-        )
+        ##    tick0 = binsStart,
+            #dtick = binsStep
+        #)
     )
 
     return updateFigure(fig)

@@ -54,7 +54,7 @@ parser.add_argument('--session', default=None, type=str,
                             e.g., '90_1'.")
 
 # ANALYSIS
-parser.add_argument('--data_type', default="firing_rates", type=str, # zscores or firingRates or zsctatistics
+parser.add_argument('--data_type', default="zscores", type=str, # zscores or firingRates or zsctatistics
                     help="Determines underlying datatype for heatmaps. \
                         Currently, zscores or firingRates are implemented.")
 parser.add_argument('--min_t', default=0, type=int, #100
@@ -67,9 +67,9 @@ parser.add_argument('--min_num_trials', default=5,
                     help='Min number of trials for a stimulus to be used for creating heatmap')
 
 # FLAGS
-parser.add_argument('--save_data', default=True,
+parser.add_argument('--save_data', default=False,
                     help='If True, all heatmaps are saved')
-parser.add_argument('--load_data', default=False,
+parser.add_argument('--load_data', default=True,
                     help='If True, all heatmaps are loaded')
 parser.add_argument('--dont_plot', action='store_true', default=False, 
                     help='If True, plotting to figures folder is supressed')
@@ -89,11 +89,11 @@ parser.add_argument('--alpha_region', type=float, default=0.01,
                     help='alpha for stats')
 
 # PLOT
-parser.add_argument('--interpolation_factor', type=float, default=100,
+parser.add_argument('--interpolation_factor', type=float, default=1000,
                     help='heatmap interpolation grid size')
 parser.add_argument('--padding_factor', type=float, default=1.1,
                     help='padding around datapoints')
-parser.add_argument('--plot_regions', default='collapse_hemispheres',
+parser.add_argument('--plot_regions', default='hemispheres',
                     help='"full"->all regions, "hemispheres"->split into hemispheres, "collapse_hemispheres"->regions of both hemispheres are collapsed')  
 
 # PATHS
@@ -623,7 +623,7 @@ numRegionsComplete = []
 
 
 if args.load_data : 
-    heatmap_df = pd.read_pickle(args.path2heatmapdata + "_" + args.data_type + '_' + str(args.interpolation_factor) + os.sep + "heatmaps.pk1")
+    heatmap_df = pd.read_pickle(args.path2heatmapdata + os.sep + "heatmaps_" + args.data_type + "_" + str(args.interpolation_factor) + ".pk1")
 else : 
     
     data.load_neural_data() # -> data.neural_data

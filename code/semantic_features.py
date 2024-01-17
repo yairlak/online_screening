@@ -51,7 +51,7 @@ parser.add_argument('--only_SU', default=True,
                     help='If True, only single units are considered')
 parser.add_argument('--load_cat2object', default=False, 
                     help='If True, cat2object is loaded')
-parser.add_argument('--plot_regions', default='collapse_hemispheres',
+parser.add_argument('--plot_regions', default='hemispheres',
                     help='"full"->all regions, "hemispheres"->split into hemispheres, "collapse_hemispheres"->regions of both hemispheres are collapsed')  
 parser.add_argument('--analyze', type=str, default="categories", #"categories", "embedding", "PCA" --> use categories from things, all 300 features, or PCA
                     help='If True, categories are considered, if false word embedding')  
@@ -167,9 +167,10 @@ def create_category_map(categories, concepts) :
 def create_category_bar_graph(df, path, title="", xlabel="") : 
     df = df.sort_values(na_position='first')
     if len(df) > 0 : 
-        plt.figure(figsize=(barplotWidth, barplotHeight))
+        plt.figure(figsize=(barplotWidth, barplotHeight / 2))
         adjustFontSize()
-        df.plot(kind='barh', stacked=True)
+        plt.tick_params(labelsize=24)
+        df.plot(kind='barh', stacked=True, color="blue")
         if len(xlabel) > 0 : 
             plt.xlabel(xlabel)
         if len(title) > 0 : 
@@ -196,8 +197,11 @@ def create_category_plot_stacked(df, path) :
     grouped_df = sort_by_sum_sites(grouped_df)
 
     if len(grouped_df) > 0 : 
-        plt.figure(figsize=(2 * barplotWidth, barplotHeight))
+        plt.figure(figsize=(barplotWidth, barplotHeight))
+        font = dict(weight='normal', size=14)
+        plt.rc('font', **font)
         grouped_df.plot(kind='barh', stacked=True)
+        plt.tick_params(labelsize=10)
         save_plt(semantic_fields_path + os.sep + "category_counts" + os.sep + path + os.sep + "all_stacked")
 
     return grouped_df
@@ -224,12 +228,18 @@ def create_category_plots(category_df, site) :
         all_responsive_percent = sort_by_sum_sites(all_responsive_percent)
         
         if len(all_responsive_percent) > 0 : 
-            plt.figure(figsize=(2 * barplotWidth, barplotHeight))
+            plt.figure(figsize=(barplotWidth, barplotHeight))
+            font = dict(weight='normal', size=14)
+            plt.rc('font', **font)
             all_responsive_percent.plot(kind='barh', stacked=True)
+            plt.tick_params(labelsize=10)
             save_plt(semantic_fields_path + os.sep + "category_counts" + os.sep + "responsive_percent" + os.sep + "all_stacked")
 
-            plt.figure(figsize=(2 * barplotWidth, barplotHeight))
+            plt.figure(figsize=(barplotWidth, barplotHeight))
+            #plt.tick_params(labelsize=18)
             all_responsive_percent.plot(kind='barh', stacked=False)
+            plt.tick_params(labelsize=10)
+            #plt.tick_params(axis='both', which='major', labelsize=10)
             save_plt(semantic_fields_path + os.sep + "category_counts" + os.sep + "responsive_percent" + os.sep + "all_grouped")
 
         first_unit_per_session = category_df.loc[category_df["first"] == 1]#.groupby(["category", "session", "presented"]).first()
@@ -628,6 +638,8 @@ for site in sites :
 
 sites = ['all'] + sorted(sites)
 
+adjustFontSize()
+
 sortedSignificant = np.argsort(categoriesSignificantCount)
 categoryNames = categoryNames[sortedSignificant]
 categoriesSignificantCount = categoriesSignificantCount[sortedSignificant]
@@ -696,6 +708,8 @@ createHistPlt(num_significant_weights, range(0,28), 1.0, "Number of significant 
 save_plt(semantic_fields_path + "num_significant_weights")
 
 if len(num_categories_spanned) > 0 : 
+    adjustFontSize()
+
     createHistPlt(num_categories_spanned, range(0,max(num_categories_spanned)))
     save_plt(semantic_fields_path + "num_responsive_categories")
 

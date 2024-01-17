@@ -48,13 +48,13 @@ parser.add_argument('--metric', default='cosine',
                     help='Distance metric')
 parser.add_argument('--similarity_matrix_delimiter', default=',', type=str,
                     help='Similarity metric delimiter')
-parser.add_argument('--response_metric', default='pvalues', # zscores, or pvalues or firing_rates
+parser.add_argument('--response_metric', default='firing_rates', # zscores, or pvalues or firing_rates
                     help='Metric to rate responses') # best firing_rates = best zscore ?!
 
 # FLAGS
 parser.add_argument('--dont_plot', action='store_true', default=False, 
                     help='If True, plotting to figures folder is supressed')
-parser.add_argument('--only_SU', default=True, 
+parser.add_argument('--only_SU', default=False, 
                     help='If True, only single units are considered')
 parser.add_argument('--only_responses', default=False, 
                     help='If True, only stimuli ecliciting responses are considered')
@@ -211,6 +211,15 @@ class Region:
     rDiffGauss : List = field (default_factory=lambda: [])
     rDiffLogGauss : List = field (default_factory=lambda: [])
 
+def save_plt(filename) : 
+
+    file = getImgpath() + os.sep + filename 
+
+    if not args.dont_plot : 
+        os.makedirs(os.path.dirname(file), exist_ok=True)
+        plt.savefig(file + ".png", bbox_inches="tight")
+        plt.clf()
+    plt.close()
 
 def createAndSave(fig, filename) : 
     fig = updateFigure(fig) #updateFigure(func) 
@@ -803,22 +812,40 @@ for site in allSiteNames :
     #goodFit = np.where(logFit.gof < args.thresh_gof)[0]
 
     #regions[site].logisticFitGood = logFit.getGood(gof, -args.thresh_gof)
-    regions[site].logisticFitGood = regions[site].logisticFit.getGood(regions[site].logisticFit.rSquared, 0.1)
+    regions[site].logisticFitGood = regions[site].logisticFit.getGood(regions[site].logisticFit.rSquared, 0.05)
 
 slopesStart = -2
 slopesStop = 7
 slopesStep = 0.2
 #uniqueSites = np.unique(np.array(regions[allRegionsName].logisticFit.sites))
 
-createAndSave(createGroupedHist(
-    regions[allRegionsName].logisticFit.steepestSlopes, regions[allRegionsName].logisticFit.sites, slopesStart, 3, 0.5, "Steepest slope of logistic fit data per neuron", xLabel="Slopes"), 
-    "fit" + os.sep + "slopes_grouped" + os.sep + "all")
-createAndSave(createGroupedHist(
-    regions[allRegionsName].logisticFitGood.steepestSlopes, regions[allRegionsName].logisticFitGood.sites, slopesStart, 3, 0.5, "Steepest slope of logistic fit per neuron", xLabel="Slopes"), 
-    "fit" + os.sep + "slopes_grouped" + os.sep + "all_good")
-createAndSave(createGroupedHist(
-    regions[allRegionsName].logisticFit.params[0], regions[allRegionsName].logisticFit.sites, 0.0, 1.01, 0.1, "x0 of logistic fit per neuron", "x0"), 
-    "fit" + os.sep + "x0_grouped" + os.sep + "all")
+#createGroupedHistNew(
+#    regions[allRegionsName].logisticFit.steepestSlopes, regions[allRegionsName].logisticFit.sites, np.arange(slopesStart, 3, 0.5)) 
+#save_plt("fit" + os.sep + "slopes_grouped" + os.sep + "all_new")
+#saveImg("fit" + os.sep + "slopes_grouped" + os.sep + "all_new")
+
+createGroupedHistNew(
+    regions[allRegionsName].logisticFit.steepestSlopes, regions[allRegionsName].logisticFit.sites, np.arange(-2.0, 3.0, 0.5), "Steepest slope of logistic fit data per neuron", xLabel="Slopes") 
+save_plt("fit" + os.sep + "slopes_grouped" + os.sep + "all")
+createGroupedHistNew(
+    regions[allRegionsName].logisticFitGood.steepestSlopes, regions[allRegionsName].logisticFitGood.sites, np.arange(-2.0, 3.0, 0.5), "Steepest slope of logistic fit data per neuron", xLabel="Slopes") 
+save_plt("fit" + os.sep + "slopes_grouped" + os.sep + "all_good")
+createGroupedHistNew(
+    regions[allRegionsName].logisticFit.params[0], regions[allRegionsName].logisticFit.sites, np.arange(0, 1.0, 0.1), "x0 of logistic fit per neuron", "x0") 
+save_plt("fit" + os.sep + "x0_grouped" + os.sep + "all")
+createGroupedHistNew(
+    regions[allRegionsName].logisticFitGood.params[0], regions[allRegionsName].logisticFitGood.sites, np.arange(0, 1.0, 0.1), "x0 of logistic fit per neuron", "x0") 
+save_plt("fit" + os.sep + "x0_grouped" + os.sep + "all_good")
+
+#createAndSave(createGroupedHist(
+#    regions[allRegionsName].logisticFit.steepestSlopes, regions[allRegionsName].logisticFit.sites, slopesStart, 3, 0.5, "Steepest slope of logistic fit data per neuron", xLabel="Slopes"), 
+#    "fit" + os.sep + "slopes_grouped" + os.sep + "all")
+#createAndSave(createGroupedHist(
+#    regions[allRegionsName].logisticFitGood.steepestSlopes, regions[allRegionsName].logisticFitGood.sites, slopesStart, 3, 0.5, "Steepest slope of logistic fit per neuron", xLabel="Slopes"), 
+#    "fit" + os.sep + "slopes_grouped" + os.sep + "all_good")
+#createAndSave(createGroupedHist(
+#    regions[allRegionsName].logisticFit.params[0], regions[allRegionsName].logisticFit.sites, 0.0, 1.01, 0.1, "x0 of logistic fit per neuron", "x0"), 
+#    "fit" + os.sep + "x0_grouped" + os.sep + "all")
 
 for site in allSiteNames : 
 
@@ -895,7 +922,8 @@ for site in allSiteNames :
             gof = str(round(logFit.gof[i],2))
 
             logisticFitFigSingle.update_layout(
-                title_text="Logistic fit. R: " + rStr + ", gof: " + gof + ", X0: " + str(round(pTmp[0][i],2)) + ", K: " + str(round(pTmp[1][i],2)) + ", a: " + str(round(pTmp[2][i],2)) + ", c: " + str(round(pTmp[3][i],2)),
+                title_text="Logistic fit. R squared: " + rStr + ", X0: " + str(round(pTmp[0][i],2)) + ", K: " + str(round(pTmp[1][i],2)),
+                #title_text="Logistic fit. R: " + rStr + ", gof: " + gof + ", X0: " + str(round(pTmp[0][i],2)) + ", K: " + str(round(pTmp[1][i],2)) + ", a: " + str(round(pTmp[2][i],2)) + ", c: " + str(round(pTmp[3][i],2)),
                 xaxis_title='Semantic similarity',
                 yaxis_title='Firing rate',
                 showlegend=False 
@@ -1062,16 +1090,16 @@ for site in allSiteNames :
     #    createBoxPlot([regions[site].logisticFitGood.steepestSlopes], [""], "Steepest slope of fitted data per neuron"), 
     #    "fit" + os.sep + "slopes_good" + os.sep + fileDescription)
     allRegionSlopePlots.append(createAndSave(
-        createHist([regions[site].logisticFit.steepestSlopes], np.arange(slopesStart,slopesStop,slopesStep), factorY=1.0, labelX="Steepest slopes", labelY="Num"),
+        createHist([regions[site].logisticFit.steepestSlopes], np.arange(slopesStart,slopesStop,slopesStep), factorY=1.0, labelX="Steepest slopes", labelY="Num", title="Distribution of slopes of logistic fit"),
         "fit" + os.sep + "slopes" + os.sep + fileDescription))
     createAndSave(
-        createHist([regions[site].logisticFitGood.steepestSlopes], np.arange(slopesStart,slopesStop,slopesStep), factorY=1.0, labelX="Steepest slopes", labelY="Num"),
+        createHist([regions[site].logisticFitGood.steepestSlopes], np.arange(slopesStart,slopesStop,slopesStep), factorY=1.0, labelX="Steepest slopes", labelY="Num", title="Distribution of slopes of logistic fit"),
         "fit" + os.sep + "slopes_good" + os.sep + fileDescription)
     createAndSave(
-        createHist([regions[site].logisticFit.params[0]], np.append(np.append(np.arange(0.0,1.0,0.1), np.inf), np.inf), factorY=1.0, labelX="x0", labelY="Num"),
+        createHist([regions[site].logisticFit.params[0]], np.append(np.append(np.arange(0.0,1.0,0.1), np.inf), np.inf), factorY=1.0, labelX="x0", labelY="Num", title="Distribution of x0 of logistic fit"),
         "fit" + os.sep + "x0_steps" + os.sep + fileDescription)
     createAndSave(
-        createHist([regions[site].logisticFitGood.params[0]], np.append(np.append(np.arange(0.0,1.0,0.1), np.inf), np.inf), factorY=1.0, labelX="x0", labelY="Num"),
+        createHist([regions[site].logisticFitGood.params[0]], np.append(np.append(np.arange(0.0,1.0,0.1), np.inf), np.inf), factorY=1.0, labelX="x0", labelY="Num", title="Distribution of x0 of logistic fit"),
         "fit" + os.sep + "x0_steps_good" + os.sep + fileDescription)
     #allRegionSlopePlots.append(createAndSave(
     #    createBoxPlot([regions[site].logisticFit.steepestSlopes, regions[site].gaussFit.steepestSlopes], ["Log", "Gauss"], "Steepest slope of fitted data"), 
