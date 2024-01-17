@@ -1,7 +1,7 @@
 from cmath import isnan
 import math
 #from re import I
-#import statsmodels.api as sm
+import statsmodels.api as sm
 import numpy as np
 import scipy
 import statistics
@@ -38,6 +38,8 @@ class Fitter :
     plotDetails : List = field (default_factory=lambda: [])
     plotDetailsNoFit : List = field (default_factory=lambda: [])
 
+    sites : List = field (default_factory=lambda: [])
+
     def getFitter(func, funcParams, paramsNames, p0, bounds, stepSize=0.02) : 
         newFitter = Fitter()
         newFitter.stepSize = stepSize
@@ -55,7 +57,7 @@ class Fitter :
     
     def getGood(self, gof, thresh) : 
         newFitter = Fitter()
-        goodFit = np.where(np.asarray(gof) >= thresh)[0]
+        goodFit = np.where(np.absolute(np.asarray(gof)) >= thresh)[0]
         
         newFitter.stepSize = self.stepSize
         newFitter.numSteps = self.numSteps
@@ -81,6 +83,7 @@ class Fitter :
 
         newFitter.plotDetails = np.asarray(self.plotDetails)[goodFit]
         #newFitter.plotDetailsNoFit = self.plotDetailsNoFit[goodFit]
+        newFitter.sites = np.asarray(self.sites)[goodFit]
         return newFitter
 
 
@@ -89,7 +92,7 @@ class Fitter :
     #    ssTot = np.sum((y - statistics.mean(y))**2)
     #    return 1 - ssRes/ssTot
 
-    def addFit(self, xToFit, yToFit, plotDetails="", spearman=0.0) :
+    def addFit(self, xToFit, yToFit, plotDetails="", spearman=0.0, site=None) :
         yToFitNormalized = yToFit - min(yToFit)
         yToFitNormalized = yToFitNormalized / max(yToFitNormalized)
         #yToFit = yToFitNormalized
@@ -128,7 +131,7 @@ class Fitter :
 
         #null_deviance = result.llnull
         #model_deviance = result.llf
-        McFadden_R2 = 1.0 # 1 - (model_deviance / null_deviance)
+        McFadden_R2 = 1 # 1 - (model_deviance / null_deviance)
         self.gof.append(McFadden_R2) 
 
 
@@ -154,6 +157,11 @@ class Fitter :
         #    print("--- BAD fitting of logistic function. K: " + str(popt[1]))
         #else : 
         #    print("--- GOOD fitting of logistic function. K: " + str(popt[1]))
+            
+        if not site is None :
+            self.sites.append(site) 
+        else : 
+            self.sites.append("") 
         
         return rSquared
 
@@ -331,7 +339,8 @@ def logFuncParams(x, params) :
     return logFunc(x, params[0], params[1], params[2], params[3])
 
 def logFunc(x, x0, k, a, c) :
-    return a + (c - a) * scipy.special.expit((x-x0)*(-k))
+    return scipy.special.expit((x-x0)*(-k))
+    #return a + (c - a) * scipy.special.expit((x-x0)*(-k))
 
 def stepParams(x, params) :
     return step(x, params[0], params[1], params[2])

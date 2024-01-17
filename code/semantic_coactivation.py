@@ -48,13 +48,13 @@ parser.add_argument('--metric', default='cosine',
                     help='Distance metric')
 parser.add_argument('--similarity_matrix_delimiter', default=',', type=str,
                     help='Similarity metric delimiter')
-parser.add_argument('--response_metric', default='firing_rates', # zscores, or pvalues or firing_rates
+parser.add_argument('--response_metric', default='pvalues', # zscores, or pvalues or firing_rates
                     help='Metric to rate responses') # best firing_rates = best zscore ?!
 
 # FLAGS
 parser.add_argument('--dont_plot', action='store_true', default=False, 
                     help='If True, plotting to figures folder is supressed')
-parser.add_argument('--only_SU', default=False, 
+parser.add_argument('--only_SU', default=True, 
                     help='If True, only single units are considered')
 parser.add_argument('--only_responses', default=False, 
                     help='If True, only stimuli ecliciting responses are considered')
@@ -212,8 +212,8 @@ class Region:
     rDiffLogGauss : List = field (default_factory=lambda: [])
 
 
-def createAndSave(func, filename) : 
-    fig = func #updateFigure(func) 
+def createAndSave(fig, filename) : 
+    fig = updateFigure(fig) #updateFigure(func) 
     saveImg(fig, filename)
     return fig
 
@@ -225,6 +225,7 @@ def getImgpath() :
     return args.path2images + "_" + args.response_metric + os.sep + args.plot_regions + "_" + unitPath
 
 def saveImg(fig, filename) : 
+    fig = updateFigure(fig) #updateFigure(func) 
     pathWordEmbeddings = "" # args.path2wordembeddings.split(".")[-2].split("/")[-1] + "_"
 
     file = getImgpath() + os.sep + filename 
@@ -816,7 +817,7 @@ createAndSave(createGroupedHist(
     regions[allRegionsName].logisticFitGood.steepestSlopes, regions[allRegionsName].logisticFitGood.sites, slopesStart, 3, 0.5, "Steepest slope of logistic fit per neuron", xLabel="Slopes"), 
     "fit" + os.sep + "slopes_grouped" + os.sep + "all_good")
 createAndSave(createGroupedHist(
-    regions[allRegionsName].logisticFit.params[0], regions[allRegionsName].logisticFit.sites, 0.0, 1.01, 0.1, "x0"), 
+    regions[allRegionsName].logisticFit.params[0], regions[allRegionsName].logisticFit.sites, 0.0, 1.01, 0.1, "x0 of logistic fit per neuron", "x0"), 
     "fit" + os.sep + "x0_grouped" + os.sep + "all")
 
 for site in allSiteNames : 

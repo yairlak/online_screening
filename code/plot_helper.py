@@ -39,10 +39,16 @@ class RasterInput:
     maxX : int = field (default_factory=lambda: 1500)
 
 
-def adjustFontSize() : 
+def adjustFontSize(snsFig=None) :
+    labelsize=20
+    
+    font = dict(weight='normal', size=labelsize)
+    plt.rc('font', **font)
+    #if not snsFig == None : 
+    #    snsFig.set_yticklabels(snsFig.get_yticks(), size=labelsize)
     #plt.xticks(fontsize=20)
     #plt.yticks(fontsize=20)
-    plt.tick_params(axis='both', which='major', labelsize=14)
+    plt.tick_params(axis='both', which='major', labelsize=labelsize)
 
 def plotRaster(rasterInput, linewidth=1) : 
 
@@ -191,6 +197,10 @@ def create2DhemispherePlt(valuesSites, sitenames) :
                 right.append(statistics.mean(valuesSites["R" + site_general_name]))
                 sitename_r_squared.append(site_general_name)
 
+    if len(sitenames) == 0: 
+        print("WARNING! 2D hemisphere plots could not be created. This happens when the hemispheres are collapsed.")
+        return
+
     fig, ax = plt.subplots()
     ax.scatter(left, right)
     ax.set_aspect('equal')
@@ -286,8 +296,14 @@ def createHistCombined(x, y1, y2, factorY, yLabel1, yLabel2) :
         #'yaxis_range': [-0.2,max(yLine1)+max(yLine1)*0.02],
         #'yaxis2_range': [-0.2,max(yLine2)+max(yLine2)*0.02],
         'barmode': 'group',
+        'paper_bgcolor': 'rgba(0,0,0,0)',
+        'plot_bgcolor': 'rgba(0,0,0,0)',
         'legend': dict(y=0.8, xref="container", yref="container")})
     
+    #fig.update_layout(paper_bgcolor='rgba(0,0,0,0)')#,
+        #plot_bgcolor='rgba(0,0,0,0)', 
+    
+
     return updateFigure(fig)
 
 def createGroupedHist(values, sites, binsStart, binsStop, binsStep=1, title="", xLabel="") : 
@@ -295,33 +311,41 @@ def createGroupedHist(values, sites, binsStart, binsStop, binsStep=1, title="", 
     sites = np.array(sites)
     fig = go.Figure()
     for site in np.unique(sites) : 
-        fig.add_trace(go.Histogram(
+        fig.add_trace(
+            go.Histogram(
             x=values[np.where(sites==site)[0]],
             #histnorm='percent',
             name=site, # name used in legend and hover labels
             xbins=dict( start=binsStart, end=binsStop, size=binsStep),
             #marker_color='#EB89B5',
             #opacity=0.75
-        ))
+            )
+        )
+        #fig.add_trace(createHist(values[np.where(sites==site)[0]], np.append(np.arange(binsStart, binsStop, binsStep), np.inf)))
 
     fig.update_layout(
-        font=dict(size=24), 
+        #font=dict(size=20), 
         title_text=title,
         xaxis_title_text=xLabel, # xaxis label
         yaxis_title_text='Count', # yaxis label
     #    bargap=0.2, # gap between bars of adjacent location coordinates
     #    bargroupgap=0.1 # gap between bars of the same location coordinates
+        xaxis = dict(
+            #tickmode = 'linear',
+            tick0 = binsStart,
+            dtick = binsStep
+        )
     )
 
-    return fig
+    return updateFigure(fig)
 
 
 def updateFigure(fig) : 
     fig.update_layout(
-        font=dict(size=28), 
+        font=dict(size=20), 
         #zeroline = False,
         #paper_bgcolor='rgba(0,0,0,0)',
-        plot_bgcolor='rgba(0,0,0,0)', 
+        #plot_bgcolor='rgba(0,0,0,0)', 
         )
     return fig
 
@@ -409,7 +433,6 @@ def createStdErrorMeanPlt(x, data, title, yLabel, ylim = [], sort=False, horizon
 
     if len(ylim) > 0 : 
         plt.ylim(ylim)
-
 
 def createStdErrorMeanPltCompare(x, data1, data2, title, label1="", label2="", yLabel="", ylim = [], sort=False, horizontal=False) :
     for i in range(len(data1)) : 
@@ -606,8 +629,7 @@ def createStepBoxPlot(similaritiesArray, title, yLabel="", alpha=0.001, addLog=T
     
     fig.update_yaxes(automargin=True)
 
-
-    return fig
+    return updateFigure(fig)
 
 def createPlot(x, y, yLabel, title, plotHalfGaussian, ticktext=[], plotStep=0.01) :
 

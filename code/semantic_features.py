@@ -51,8 +51,9 @@ parser.add_argument('--only_SU', default=True,
                     help='If True, only single units are considered')
 parser.add_argument('--load_cat2object', default=False, 
                     help='If True, cat2object is loaded')
-parser.add_argument('--plot_regions', default='full',
+parser.add_argument('--plot_regions', default='hemispheres',
                     help='"full"->all regions, "hemispheres"->split into hemispheres, "collapse_hemispheres"->regions of both hemispheres are collapsed')    
+
 parser.add_argument('--response_metric', default='zscores', # zscores, or pvalues or firing_rates
                     help='Metric to rate responses') # best firing_rates = best zscore ?! 
 
@@ -105,11 +106,13 @@ def get_lofo_score(firing_rates_consider, categories_consider) :
 
     return lofo_score
 
-def plot_lofo_score(regression_df, column_name, labelsize=40) : 
+def plot_lofo_score(regression_df, column_name, category_names="category_names", labelsize=40) : 
+#def plot_lofo_score(regression_df, column_name="category_names", labelsize=40) : 
     
     regression_df = regression_df.sort_values(column_name, ascending=False)
     plt.figure(figsize=(barplotWidth, barplotHeight))
-    lofo_fig = sns.barplot(y="category_names", x=column_name, data=regression_df, color='blue', orient = 'h')#, width=1.2)#, palette=regression_df["color"])
+    lofo_fig = sns.barplot(y=category_names, x=column_name, data=regression_df, color='blue', orient = 'h')#, width=1.2)#, palette=regression_df["color"])
+    #lofo_fig = sns.barplot(y=y, x=column_name, data=regression_df, color='blue', orient = 'h')#, width=1.2)#, palette=regression_df["color"])
     #lofo_fig.set_xticklabels(lofo_fig.get_xticklabels(), rotation=90)
     lofo_fig.set(xlabel=None, ylabel=None)
     plt.tick_params(axis='both', which='major', labelsize=labelsize)
@@ -159,6 +162,153 @@ def create_category_map(categories, concepts) :
     stimuli_to_category_map_df.to_csv(args.path2semanticdata + "concept_category_map.csv", sep=';', index_label="id")
 
     print("done") # TODO: add categories from wordnet (?)
+
+
+def create_category_bar_graph(df, path, title="", xlabel="") : 
+    df = df.sort_values(na_position='first')
+    if len(df) > 0 : 
+        plt.figure(figsize=(2 * barplotWidth, barplotHeight))
+        df.plot(kind='barh', stacked=True)#.barh(y=range(len(categoryNames)), width=category_site_counts_presented)
+        #category_site_counts_presented.plot().barh(y=range(len(categoryNames)), width=category_site_counts_presented)
+        #presented_counts = category_site_counts.groupby('category').counts().plot().barh()
+        if len(xlabel) > 0 : 
+            plt.xlabel(xlabel)
+        if len(title) > 0 : 
+            plt.title(title)
+        save_plt(semantic_fields_path + os.sep + "category_counts" + os.sep + path)
+
+def sort_by_sum_sites(df) : 
+    new_df = df.copy()
+    #new_df = pd.pivot_table(data=new_df, index=new_df.index, columns=['site'], values=value_column).reset_index()
+    if len(new_df.columns) == 3 :   
+        value_column = [column for column in new_df.columns if column not in ['category', 'site']][0]
+        sort_df = new_df.copy().groupby("category").sum().sort_values(by=value_column, ascending=True).reset_index()
+        new_df = pd.pivot_table(data=new_df, index=['category'], columns=['site'], values=value_column, fill_value=0).reset_index()
+        new_df.set_index('category', inplace=True)
+        #df_index = new_df["category"]
+        ##indices = [sort_df.index[np.where(sort_df["category"] == new_df.index[i])[0][0]] for i in range(len(new_df.index))]
+    else : 
+        sort_df = new_df.sum(axis=1).sort_values().reset_index()
+        #df_index = new_df.index
+    #indices = [sort_df.index[np.where(sort_df["category"] == new_df["category"][i])[0][0]] for i in range(len(new_df.index))]
+    indices = [sort_df.index[np.where(sort_df["category"] == new_df.index[i])[0][0]] for i in range(len(new_df.index))]
+    new_df["indices"] = indices
+    new_df = new_df.sort_values(by="indices")
+    new_df = new_df.drop("indices", axis=1)
+    #if 'category' in new_df.columns: 
+    #    new_df.set_index('category', inplace=True)
+    return new_df
+
+def create_category_plot_stacked(df, path) : 
+    grouped_df = pd.DataFrame(df).reset_index() # category - site - presented
+    grouped_df = sort_by_sum_sites(grouped_df)
+
+    #sort_df = grouped_df.copy()
+    #sort_df["index"] = range(sort_df.shape[0])
+    ###sort_df = grouped_df.copy().groupby("category").sum().sort_values(by=value_column, ascending=True).reset_index()
+    #category_counts = [sort_df[value_column][np.where(sort_df["category"] == grouped_df["category"][i])[0][0]] for i in range(len(grouped_df.index))]
+    #grouped_df["category_counts"] = category_counts
+    #grouped_df = grouped_df.sort_values(by="category_counts")
+    #nsites = grouped_df["site"].nunique()
+    #sort_indices = np.asarray([[sort_df.index[i]] * nsites for i in range(len(sort_df.index))]).flatten()
+    #grouped_df.set_index('category', inplace=True)
+    #grouped_df = grouped_df.reindex(index=sort_df["index"]).unstack()
+    #[sort_df.index[np.where(sort_df["category"] == grouped_df["category"][i])[0][0]] for i in range(len(grouped_df.index))]
+    ###grouped_df = pd.pivot_table(data=grouped_df, index=['category'], columns=['site'], values=value_column).reset_index()
+    #grouped_df = grouped_df.reset_index()
+    ###indices = [sort_df.index[np.where(sort_df["category"] == grouped_df["category"][i])[0][0]] for i in range(len(grouped_df.index))]
+    ###grouped_df["indices"] = indices
+    ###grouped_df = grouped_df.sort_values(by="indices")
+    ###grouped_df = grouped_df.drop("indices", axis=1)
+    ###grouped_df.set_index('category', inplace=True)
+    #grouped_df.groupby(level=[0]).sum().sort_values(ascending=False)
+    #grouped_df.plot(kind='barh', stacked=True)
+    #category_site_counts_presented_grouped = category_df.groupby(["category", "site"])["presented"].sum()#.sort_values(na_position='first', by='presented')
+    if len(grouped_df) > 0 : 
+        plt.figure(figsize=(3 * barplotWidth, barplotHeight))
+        grouped_df.plot(kind='barh', stacked=True)#.barh(y=range(len(categoryNames)), width=category_site_counts_presented)
+        #category_site_counts_presented.plot().barh(y=range(len(categoryNames)), width=category_site_counts_presented)
+        #presented_counts = category_site_counts.groupby('category').counts().plot().barh()
+        save_plt(semantic_fields_path + os.sep + "category_counts" + os.sep + path + os.sep + "all_stacked")
+
+    return grouped_df
+
+
+def create_category_plots(category_df, site) :
+    #adjustFontSize()
+    
+    category_site_counts_presented = category_df.groupby("category")["presented"].sum()#.sort_values(na_position='first')#[category_df["presented"] == 1]["category"].value_counts().sort_index()
+    create_category_bar_graph(category_site_counts_presented, "presented_units" + os.sep + site)
+
+    if site == "all" : 
+        all_presented = create_category_plot_stacked(category_df.groupby(["category", "site"])["presented"].sum(), "presented_units")
+
+        ##grouped_df = pd.DataFrame(category_df.groupby(["category", "site"])["presented"].sum().sort_values()).reset_index()
+        ##grouped_df = pd.pivot_table(data=grouped_df, index=['category'], columns=['site'], values='presented')
+        #grouped_df.groupby(level=[0]).sum().sort_values(ascending=False)
+        #grouped_df.plot(kind='barh', stacked=True)
+        #category_site_counts_presented_grouped = category_df.groupby(["category", "site"])["presented"].sum()#.sort_values(na_position='first', by='presented')
+        ##if len(grouped_df) > 0 : 
+        ##    grouped_df.plot(kind='barh', stacked=True)#.barh(y=range(len(categoryNames)), width=category_site_counts_presented)
+            #category_site_counts_presented.plot().barh(y=range(len(categoryNames)), width=category_site_counts_presented)
+            #presented_counts = category_site_counts.groupby('category').counts().plot().barh()
+         ##   save_plt(semantic_fields_path + os.sep + "category_counts" + os.sep + "presented_units_" + site + "_stacked")
+        #create_category_bar_graph(category_site_counts_presented_grouped, "presented_units_" + site + "_stacked")
+    #category_site_counts_presented = category_site_counts_presented.sort_values(ascending=True)
+    #category_site_counts_presented = category_df["category"].value_counts().sort_index()
+    ##if len(category_site_counts_presented) > 0 : 
+    ##    category_site_counts_presented.plot(kind='barh')#.barh(y=range(len(categoryNames)), width=category_site_counts_presented)
+        #category_site_counts_presented.plot().barh(y=range(len(categoryNames)), width=category_site_counts_presented)
+        #presented_counts = category_site_counts.groupby('category').counts().plot().barh()
+    ##    save_plt(semantic_fields_path + os.sep + "category_counts" + os.sep + "presented_units_" + site)
+    
+    category_site_counts_responsive = category_df.loc[category_df["responsive"] == 1]["category"].value_counts()#.sort_values(na_position='first')
+    create_category_bar_graph(category_site_counts_responsive, "responsive" + os.sep + site)
+    if site == "all" : 
+        all_responsive = create_category_plot_stacked(category_df.loc[category_df["responsive"] == 1][["category", "site"]].value_counts(), "responsive")
+    #category_site_counts_responsive.sort_values(ascending=False)
+    ##if len(category_site_counts_responsive) > 0 : 
+    ##    category_site_counts_responsive.plot(kind="barh")
+        #presented_counts = category_site_counts.groupby('category').counts().plot().barh()
+    ##    save_plt(semantic_fields_path + os.sep + "category_counts" + os.sep + "responsive_" + site)
+    #category_counts_df.groupby('site').count()
+    #category_site_grouped = category_counts_df.groupby('site', 'category')
+
+    category_site_counts_percentage = category_site_counts_responsive.divide(category_site_counts_presented, fill_value=0.0)#.sort_values(na_position='first')
+    create_category_bar_graph(category_site_counts_percentage * 100, "responsive_percent" + os.sep + site, 
+                            "Response probability of neurons to stimuli of respective category", "Response probability in %")
+    if site == "all" : 
+        #all_responsive = create_category_plot_stacked(all_responsive.divide(all_presented, fill_value=0.0), "responsive_percent")
+        all_responsive_percent = all_responsive.divide(all_presented, fill_value=0.0)
+        all_responsive_percent = sort_by_sum_sites(all_responsive_percent)
+        
+        if len(all_responsive_percent) > 0 : 
+            all_responsive_percent.plot(kind='barh', stacked=True)#.barh(y=range(len(categoryNames)), width=category_site_counts_presented)
+        #category_site_counts_presented.plot().barh(y=range(len(categoryNames)), width=category_site_counts_presented)
+        #presented_counts = category_site_counts.groupby('category').counts().plot().barh()
+            save_plt(semantic_fields_path + os.sep + "category_counts" + os.sep + "responsive_percent" + os.sep + "all_stacked")
+
+            all_responsive_percent.plot(kind='barh', stacked=False)#.barh(y=range(len(categoryNames)), width=category_site_counts_presented)
+            save_plt(semantic_fields_path + os.sep + "category_counts" + os.sep + "responsive_percent" + os.sep + "all_grouped")
+    ##if len(category_site_counts_percentage) > 0 : 
+    ##    category_site_counts_percentage.plot(kind="barh")
+    ##    save_plt(semantic_fields_path + os.sep + "category_counts" + os.sep + "responsive_percent_" + site)
+
+    #category_site_counts_session = category_df.groupby("category")["session"].nunique().sort_index()
+    first_unit_per_session = category_df.loc[category_df["first"] == 1]#.groupby(["category", "session", "presented"]).first()
+    category_site_counts_session = first_unit_per_session.groupby("category")["presented"].sum()#.sort_values()
+    create_category_bar_graph(category_site_counts_session, "presented_sessions" + os.sep + site)
+    
+    ###if site == "all" : 
+    ###    create_category_plot_stacked(first_unit_per_session.groupby(["category", "site"])["presented"].sum(), "presented_sessions")
+    #category_site_counts_session = category_df[["category", "session", "presented"]].unique().groupy("category").sum().sort_index(ascending=False)
+    #.groupby(["category", "session"])["presented"].nunique().sort_index()
+    ##if len(category_site_counts_session) > 0 : 
+    ##    category_site_counts_session.plot(kind="barh")
+    ##    save_plt(semantic_fields_path + os.sep + "category_counts" + os.sep + "presented_sessions_" + site)
+    #category_site_counts_session = category_site_counts.groupby("session")
+    
+
 
 def save_plt(filename) : 
 
@@ -271,13 +421,21 @@ meanScoresSites = {}
 meanScoresSites["all"] = []
 categoryNames = data.df_categories.columns
 categoriesSignificantCount = np.zeros((len(categoryNames)))
+category_presented_counts = defaultdict()
+category_responsive_counts = defaultdict()
+category_counts = defaultdict(lambda: [])
+#categoryCounts["categories"] = categoryNames
+#category_counts["session"] = np.zeros((len(categoryNames)))
+#category_counts["site"] = np.zeros((len(categoryNames)))
+#category_counts["num_responsive"] = np.zeros((len(categoryNames)))
+#category_counts["num_presented"] = np.zeros((len(categoryNames)))
 #categorisPresented = []
 numSignificant = []
 #stddevScoresSites = []
 sitesToExclude = ["LFa", "LTSA", "LTSP", "Fa", "TSA", "TSP", "LPL", "LTP", "LTB", "RMC", "RAI", "RAC", "RAT", "RFO", "RFa", "RFb", "RFc", "RT", "RFI", "RFM", "RIN", "LFI", "LFM", "LIN"]
 #"RT": pat 102 session 1: anteater unit
 #LPL: pat 102 session 3, channel 36, cluster1: mug, teapot
-barplotWidth = 10
+barplotWidth = 5
 barplotHeight = 30
 labelsize = 40
 
@@ -291,7 +449,15 @@ for session in sessions:
     units = list(set(data.neural_data[session]['units'].keys()))
     stimuli_indices = data.neural_data[session]['objectindices_session']
     things_indices = np.array(data.get_THINGS_indices(data.neural_data[session]['stimlookup']))
+    categories_things = categories.iloc[things_indices]
+    categories_presented = categories_things.sum()
+
+    #for n in range(len(categoryNames)) :
+    #    name = categoryNames[n] 
+    #    categoryCounts["sessions_presented"][n] += (np.where(categories_things[categoryNames] == 1)).count()
+    #    categoryCounts["units_presented"][n] += len(units) * (np.where(categories_things[categoryNames] == 1)).count()
     
+    firstUnitInSession = 1
     for unit in units:
         
         site = data.neural_data[session]['units'][unit]['site']
@@ -310,7 +476,6 @@ for session in sessions:
         elif args.plot_regions == "hemispheres" : 
             site = site[0]
 
-
         unit_counter += 1
         channel = unit_data['channel_num']
         cluster = unit_data['class_num']
@@ -319,8 +484,53 @@ for session in sessions:
         #firing_rates = unit_data['zscores']
         response_stimuli_indices = unit_data['responses'] 
 
+        #for stim in response_stimuli_indices : 
+        #    category_responsive = categories_things.iloc[response_stimuli_indices]
+        #    for cat_responsive in category_responsive[np.where(category_responsive==1)[0]].index : 
+        #        category_counts["session"].append(session)
+        #        category_counts["site"].append(site)
+        #        category_counts["category"].append(cat_responsive)
+
+        #for name in categoryNames :
+        #    category_counts["session"].append(session)
+        #    category_counts["site"].append(site)
+        #    category_counts["category"].append(name)
+        #    if len(response_stimuli_indices) > 0 : 
+        #        category_counts["responsive"].append(1)
+        #    else : 
+        #        category_counts["responsive"].append(0)
+        response_categories = categories_things.iloc[response_stimuli_indices]
+        kitchen_responses = response_categories["kitchen appliance"].index[np.where(response_categories["kitchen appliance"])[0]]
+        for resp in kitchen_responses : 
+            print("session: " + session + ", site: " + site + ", channel: " + str(channel) + ", cluster: " + str(cluster) 
+                + ", concept: " +  data.df_metadata.uniqueID[resp] ) #data.df_metadata.uniqueID[resp]  data.neural_data[session]['stimlookup'][resp]
+
+        for name in categoryNames :
+            category_counts["session"].append(session)
+            category_counts["site"].append(site)
+            category_counts["category"].append(name)
+            category_counts["presented"].append(categories_presented[name])
+            category_counts["responsive"].append(response_categories[name].sum())
+            category_counts["first"].append(firstUnitInSession)
+
+            if name not in category_presented_counts : 
+                category_presented_counts[name] = defaultdict()
+            if site not in category_presented_counts[name] : 
+                category_presented_counts[name][site] = defaultdict()
+            if session not in category_presented_counts[name][site] : 
+                category_presented_counts[name][site][session] = 0
+            category_presented_counts[name][site][session] += 1
+        firstUnitInSession = 0
+
         if len(response_stimuli_indices) > 0 :
             responsive_unit_counter += 1 
+                
+            for name in categoryNames :
+                if name not in category_responsive_counts : 
+                    category_responsive_counts[name] = defaultdict()
+                if site not in category_responsive_counts[name] : 
+                    category_responsive_counts[name][site] = 0
+                category_responsive_counts[name][site] += 1
 
             all_presented_indices = np.array(range(len(firing_rates)))
             consider_indices = all_presented_indices.copy()
@@ -330,7 +540,6 @@ for session in sessions:
             consider_indices_THINGS = things_indices[consider_indices]        
             firing_rates_consider = firing_rates[consider_indices]
             #firing_rates_responses_df = pd.DataFrame(data=firing_rates_consider)
-            categories_things = categories.iloc[things_indices]
             categories_consider_things = categories.iloc[consider_indices_THINGS] ## categories_pca
             categories_consider_pca = categories_pca.iloc[consider_indices_THINGS]
 
@@ -446,6 +655,7 @@ for session in sessions:
 
             if pvalue < args.threshold_p_value : #args.analyze == "embedding" and (pvalue > args.threshold_p_value) or rsquared > threshold_rsquared : #(fitted_data.f_pvalue > args.threshold_p_value)
                 r_squared_counter += 1
+            if pvalue < args.threshold_p_value or True: 
                 ##zscores = np.concatenate(zscores, ((firing_rates_consider - mean_firing_rates) / stddev_firing_rates / mean_baseline))
                 num_responsive_stimuli.append(len(response_stimuli_indices))
                 num_significant_weights.append(np.count_nonzero(np.where(pvalues_fit < args.alpha)[0]))
@@ -476,6 +686,7 @@ for session in sessions:
             regression_df["lofo_score_categories"] = lofo_categories_unit
             regression_df["lofo_score_pca"] = lofo_pca_unit
             regression_df["category_names"] = categories.columns
+            regression_df["category_pca"] = range(len(lofo_pca_unit))
             regression_df = regression_df.sort_values("params", ascending=False)
 
             plt.figure(figsize=(barplotWidth, barplotHeight))
@@ -491,7 +702,7 @@ for session in sessions:
             save_plt("coef_regression" + os.sep + fileDescription)
             
             plot_lofo_score(regression_df, "lofo_score_categories")
-            plot_lofo_score(regression_df, "lofo_score_pca")
+            plot_lofo_score(regression_df, "lofo_score_pca", "category_pca")
 
             categories_sorted_indices = np.argsort(categories_presented)
             categories_presented = categories_presented[categories_sorted_indices]
@@ -504,7 +715,45 @@ for session in sessions:
 
 semantic_fields_path = "semantic_fields" + os.sep 
 sites = list(rsquaredCategoriesSites.keys())
+
+category_counts_df = pd.DataFrame(category_counts)
+create_category_plots(category_counts_df, "all")
+#category_counts_df["responsive_percent"] = category_counts_df[""]
 sites.remove('all')
+
+for site in sites : 
+    category_site_counts = category_counts_df.loc[category_counts_df['site'] == site]
+    create_category_plots(category_site_counts, site)
+
+
+    #category_site_counts_presented = category_site_counts["category"].value_counts()
+
+    #if len(category_site_counts_presented) > 0 : 
+    #    category_site_counts_presented.plot(kind='barh')#.barh(y=range(len(categoryNames)), width=category_site_counts_presented)
+        #category_site_counts_presented.plot().barh(y=range(len(categoryNames)), width=category_site_counts_presented)
+        #presented_counts = category_site_counts.groupby('category').counts().plot().barh()
+    #    save_plt(semantic_fields_path + os.sep + "category_counts" + os.sep + "presented_units_" + site)
+    
+    #category_site_counts_responsive = category_site_counts.loc[category_site_counts["responsive"] == 1]["category"].value_counts()
+    #if len(category_site_counts_responsive) > 0 : 
+    #    category_site_counts_responsive.plot(kind="barh")
+        #presented_counts = category_site_counts.groupby('category').counts().plot().barh()
+    #    save_plt(semantic_fields_path + os.sep + "category_counts" + os.sep + "responsive_" + site)
+    #category_counts_df.groupby('site').count()
+    #category_site_grouped = category_counts_df.groupby('site', 'category')
+
+    #category_site_counts_percentage = category_site_counts_responsive.divide(category_site_counts_presented)
+    #if len(category_site_counts_percentage) > 0 : 
+    #    category_site_counts_percentage.plot(kind="barh")
+    #    save_plt(semantic_fields_path + os.sep + "category_counts" + os.sep + "responsive_percent_" + site)
+
+    #category_site_counts_session = category_site_counts.groupby("category")["session"].nunique()
+    #if len(category_site_counts_session) > 0 : 
+    #    category_site_counts_session.plot(kind="barh")
+    #    save_plt(semantic_fields_path + os.sep + "category_counts" + os.sep + "presented_sessions_" + site)
+    
+
+
 sites = ['all'] + sorted(sites)
 
 sortedSignificant = np.argsort(categoriesSignificantCount)
