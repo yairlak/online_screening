@@ -51,6 +51,13 @@ def adjustFontSize(snsFig=None) :
     #plt.yticks(fontsize=20)
     plt.tick_params(axis='both', which='major', labelsize=labelsize)
 
+def save_plt(file) : 
+    os.makedirs(os.path.dirname(file), exist_ok=True)
+    plt.savefig(file + ".png", bbox_inches="tight")
+    plt.clf()
+    plt.close()
+
+
 def plotRaster(rasterInput, linewidth=1) : 
 
     upperBound = 1000
@@ -220,7 +227,7 @@ def create2DhemispherePlt(valuesSites, sitenames) :
     plt.xlabel("left hemisphere")
     plt.ylabel("right hemisphere")
 
-def createHistPlt(x, inputBins, factorY=1.0, labelX="", labelY="", color="blue", pvalues=False) : 
+def createHistPlt(x, inputBins, factorY=1.0, labelX="", labelY="", color="blue", pvalues=False, title="") : 
 
     if len(inputBins) == 0 :
         print("WARNING: empty bins for histogram!")
@@ -238,7 +245,7 @@ def createHistPlt(x, inputBins, factorY=1.0, labelX="", labelY="", color="blue",
         yPlot=counts.astype(float)*float(factorY)
         
     plot = sns.barplot(x=xPlot, y=yPlot, color=color) # .astype(int) TODO
-    plot.set(xlabel=labelX, ylabel=labelY)
+    plot.set(xlabel=labelX, ylabel=labelY, title=title)
 
 def createHist(x, inputBins, factorY=1.0, labelX="", labelY="", color="blue", title="") : 
     counts, bins = np.histogram(x, bins=inputBins)
@@ -322,9 +329,33 @@ def createGroupedHistNew(values, sites, bins, title="", xLabel="") :
         hist_df[site] = counts
 
     hist_df.plot(kind="bar", stacked=False)
+    plt.ylabel("Count")
     plt.xlabel(xLabel)
     plt.title(title)
 
+def createAllHistsSites(data_dict, path, filename, title="", xLabel="") : 
+    adjustFontSize()
+    #df_copy = data_dict.copy()
+    #data_dict["all"] = data_dict.sum(axis=1)
+
+    hist_array = []
+    hist_array_all = np.array([])
+    maxTotal = 0
+    maxSizeTotal = max([len(data_dict[site]) for site in data_dict.keys()])
+
+    for site in data_dict.keys() : 
+        hist_array.append(data_dict[site])
+        site_data_filled = np.hstack([data_dict[site], np.zeros(maxSizeTotal- len(data_dict[site]))])
+        hist_array_all = np.concatenate((hist_array_all, site_data_filled), axis=None)
+        maxTotal = max(maxTotal, max(data_dict[site])+1)
+        createHistPlt(data_dict[site], range(max(data_dict[site])+1), title=title, labelX=xLabel, labelY="Count")
+        save_plt(path + os.sep + site + "_" + filename)
+
+
+    createHistPlt(hist_array_all, range(int(max(hist_array_all)+1)), title=title, labelX=xLabel, labelY="Count")
+    save_plt(path + os.sep + "all_" + filename)
+    createGroupedHistNew(hist_array, np.array(list(data_dict.keys())), range(maxTotal+1), title=title, xLabel=xLabel)
+    save_plt(path + os.sep + "all_" + filename + "_grouped")
 
 def createGroupedHist(values, sites, binsStart, binsStop, binsStep=1, title="", xLabel="") : 
     values = np.asarray(values)

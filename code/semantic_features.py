@@ -51,7 +51,7 @@ parser.add_argument('--only_SU', default=True,
                     help='If True, only single units are considered')
 parser.add_argument('--load_cat2object', default=False, 
                     help='If True, cat2object is loaded')
-parser.add_argument('--plot_regions', default='hemispheres',
+parser.add_argument('--plot_regions', default='collapse_hemispheres',
                     help='"full"->all regions, "hemispheres"->split into hemispheres, "collapse_hemispheres"->regions of both hemispheres are collapsed')  
 parser.add_argument('--analyze', type=str, default="categories", #"categories", "embedding", "PCA" --> use categories from things, all 300 features, or PCA
                     help='If True, categories are considered, if false word embedding')  
@@ -89,6 +89,16 @@ parser.add_argument('--path2data',
                     default='../data/aos_after_manual_clustering/') #aos_after_manual_clustering aos_one_session
 parser.add_argument('--path2images', 
                     default='../figures/semantic_features') 
+
+def get_img_path() : 
+    
+    if args.only_SU : 
+        unitPath = "SU"
+    else : 
+        unitPath = "MU_SU"
+
+    return args.path2images + os.sep + args.analyze + "_" + args.response_metric + os.sep + args.plot_regions + "_" + unitPath + os.sep 
+
 
 def get_lofo_score(firing_rates_consider, categories_consider) : 
     
@@ -248,17 +258,9 @@ def create_category_plots(category_df, site) :
 
 
 def save_plt(filename) : 
-    
-    if args.only_SU : 
-        unitPath = "SU"
-    else : 
-        unitPath = "MU_SU"
-
-    file = args.path2images + os.sep + args.analyze + "_" + args.response_metric + os.sep + args.plot_regions + "_" + unitPath + os.sep + filename 
-
     if not args.dont_plot : 
-        os.makedirs(os.path.dirname(file), exist_ok=True)
-        plt.savefig(file + ".png", bbox_inches="tight")
+        os.makedirs(os.path.dirname(get_img_path()), exist_ok=True)
+        plt.savefig(get_img_path() + filename + ".png", bbox_inches="tight")
         plt.clf()
     plt.close()
 
@@ -345,7 +347,7 @@ entropies = []
 num_significant_weights = []
 lofo_score_categories = []
 lofo_score_pca = []
-num_categories_spanned = []
+num_categories_spanned = defaultdict(lambda: [])
 num_responsive_stimuli = []
 pvalues = []
 #zscores = []
@@ -570,12 +572,12 @@ for session in sessions:
                 ##zscores = np.concatenate(zscores, ((firing_rates_consider - mean_firing_rates) / stddev_firing_rates / mean_baseline))
                 num_responsive_stimuli.append(len(response_stimuli_indices))
                 num_significant_weights.append(np.count_nonzero(np.where(pvalues_fit < args.alpha)[0]))
-                #if len(response_stimuli_indices) > 1 : 
-                responsive_categories = categories_consider_things.iloc[response_stimuli_indices].any(axis='rows')
-                if not responsive_categories.value_counts().keys().any() : 
-                    num_categories_spanned.append(0)
-                else: 
-                    num_categories_spanned.append(responsive_categories.value_counts()[True])
+                #if len(response_stimuli_indices) > 1 :
+            responsive_categories = categories_consider_things.iloc[response_stimuli_indices].any(axis='rows')
+            if not responsive_categories.value_counts().keys().any() : 
+                num_categories_spanned[site].append(0)
+            else: 
+                num_categories_spanned[site].append(responsive_categories.value_counts()[True])
 
             entropy = stats.entropy(params)
             entropies.append(entropy)
@@ -708,10 +710,13 @@ createHistPlt(num_significant_weights, range(0,28), 1.0, "Number of significant 
 save_plt(semantic_fields_path + "num_significant_weights")
 
 if len(num_categories_spanned) > 0 : 
-    adjustFontSize()
+    
+    #adjustFontSize()
+    if not args.dont_plot :
+        createAllHistsSites(num_categories_spanned, get_img_path() + semantic_fields_path + "num_responsive_categories", "", title="Count of number of responsive categories", xLabel="Number of responsive categories")
 
-    createHistPlt(num_categories_spanned, range(0,max(num_categories_spanned)))
-    save_plt(semantic_fields_path + "num_responsive_categories")
+    #createHistPlt(num_categories_spanned, range(0,max(num_categories_spanned)))
+    #save_plt(semantic_fields_path + "num_responsive_categories")
 
 plt.figure(figsize=(10,4)) 
 if len(num_responsive_stimuli) == 0 : 
