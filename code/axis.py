@@ -12,7 +12,7 @@ from collections import defaultdict
 from sklearn.decomposition import PCA
 
 from plot_helper import *
-from utils import getSite
+from utils import getSite, clear_folder
 from data_manip import DataHandler
 
 parser = argparse.ArgumentParser()
@@ -56,7 +56,7 @@ parser.add_argument('--path2wordembeddings',
 parser.add_argument('--path2wordembeddingsTSNE',
                     default='../data/THINGS/sensevec_TSNE.csv')
 parser.add_argument('--path2data', 
-                    default='../data/aos_after_manual_clustering/') # also work with nos? aos_after_manual_clustering, aos_selected_sessions, aos_one_session
+                    default='../data/aos_one_session/') # also work with nos? aos_after_manual_clustering, aos_selected_sessions, aos_one_session
 parser.add_argument('--path2neuraldata', 
                     default='../data/') 
 parser.add_argument('--path2images', 
@@ -74,6 +74,25 @@ def save_plt(filename) :
     plt.clf()
     plt.close()
     
+def normalize(vector) : 
+    norm = np.linalg.norm(vector)
+    if norm == 0: 
+       return vector
+    return vector / norm
+
+def random_point_on_plane(normal_vector, point_on_plane, num_dimensions):
+    # Generate a random vector in the plane
+    random_vector = np.random.randn(num_dimensions)
+
+    # Project the random vector onto the plane by subtracting its component in the normal direction
+    projection = np.dot(random_vector, normal_vector)
+    random_point = random_vector - projection * normal_vector
+
+    # Translate the point to be on the plane by adding the known point on the plane
+    random_point_on_plane = random_point + point_on_plane
+
+    return random_point_on_plane
+
 
 def line_coefficients_2d(point1, point2):
     # Calculate the direction vector
@@ -124,6 +143,7 @@ def prepare_data() :
     #heatmap_df["sta_pca"] = np.zeros((len(heatmap_df.index), len(principalComponents)))
     #heatmap_df["axis_dist_embedding"] = np.nan
     #heatmap_df["axis_dist_pca"] = np.nan
+
     print("\nTime loading data: " + str(time.time() - startLoadData) + " s\n")
     startPrepareSessionData = time.time()
 
@@ -171,11 +191,15 @@ def prepare_data() :
             axis_distances_embedding = np.zeros((numStim), dtype=float)
             axis_distances_pca = np.zeros((numStim), dtype=float)
 
+            second_point_on_plane = random_point_on_plane(sta, sta, len(sta))
+            second_point_on_plane_pca = random_point_on_plane(sta_pca, sta_pca, len(sta_pca))
+
             for stim in range(numStim) : 
                 embedding = data.df_word_embeddings.iloc[thingsIndices[stim]] 
                 embedding_pca = principalComponents[thingsIndices[stim]]
                 line_coefficients_embedding = line_coefficients_2d(sta, np.zeros(len(sta)))
-                line_coefficients_pca = line_coefficients_2d(sta_pca, np.zeros(len(sta_pca)))
+                line_coefficients_embedding = line_coefficients_2d(sta, second_point_on_plane)
+                line_coefficients_pca = line_coefficients_2d(sta_pca, second_point_on_plane_pca)
                 axis_distance_stim_embedding = distance_to_line(embedding, line_coefficients_embedding)
                 axis_distance_stim_pca = distance_to_line(embedding_pca, line_coefficients_pca)
                 axis_distances_embedding[stim] = axis_distance_stim_embedding
@@ -227,8 +251,9 @@ def prepare_data() :
 args=parser.parse_args()
 sitesToConsider = ["LA", "RA", "LEC", "REC", "LAH", "RAH", "LMH", "RMH", "LPHC", "RPHC", "LPIC", "RPIC"]
 
-#df = prepare_data()
+df = prepare_data()
 df = pd.read_pickle(get_data_path() + os.sep + "axis.pk1")
+clear_folder(args.path2images)
 
 spearman_embedding = []
 spearman_pca = []
