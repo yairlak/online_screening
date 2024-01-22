@@ -54,7 +54,7 @@ parser.add_argument('--response_metric', default='firing_rates', # zscores, or p
 # FLAGS
 parser.add_argument('--dont_plot', action='store_true', default=False, 
                     help='If True, plotting to figures folder is supressed')
-parser.add_argument('--only_SU', default=False, 
+parser.add_argument('--only_SU', default=True, 
                     help='If True, only single units are considered')
 parser.add_argument('--only_responses', default=False, 
                     help='If True, only stimuli ecliciting responses are considered')
@@ -78,7 +78,7 @@ parser.add_argument('--max_stdev_outliers', type=float, default=5,
                     help='Limit for excluding outliers')   
 parser.add_argument('--max_responses_unit', type=float, default=20,
                     help='Limit for counting responses per unit for histogram')      
-parser.add_argument('--plot_regions', default='collapse_hemispheres',
+parser.add_argument('--plot_regions', default='hemispheres',
                     help='"full"->all regions, "hemispheres"->split into hemispheres, "collapse_hemispheres"->regions of both hemispheres are collapsed')      
 parser.add_argument('--step_span', type=float, default=0.05,
                     help='Plotting detail for span')
@@ -331,6 +331,7 @@ unitsPerSite = []
 unitsPerSiteResponsive = []
 numUnitsTotal = {}
 numUnitsResponsive = {}
+neuralData = defaultdict(lambda: [])
 
 for session in sessions:
 
@@ -401,6 +402,7 @@ for session in sessions:
         unitData = data.neural_data[session]['units'][unit]
         if (not unitData['kind'] == 'SU' and args.only_SU) or not unitData['site'] in sitesToConsider : 
             continue
+        fullSite = unitData['site']
         pvals = unitData['p_vals']
         site = getSite(unitData['site'], args.plot_regions)
         trials = unitData['trial']
@@ -419,6 +421,7 @@ for session in sessions:
         valuesCor = []
         similaritiesCorSteps = [[] for i in range(numCorSteps)]
         valuesCorSteps = [[] for i in range(numCorSteps)]
+        indexesForSave = []
         #zscores = zscores / max(zscores)
         
         #if subjectNum == 103 and sessionNum == 1 and channel == 70 and cluster == 1 : # TODO!!!!!!!!!!!!! Here, there are many responses to car parts which drives the very high end of the coactivation plot
@@ -583,6 +586,7 @@ for session in sessions:
                     corStep = int(similarity / corStepSize)
                     similaritiesCor.append(similarity)
                     valuesCor.append(metric[i])
+                    indexesForSave.append(i)
 
                     #for j in range(0, corStep) : 
                     for j in range(corStep, len(similaritiesCorSteps)-1) : 
@@ -652,6 +656,14 @@ for session in sessions:
             ## fit step function
             if len(valuesCor) >= 3 : 
                 plotDetails = session + "_ch" + str(channel) + "_cluster" + str(cluster)
+                neuralData["firing_rates"].append(valuesCor)
+                neuralData["semantic_similarities"].append(similaritiesCor) 
+                neuralData["pvalues"].append(pvals[indexesForSave])
+                neuralData["session"].append(session)
+                neuralData["channel"].append(channel)
+                neuralData["cluster"].append(cluster)
+                neuralData["site"].append(fullSite)
+
                 rSquaredLog = regions[site].logisticFit.addFit(similaritiesCor, valuesCor, plotDetails, spearman.correlation) ### TODO: all values, not only responses?
                 rSquaredLog = regions[allRegionsName].logisticFit.addFit(similaritiesCor, valuesCor, plotDetails, spearman.correlation, site) ### TODO: all values, not only responses?
                 rSquaredStep = regions[site].stepFit.addFit(similaritiesCor, valuesCor, plotDetails)
@@ -681,6 +693,9 @@ for session in sessions:
     sessionCounter += 1
     if onlyTwoSessions and sessionCounter >= 2 : 
         break
+
+dataToSave = pd.DataFrame(neuralData)
+dataToSave.to_pickle("../data/data" + os.sep + "data_to_fit.pk1")
 
 print("\nTime preparing data: " + str(time.time() - startPrepareDataTime) + " s")
 print("\nNum sessions: " + str(sessionCounter) )
@@ -745,9 +760,12 @@ colorDiscreteMap={'A':'purple',
                     'PHC':'green',
                     'H':'red',
                     'PIC':'orange'}
+pieLabelsFull = ['A', 'H', 'EC', 'PHC', 'PIC']
+
 if args.plot_regions == "hemispheres" :  
     colorDiscreteMap={'R':'blue',
-                        'L':'yellow',}
+                        'L':'red',}
+    pieLabelsFull = ["R", "L"]
 
 
 numUnit_df = pd.DataFrame()
@@ -761,7 +779,6 @@ saveImg(numUnitPlot, "num_units")
 numUnitPlot = px.bar(numUnit_df, x="sites", y="numUnitsResponsive")
 saveImg(numUnitPlot, "num_units_responsive")
 
-pieLabelsFull = ['A', 'H', 'EC', 'PHC', 'PIC']
 pieLabels = [label for label in pieLabelsFull if label in list(numUnitsTotal.keys())] #np.sort(np.array(list(numUnitsTotal.keys())))
 colorDiscreteMapAll = { key:val for key, val in colorDiscreteMap.items() if key in pieLabels} 
 pieValues = np.array([numUnitsTotal[p] for p in pieLabels])
@@ -796,10 +813,8 @@ else:
     saveImg(pieResponsivePlot, "num_units_pie_responsive_SU_MU")
 
 if not args.dont_plot :
-    try: 
-        shutil.rmtree(getImgpath() + os.sep + "fit" + os.sep + "logistic_fit_single")
-    except : 
-        print("Warning. Single fit plots can not be removed")
+    clear_folder(getImgpath() + os.sep + "fit" + os.sep + "logistic_fit_single")
+    
 #os.rmdir(getImgpath() + os.sep + "fit" + os.sep + "logistic_fit_single")
         
 #sloped_df = pd.DataFrame({'slopes' : regions[allRegionsName].logisticFitGood.steepestSlopes, 'sites': regions[allRegionsName].logisticFitGood.sites})

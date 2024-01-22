@@ -11,6 +11,7 @@ import argparse
 import numpy as np
 import pandas as pd
 import operator
+from string import digits
 
 import time
 from typing import List
@@ -19,6 +20,7 @@ from dataclasses import dataclass
 import scipy
 import scipy.io
 import scipy.interpolate 
+import pingouin as pg
 import plotly.graph_objects as go
 import plotly.express as px
 from plotly.subplots import make_subplots
@@ -27,6 +29,7 @@ from statannotations.Annotator import Annotator
 import seaborn as sns
 from skimage.measure import label
 import matplotlib.pyplot as plt
+import matplotlib.patheffects as PathEffects
 from PIL import Image
 
 import dash
@@ -43,7 +46,8 @@ from utils import *
 from plot_helper import *
 from plot_helper import RasterInput
 from data_manip import DataHandler
-from data_manip import get_mean_firing_rate_normalized
+from data_manip import get_mean_firing_rate_normalized, create_category_map
+#from semantic_features import create_category_map
 
 parser = argparse.ArgumentParser()
 
@@ -54,7 +58,7 @@ parser.add_argument('--session', default=None, type=str,
                             e.g., '90_1'.")
 
 # ANALYSIS
-parser.add_argument('--data_type', default="zscores", type=str, # zscores or firingRates or zsctatistics
+parser.add_argument('--data_type', default="firingRates", type=str, # zscores or firingRates or zsctatistics
                     help="Determines underlying datatype for heatmaps. \
                         Currently, zscores or firingRates are implemented.")
 parser.add_argument('--min_t', default=0, type=int, #100
@@ -89,11 +93,11 @@ parser.add_argument('--alpha_region', type=float, default=0.01,
                     help='alpha for stats')
 
 # PLOT
-parser.add_argument('--interpolation_factor', type=float, default=1000,
+parser.add_argument('--interpolation_factor', type=float, default=100,
                     help='heatmap interpolation grid size')
 parser.add_argument('--padding_factor', type=float, default=1.1,
                     help='padding around datapoints')
-parser.add_argument('--plot_regions', default='hemispheres',
+parser.add_argument('--plot_regions', default='collapse_hemispheres',
                     help='"full"->all regions, "hemispheres"->split into hemispheres, "collapse_hemispheres"->regions of both hemispheres are collapsed')  
 
 # PATHS
@@ -104,8 +108,14 @@ parser.add_argument('--path2wordembeddings',
                     default='../data/THINGS/sensevec_augmented_with_wordvec.csv')
 parser.add_argument('--path2wordembeddingsTSNE',
                     default='../data/THINGS/sensevec_TSNE.csv')
+parser.add_argument('--path2semanticdata',
+                    default='../data/semantic_data/')
+parser.add_argument('--path2categories',
+                    default='../data/THINGS/category_mat_manual.tsv')
 parser.add_argument('--path2data', 
                     default='../data/aos_after_manual_clustering/') # also work with nos? aos_after_manual_clustering, aos_selected_sessions, aos_one_session
+parser.add_argument('--path2aos', 
+                    default='../data/aos') # also work with nos? aos_after_manual_clustering, aos_selected_sessions, aos_one_session
 parser.add_argument('--path2heatmapdata', 
                     default='../data/heatmaps') 
 parser.add_argument('--path2images', 
@@ -534,6 +544,7 @@ startLoadData = time.time()
 
 data = DataHandler(args) # class for handling neural and feature data
 data.load_metadata() # -> data.df_metadata
+data.load_categories() # -> data.df_categories
 #data.load_neural_data(min_active_trials=4) # -> data.neural_data
 #data.load_word_embeddings() # -> data.df_word_embeddings
 data.load_word_embeddings_tsne() # -> data.df_word_embeddings_tsne
@@ -588,6 +599,73 @@ figureHeightBig = 1500
 nConcepts = data.df_word_embeddings_tsne.shape[0]
 xThings = data.df_word_embeddings_tsne[:][1]
 yThings = data.df_word_embeddings_tsne[:][0]
+
+
+#aos_start_points = pd.read_csv(args.path2aos + os.sep + "startStimuliAOS_cosine_120.csv", header=None)
+aos_start_points = pd.read_csv(args.path2aos + os.sep + "startStimuliAOS_names_new.csv", sep=";").fillna(0)
+categories_single = create_category_map(data.df_categories, data.df_metadata.uniqueID, args.path2semanticdata)
+single_category_df = pd.DataFrame({"x" : xThings, 
+                                   "y" : yThings, 
+                                   "category" : categories_single["suggested mapping"], 
+                                   "concept" : categories_single["concepts"]})
+#data=[xThings, yThings, categories_single["suggested mapping"]], columns=["x", "y", "category"])
+#np.asarray(categories_single["suggested mapping"])
+single_category_df = single_category_df.replace({'category': ""}, "None")
+single_category_df["aos_start"] = single_category_df["concept"].isin(data.df_metadata.uniqueID.loc[aos_start_points["id"].values.flatten()])
+#####single_category_df["aos_start"] = single_category_df["concept"].isin(data.df_metadata.uniqueID.loc[aos_start_points["id"].values.flatten()]-1)
+aos_starting_points = single_category_df.loc[np.where(single_category_df["aos_start"])[0]]
+######aos_starting_points.to_csv(args.path2aos + os.sep + "startStimuliAOS_names_new.csv", columns = ["concept"])
+
+groups = single_category_df.groupby('category')
+
+
+plt.figure(figsize=(7.5,7.5)) 
+
+#aos_start_points_indices = single_category_df.iloc[np.where(single_category_df["concept"] == aos_start_points)]
+#aos_x = single_category_df.iloc[aos_start_points_indices]["x"]
+#aos_y = single_category_df.iloc[aos_start_points_indices]["y"]
+none_indices = single_category_df.iloc[np.where(single_category_df["category"] == "None")]
+single_category_df = single_category_df.drop(single_category_df[single_category_df['category'] == 'None'].index)
+plt.scatter(none_indices["x"], none_indices["y"], color="lightgrey", s=9)
+fig = sns.scatterplot(x="x", y="y", data=single_category_df, hue="category")
+plt.scatter(aos_starting_points["x"], aos_starting_points["y"], color="red", s=30, edgecolors="black") #, marker="d")
+for i in np.where(aos_start_points["plot"])[0] :  # np.arange(len(aos_starting_points["x"]), step=2) : 
+    #if i in np.where(aos_start_points["plot"]) : 
+    plt.rcParams["font.family"] = "Verdana"
+    txt = plt.text(aos_starting_points["x"].iloc[i] + 1.5, aos_starting_points["y"].iloc[i] + 0.2, aos_starting_points["concept"].iloc[i].replace("_", " ").rstrip(digits), 
+             horizontalalignment='left', verticalalignment='center', fontsize=10)
+    txt.set_path_effects([PathEffects.withStroke(linewidth=3, foreground='whitesmoke')])
+    
+
+plt.rcParams["font.family"] = "sans-serif"
+
+plt.xticks(visible=False)
+plt.yticks(visible=False)
+fig.set(xlabel=None)
+fig.set(ylabel=None)
+plt.xticks([])
+plt.yticks([])
+#plt.legend(bbox_to_anchor=(1.04, 1), loc="center right")
+
+plt.legend(bbox_to_anchor=(1.0, 0.5), loc='center left')
+#plt.legend(loc='center right')
+# Plot
+#fig, ax = plt.subplots()
+#ax.margins(0.05) # Optional, just adds 5% padding to the autoscaling
+#for name, group in groups:
+#    ax.plot(group.x, group.y, marker='o', linestyle='', ms=6, label=name)
+#ax.legend()
+
+
+#plt.show()
+saveImgFont("THINGS")
+
+import matplotlib.font_manager
+fpaths = matplotlib.font_manager.findSystemFonts()
+
+for i in fpaths:
+    f = matplotlib.font_manager.get_font(i)
+    print(f.family_name)
 
 xMinThings = xThings.min()
 xMaxThings = xThings.max()
@@ -747,7 +825,7 @@ else :
         heatmap = heatMapData[6]
 
         heatmapsComplete.append(heatmap)
-        sizeFieldsComplete.append(sizeFields)
+        sizeFieldsComplete.append(sizeFields) # TODO: sizeFields[np.where(sizeFields > 0)[0]]
         numStimPerRegionUnitComplete.append(numStimPerRegionUnit)
         numRegionsComplete.append(heatMapData[1])
         print("Created heatmap for " + unit.name + ", num stimuli per field: " + str(numStimPerRegionUnit))
@@ -855,6 +933,7 @@ os.makedirs(os.path.dirname(combinedPathAverage), exist_ok=True)
 os.makedirs(os.path.dirname(combinedResponsesPath), exist_ok=True)
 os.makedirs(os.path.dirname(combinedAllPath), exist_ok=True)
 
+
 for site in uniqueSites : 
     siteIndices = np.where(allSites == site)[0]
     heatmap_site_df = heatmap_df.loc[heatmap_df['sites'] == site]
@@ -931,11 +1010,10 @@ for site in uniqueSites :
     saveImgFont("numFields_" + site)
 
     numStimSiteCounts = np.array([])
-    sizeFieldsSiteCounts = np.array([])
+    sizeFieldsSite = np.array([])
     for siteIndex in siteIndices : 
         numStimSiteCounts = np.concatenate((numStimSiteCounts, np.asarray(numStimPerRegionMatrixAllSites[siteIndex])), axis=None)
-        sizeFieldsSiteCounts = np.concatenate((sizeFieldsSiteCounts, np.asarray(sizeFieldsMatrixAllSites[siteIndex])), axis=None)
-    sizeFieldsCountsSorted.append(sizeFieldsSiteCounts)
+        sizeFieldsSite = np.concatenate((sizeFieldsSite, np.asarray(sizeFieldsMatrixAllSites[siteIndex])), axis=None)
     counts, bins = np.histogram(numStimSiteCounts, bins=binsStim)
     numStimPlot = sns.barplot(x=bins[:-1], y=counts)
     #plt.xticks(rotation=90, ha='right')
@@ -943,31 +1021,62 @@ for site in uniqueSites :
     histMatrixStim.append(counts/sumCounts)
     saveImgFont("numStimuli_" + site, snsFig=numStimPlot)
     
-    counts, bins = np.histogram(sizeFieldsSiteCounts[np.where(sizeFieldsSiteCounts > 0)[0]], bins=binsSizeFields)
+    sizeFieldsSite = sizeFieldsSite[np.where(sizeFieldsSite > 0)[0]]
+    #sizeFieldsCountsSorted.append(sizeFieldsSiteCounts)
+    #sizeFields_df_data[site] = 
+    histMatrixSize.append(sizeFieldsSite)
+    counts, bins = np.histogram(sizeFieldsSite, bins=binsSizeFields)
     sizeFieldsSitePlot = sns.barplot(x=bins[:-1], y=counts)
     #adjustFontSize()
     #plt.xticks(rotation=90, ha='right')
     sumCounts = max(1.0, float(sum(counts)))
-    histMatrixSize.append(counts/sumCounts)
     saveImgFont("sizeFields_" + site, snsFig=sizeFieldsSitePlot)
 
 
 
-siteFields_df = pd.DataFrame(data=sizeFieldsRegion, columns=["size"])
-siteFields_df["sites"] = allSitesFields
-siteFieldsPlot = sns.boxplot(data=siteFields_df, x="sites", y="size")
-anova = stats.f_oneway(*histMatrixSize)
+#sizeFieldsRelevant = np.where(np.asarray([len(i) for i in heatmap_df["sizeFields"]]) > 0)[0]
+#sizeFields_df = pd.DataFrame({
+#    "size" : heatmap_df["sizeFields"][sizeFieldsRelevant], 
+#    "site" : heatmap_df["sites"][sizeFieldsRelevant], 
+#})
+#sizeFields_df = pd.DataFrame(data=np.transpose(histMatrixSize), columns=uniqueSites)
+
+#sizeFields_anova = sizeFields_df.anova(dv="site")
+#sizeFields_df.set_index('site', inplace=True)
+#sizeFields_df = pd.pivot_table(data=sizeFields_df, index=['site'], columns=['site']).reset_index()
+
+#histMatrixSize = np.asarray(histMatrixSize).transpose()
+#sizeFields_df = pd.DataFrame(data=sizeFieldsRegion, columns=["size"])
+#sizeFields_df["sites"] = allSitesFields
+sizeFields_df = pd.DataFrame()
+for i in range(len(histMatrixSize)) : 
+    sizeFields_df = pd.concat([sizeFields_df, pd.DataFrame(data=np.asarray(histMatrixSize[i]), columns=[uniqueSites[i]])], axis=1)
+#for i in range(len(histMatrixSize)) : 
+#    sizeFields_df = pandas.concat([sizeFields_df, ], axis=1) 
+#    histMatrixSize
+#sizeFieldsPlot = sns.boxplot(data=sizeFields_df, x="site", y="size")
+pd.DataFrame.iteritems = pd.DataFrame.items
+sizeFieldsPlot = sns.boxplot(data=sizeFields_df)
+if args.plot_regions == "collapse_hemispheres" : 
+    anova = stats.f_oneway(histMatrixSize[0], histMatrixSize[1], histMatrixSize[2], histMatrixSize[3], histMatrixSize[4])
+if args.plot_regions == "hemispheres" : 
+    anova = stats.f_oneway(histMatrixSize[0], histMatrixSize[1])
+if args.plot_regions == "full" : 
+    anova = stats.f_oneway(histMatrixSize[0], histMatrixSize[1], histMatrixSize[2], histMatrixSize[3], histMatrixSize[4], 
+                           histMatrixSize[5], histMatrixSize[6], histMatrixSize[7], histMatrixSize[8], histMatrixSize[9])
+#anova = stats.f_oneway(*histMatrixSize)
 
 uniqueSitesFields = np.unique(allSitesFields)
 if len(uniqueSitesFields) > 1 :
     annotationSites = [(uniqueSitesFields[site1], uniqueSitesFields[site2]) for site1 in range(len(uniqueSitesFields)) for site2 in range(len(uniqueSitesFields)) if site1 < site2]
-    annotator = Annotator(siteFieldsPlot, annotationSites, data=siteFields_df, x="sites", y="size")
-    annotator.configure(test='t-test_ind', text_format='star', loc='outside')
-    annotator.apply_and_annotate() 
-saveImgFont("sizeFieldsBox", snsFig=siteFieldsPlot)
+    #annotator = Annotator(sizeFieldsPlot, annotationSites, data=sizeFields_df, x="site", y="size")
+    #annotator.configure(test='t-test_ind', text_format='star', loc='outside')
+    #annotator.apply_and_annotate() 
+#plt.title("Size of semantic fields; p: " +  str(anova.pvalue))
+saveImgFont("sizeFieldsBox", snsFig=sizeFieldsPlot)
 
 
-sizeFieldsPlot = createStdErrorMeanPlot(uniqueSites, sizeFieldsCountsSorted, "Average size of semantic fields, p: " + str(anova.pvalue), yLabel="", xLabel="Size fields")
+sizeFieldsPlot = createStdErrorMeanPlot(uniqueSites, histMatrixSize, "Average size of semantic fields, p: " + str(anova.pvalue), yLabel="", xLabel="Size fields")
 saveImgFont("sizeFieldsBars", sizeFieldsPlot)
 
 numRegions_df = pd.DataFrame(np.asarray(histMatrixRegions).transpose(), columns = uniqueSites)
@@ -987,13 +1096,14 @@ numStim_df.plot(kind="bar", x="index", figsize=(10,6), ylabel="Fraction of numbe
 plt.legend(loc='center left', bbox_to_anchor=(1.0, 0.5))
 saveImgFont("numStimuli_grouped")
 
-numStim_df = pd.DataFrame(np.asarray(histMatrixSize).transpose(), columns = uniqueSites)
+##numStim_df = pd.DataFrame(histMatrixStim, columns = uniqueSites)
 #binsStim[-1] = len(binsStim)-1
-numStim_df["index"] = np.round(binsSizeFields[:-1],3) #np.append(binsStim[1:], [len(binsStim)])
-numStim_df.plot(kind="bar", x="index", figsize=(10,6), ylabel="Fraction of field sizes")
+##numStim_df["index"] = np.round(binsSizeFields[:-1],3) #np.append(binsStim[1:], [len(binsStim)])
+##numStim_df.plot(kind="bar", x="index", figsize=(10,6), ylabel="Fraction of field sizes")
 #plt.xticks(rotation=90, ha='right')
 #numRegionsPlot.set_xticklabels(np.append(binsStim, [bins[-1]+1]))
-plt.legend(loc='center left', bbox_to_anchor=(1.0, 0.5))
-saveImgFont("sizeFields_grouped")
+##plt.title("Size of semantic fields; p: " +  str(anova.pvalue))
+##plt.legend(loc='center left', bbox_to_anchor=(1.0, 0.5))
+##saveImgFont("sizeFields_grouped")
 
 print("Time accumulated analysis: " + str(time.time() - startTimeFullAnalysis) + " s\n")

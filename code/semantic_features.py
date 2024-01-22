@@ -99,7 +99,6 @@ def get_img_path() :
 
     return args.path2images + os.sep + args.analyze + "_" + args.response_metric + os.sep + args.plot_regions + "_" + unitPath + os.sep 
 
-
 def get_lofo_score(firing_rates_consider, categories_consider) : 
     
     regression_model_all = sm.OLS(firing_rates_consider, categories_consider.values, missing='drop')
@@ -128,50 +127,6 @@ def plot_lofo_score(regression_df, column_name, category_names="category_names",
     plt.tick_params(axis='both', which='major', labelsize=labelsize)
     #plt.title("lofo score")
     save_plt(column_name + os.sep + fileDescription)
-
-def create_category_map(categories, concepts) : 
-    #suggested_mapping = {
-    #    "concepts" : concepts.columns
-    #}
-
-    preferred_categories = ["dessert", "fruit", "vegetable", "bird", "clothing accessory", "insect", "vegetables", "weapon", "kitchen appliance", "kitchen tool", "furniture", "medical equipment", "tool", "animal", "toy", "sports equipment", "home decor"]
-
-    concept_to_category_map = defaultdict(lambda:[])
-    concept_categories = categories.dot(categories.columns + ',').str.rstrip(',')
-    concept_categories_list_array = concept_categories.str.split(',').to_numpy()
-
-    suggested_mapping = []
-    index_distinct_mapping = []
-    i = -1
-    for category_list in concept_categories_list_array : 
-        i += 1
-
-        if len(category_list) == 1 and len(category_list[0]) != 0: 
-            suggested_mapping.append(category_list[0])
-            index_distinct_mapping.append(i)
-            continue
-
-        preferred_category_found = ""
-        for preferred_category in preferred_categories : 
-            if preferred_category in category_list : 
-                preferred_category_found = preferred_category
-                break
-        suggested_mapping.append(preferred_category_found)
-        
-    #concept_to_category_map["id"] = concepts.index
-    concept_to_category_map["concepts"] = concepts.values
-    concept_to_category_map["categories"] = concept_categories
-    concept_to_category_map["most specific"] = suggested_mapping
-    concept_to_category_map["suggested mapping"] = suggested_mapping
-
-    stimuli_to_category_map_df = pd.DataFrame(concept_to_category_map)
-    #stimuli_to_category_map_df.index.name = "id"
-    stimuli_to_category_map_df.to_csv(args.path2semanticdata + "concept_category_map_all.csv", sep=';', index_label="id")
-
-    stimuli_to_category_map_df = stimuli_to_category_map_df.drop(index_distinct_mapping)
-    stimuli_to_category_map_df.to_csv(args.path2semanticdata + "concept_category_map.csv", sep=';', index_label="id")
-
-    print("done") # TODO: add categories from wordnet (?)
 
 
 def create_category_bar_graph(df, path, title="", xlabel="") : 
@@ -216,8 +171,8 @@ def create_category_plot_stacked(df, path) :
 
     return grouped_df
 
-
 def create_category_plots(category_df, site) :
+    returnValue = None
     
     category_site_counts_presented = category_df.groupby("category")["presented"].sum()#.sort_values(na_position='first')#[category_df["presented"] == 1]["category"].value_counts().sort_index()
     create_category_bar_graph(category_site_counts_presented, "presented_units" + os.sep + site)
@@ -233,39 +188,46 @@ def create_category_plots(category_df, site) :
     category_site_counts_percentage = category_site_counts_responsive.divide(category_site_counts_presented, fill_value=0.0)#.sort_values(na_position='first')
     create_category_bar_graph(category_site_counts_percentage * 100, "responsive_percent" + os.sep + site, 
                             "Response probability of neurons to stimuli of respective category", "Response probability in %")
+
     if site == "all" : 
         all_responsive_percent = all_responsive.divide(all_presented, fill_value=0.0)
         all_responsive_percent = sort_by_sum_sites(all_responsive_percent)
-        
+        all_responsive_percent.insert(len(all_responsive_percent.columns), "num_responsive", all_responsive.transpose().sum())
+        all_responsive_percent["num_responsive"] = all_responsive_percent["num_responsive"].fillna(0.0)
+        #num_presented = [all_responsive.iloc[all_responsive.index == all_responsive_percent.index[i]] for i in range(len(all_responsive_percent.index)) ]
+        all_responsive_percent.index = all_responsive_percent.index + " (" + all_responsive_percent["num_responsive"].astype(int).astype(str)  + " / "  + ")"
+        all_responsive_percent = all_responsive_percent.drop("num_responsive", axis=1)
+        #all_responsive_percent.set_index('label')
+
         if len(all_responsive_percent) > 0 : 
-            plt.figure(figsize=(barplotWidth, barplotHeight))
-            font = dict(weight='normal', size=14)
+            font = dict(weight='normal', size=labelsize)
             plt.rc('font', **font)
-            all_responsive_percent.plot(kind='barh', stacked=True)
-            plt.tick_params(labelsize=10)
+            all_responsive_percent.plot(kind='barh', stacked=True, figsize=(barplotWidth*2, barplotHeight), fontsize=labelsize)
             save_plt(semantic_fields_path + os.sep + "category_counts" + os.sep + "responsive_percent" + os.sep + "all_stacked")
 
-            plt.figure(figsize=(barplotWidth, barplotHeight))
-            #plt.tick_params(labelsize=18)
-            all_responsive_percent.plot(kind='barh', stacked=False)
-            plt.tick_params(labelsize=10)
-            #plt.tick_params(axis='both', which='major', labelsize=10)
+            all_responsive_percent.plot(kind='barh', stacked=False, figsize=(barplotWidth*2, barplotHeight), fontsize=labelsize)
             save_plt(semantic_fields_path + os.sep + "category_counts" + os.sep + "responsive_percent" + os.sep + "all_grouped")
+
+            returnValue = all_responsive_percent
 
         first_unit_per_session = category_df.loc[category_df["first"] == 1]#.groupby(["category", "session", "presented"]).first()
         category_site_counts_session = first_unit_per_session.groupby("category")["presented"].sum()#.sort_values()
         create_category_bar_graph(category_site_counts_session, "presented_sessions" + os.sep + site)
 
+    return returnValue
+
 
 def save_plt(filename) : 
     if not args.dont_plot : 
-        os.makedirs(os.path.dirname(get_img_path()), exist_ok=True)
+        os.makedirs(os.path.dirname(get_img_path() + filename), exist_ok=True)
         plt.savefig(get_img_path() + filename + ".png", bbox_inches="tight")
         plt.clf()
     plt.close()
 
 
 print("\n--- START ---")
+#x = pd.read_pickle("../data/data" + os.sep + "data_to_fit.pk1")
+
 startLoadData = time.time()
 args=parser.parse_args()
 
@@ -279,10 +241,12 @@ data = DataHandler(args) # class for handling neural and feature data
 data.load_metadata() # -> data.df_metadata
 data.load_categories() # -> data.df_categories
 
-create_category_map(data.df_categories, data.df_metadata.uniqueID)
+categories_single = create_category_map(data.df_categories, data.df_metadata.uniqueID, args.path2semanticdata)
 
-data.load_neural_data() # -> data.neural_data
+#data.load_word_embeddings_tsne()
+
 data.load_word_embeddings() # -> data.df_word_embeddings
+data.load_neural_data() # -> data.neural_data
 
 #num_pcs = np.append(np.array(range(10, 220, 10)), args.pca_components)
 num_pcs = [args.pca_components]
@@ -327,7 +291,7 @@ else :
             sorted_names.append( sorted_names_pc)
 
         #pd.DataFrame(sorted_names).transpose().to_csv()... # also switch booleans for index and header
-        pd.DataFrame(sorted_names).to_csv(args.path2images + os.sep + args.analyze + os.sep + "stimuli_sorted_by_pcs.csv", index=True, header=False) # or without transpose and header=False
+        pd.DataFrame(sorted_names).to_csv(get_img_path() + "stimuli_sorted_by_pcs.csv", index=True, header=False) # or without transpose and header=False
     #categories = data.df_word_embeddings.dropna()
 
 
@@ -386,6 +350,7 @@ for session in sessions:
     things_indices = np.array(data.get_THINGS_indices(data.neural_data[session]['stimlookup']))
     categories_things = categories.iloc[things_indices]
     categories_presented = categories_things.sum()
+    #category_names_session = categories_presented.index.unique() ## TODO: for PCA replace categoryNames with something like this
     
     firstUnitInSession = 1
     for unit in units:
@@ -630,7 +595,7 @@ semantic_fields_path = "semantic_fields" + os.sep
 sites = list(rsquaredCategoriesSites.keys())
 
 category_counts_df = pd.DataFrame(category_counts)
-create_category_plots(category_counts_df, "all")
+all_responsive_percent = create_category_plots(category_counts_df, "all")
 sites.remove('all')
 
 for site in sites : 
@@ -659,6 +624,13 @@ save_plt(semantic_fields_path + "rsquared_hemispheres_pca")
 
 create2DhemispherePlt(pValueSites, sites)
 save_plt(semantic_fields_path + "pvalue_hemispheres_categories")
+
+if args.plot_regions == "hemispheres" :     
+    font = dict(weight='normal', size=10)
+    plt.rc('font', **font)
+    hemispherePlt(all_responsive_percent["L"].values, all_responsive_percent["R"].values, np.asarray(all_responsive_percent.index), lowLim = 0.0002, highLim=0.0002)
+    save_plt(semantic_fields_path + os.sep + "category_counts" + "response_probabilities")
+    adjustFontSize()
 
 plt.figure(figsize=(10,4))
 sitesTitles = [site + " (" + str(len(rsquaredCategoriesSites[site])) + ")" for site in sites]
@@ -689,10 +661,13 @@ createStdErrorMeanPlt(sitesTitles, [meanScoresSites[site] for site in sites_scor
 plt.xticks(rotation=45, ha='right')
 save_plt(semantic_fields_path + "cv_scores_sites")
 
-plt.figure(figsize=(20,20)) 
+plt.figure(figsize=(2*barplotWidth, barplotHeight)) 
+font = dict(weight='normal', size=labelsize)
+plt.rc('font', **font)
 createStdErrorMeanPlt(categories.columns, np.transpose(lofo_score_categories), "", "", sort=True, horizontal=True)
 #plt.xticks(rotation=90, ha='right')
-plt.tick_params(axis='both', which='major', labelsize=24)
+plt.tick_params(axis='both', which='major', labelsize=labelsize)
+plt.title("Mean semantic-dimension Importance across all units")
 save_plt(semantic_fields_path + "lofo_score")
 
 
@@ -700,12 +675,14 @@ if args.analyze == "PCA" :
     createStdErrorMeanPlt([str(cat) for cat in num_pcs], rsquaredPCA, "r squared of regression for different pcs", "r squared")
     save_plt(semantic_fields_path + "rsquared_pcs")
 
-sns.histplot(x=entropies)
-save_plt(semantic_fields_path + "entropy_distibution")
+#sns.histplot(x=entropies)
+#save_plt(semantic_fields_path + "entropy_distibution")
 
+plt.figure(figsize=(10, 4)) 
 createHistPlt(pvalues, [0.0, 0.0001, 0.001, 0.01, 0.05, 0.1, 1.0], 1.0, "Number of units with pvalue of model lower than x; total num: " + str(len(pvalues)), "", "blue", True)
 save_plt(semantic_fields_path + "pvalues")
 
+plt.figure(figsize=(10, 4)) 
 createHistPlt(num_significant_weights, range(0,28), 1.0, "Number of significant weights")
 save_plt(semantic_fields_path + "num_significant_weights")
 

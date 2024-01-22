@@ -2,6 +2,7 @@ import scipy.io as sio
 import os
 import numpy as np
 import glob
+import shutil
 
 
 def get_spike_profile(path2data, ch_num, class_num):
@@ -70,5 +71,11 @@ def getSite(site, plot_regions) :
         site = site[0]
 
     return site
+
+def clear_folder(folder) :
+    try: 
+        shutil.rmtree(folder)
+    except : 
+        print("Warning. Plots can not be removed from path " + folder)
 
 

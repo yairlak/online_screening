@@ -193,6 +193,25 @@ def createRegionsDiv(name, allSiteNames) :
     return createTableDiv(
         name, figureId, tableId, "Regions", columnId, columnData), figureId, tableId
 
+def hemispherePlt(left, right, annotations, lowLim=0.005, highLim=0.03) : 
+    fig, ax = plt.subplots(figsize=(15, 15))
+    ax.scatter(left, right)
+    ax.set_aspect('equal')
+    for i in range(len(annotations)):
+        offset = lowLim / 10 #0.001
+        ax.annotate(annotations[i], (left[i] + offset, right[i] + offset))
+
+    low = min(min(left), min(right)) - lowLim
+    high = max(max(left), max(right)) + highLim
+    #corr = stats.spearmanr(left, right)
+
+    #plt.title("corr: " + str(corr.statistic) + ", pvalue: " + str(corr.pvalue))
+    plt.plot([low,high], [low,high], color = 'b')
+    plt.xlim(low, high)
+    plt.ylim(low, high)
+    plt.xlabel("left hemisphere")
+    plt.ylabel("right hemisphere")
+
 def create2DhemispherePlt(valuesSites, sitenames) : 
     left = []
     right = []
@@ -208,24 +227,27 @@ def create2DhemispherePlt(valuesSites, sitenames) :
     if len(sitename_r_squared) == 0: 
         print("WARNING! 2D hemisphere plots could not be created. This happens when the hemispheres are collapsed.")
         return
+    
+    annotations = [text + " (" + str(len(valuesSites["L" + text])) + "/" + str(len(valuesSites["R" + text])) + ")" for text in sitename_r_squared]
+    hemispherePlt(left, right, annotations)
 
-    fig, ax = plt.subplots()
-    ax.scatter(left, right)
-    ax.set_aspect('equal')
-    for i, txt in enumerate(sitename_r_squared):
-        offset = 0.001
-        ax.annotate(txt + " (" + str(len(valuesSites["L" + txt])) + "/" + str(len(valuesSites["R" + txt])) + ")", (left[i], right[i]+ offset))
+    #fig, ax = plt.subplots()
+    #ax.scatter(left, right)
+    #ax.set_aspect('equal')
+    #for i, txt in enumerate(sitename_r_squared):
+    #    offset = 0.001
+    #    ax.annotate(txt + " (" + str(len(valuesSites["L" + txt])) + "/" + str(len(valuesSites["R" + txt])) + ")", (left[i], right[i]+ offset))
 
-    low = min(min(left), min(right)) - 0.005
-    high = max(max(left), max(right)) + 0.03
+    #low = min(min(left), min(right)) - 0.005
+    #high = max(max(left), max(right)) + 0.03
     #corr = stats.spearmanr(left, right)
 
     #plt.title("corr: " + str(corr.statistic) + ", pvalue: " + str(corr.pvalue))
-    plt.plot([low,high], [low,high], color = 'b')
-    plt.xlim(low, high)
-    plt.ylim(low, high)
-    plt.xlabel("left hemisphere")
-    plt.ylabel("right hemisphere")
+    #plt.plot([low,high], [low,high], color = 'b')
+    #plt.xlim(low, high)
+    #plt.ylim(low, high)
+    #plt.xlabel("left hemisphere")
+    #plt.ylabel("right hemisphere")
 
 def createHistPlt(x, inputBins, factorY=1.0, labelX="", labelY="", color="blue", pvalues=False, title="") : 
 
@@ -325,13 +347,14 @@ def createGroupedHistNew(values, sites, bins, title="", xLabel="") :
     hist_df.set_index('bins', inplace=True)
 
     for site in uniqueSites : 
-        counts, bins = np.histogram(np.asarray(values)[np.where(np.asarray(sites)==site)[0]], bins=newBins)
+        counts, bins = np.histogram(values[np.where(np.asarray(sites)==site)[0][0]], bins=newBins)
         hist_df[site] = counts
 
     hist_df.plot(kind="bar", stacked=False)
     plt.ylabel("Count")
     plt.xlabel(xLabel)
     plt.title(title)
+    return hist_df
 
 def createAllHistsSites(data_dict, path, filename, title="", xLabel="") : 
     adjustFontSize()
@@ -354,8 +377,14 @@ def createAllHistsSites(data_dict, path, filename, title="", xLabel="") :
 
     createHistPlt(hist_array_all, range(int(max(hist_array_all)+1)), title=title, labelX=xLabel, labelY="Count")
     save_plt(path + os.sep + "all_" + filename)
-    createGroupedHistNew(hist_array, np.array(list(data_dict.keys())), range(maxTotal+1), title=title, xLabel=xLabel)
+    hist_df = createGroupedHistNew(hist_array, np.array(list(data_dict.keys())), range(maxTotal+1), title=title, xLabel=xLabel)
     save_plt(path + os.sep + "all_" + filename + "_grouped")
+    
+    hist_df.plot(kind="bar", stacked=True)
+    plt.ylabel("Count")
+    plt.xlabel(xLabel)
+    plt.title(title)
+    save_plt(path + os.sep + "all_" + filename + "_stacked")
 
 def createGroupedHist(values, sites, binsStart, binsStop, binsStep=1, title="", xLabel="") : 
     values = np.asarray(values)

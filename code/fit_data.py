@@ -57,7 +57,7 @@ class Fitter :
     
     def getGood(self, gof, thresh) : 
         newFitter = Fitter()
-        goodFit = np.where(np.absolute(np.asarray(gof)) >= thresh)[0]
+        goodFit = np.where(np.asarray(gof) >= thresh)[0] # np.where(np.absolute(np.asarray(gof)) >= thresh)[0]
         
         newFitter.stepSize = self.stepSize
         newFitter.numSteps = self.numSteps
@@ -339,7 +339,7 @@ def logFuncParams(x, params) :
     return logFunc(x, params[0], params[1], params[2], params[3])
 
 def logFunc(x, x0, k, a, c) :
-    return scipy.special.expit((x-x0)*(-k))
+    return scipy.special.expit((x-x0)*(k)) # why not -k? because expit also introduces *-1
     #return a + (c - a) * scipy.special.expit((x-x0)*(-k))
 
 def stepParams(x, params) :
@@ -350,9 +350,6 @@ def step(x, x0, a, b) :
     y[np.where(x <= x0)[0]] = a
     y[np.where(x > x0)[0]] = b
     return logFunc(x, x0, 10000, a, b)  #a * (np.heaviside(x-x0, 0) + b) #a * (np.sign(x-x0) + b)
-
-
-
 
     #return 1 * scipy.special.expit((x-x0)*(-k))
 

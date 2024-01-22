@@ -13,6 +13,7 @@ import numpy as np
 from scipy import stats
 import scipy.io as sio
 import pandas as pd
+from collections import defaultdict
 from sklearn.metrics import pairwise_distances
 from statsmodels.stats.multitest import fdrcorrection
 
@@ -68,7 +69,7 @@ class DataHandler(object):
             neural_data[subject_session_key]['units'] = {}
             for unit_num in range(cherries['cherries'].shape[1]):
                 trial_data = cherries['cherries'][0, unit_num]['trial'][0, :]
-                firing_rates, zscores, consider = get_mean_firing_rate_normalized(
+                firing_rates, zscores, consider, num_spikes = get_mean_firing_rate_normalized(
                     trial_data, objectindices, min_t, max_t, min_ratio_active_trials, min_firing_rate, min_active_trials, min_t_baseline)
                 #fdr_corrected = fdrcorrection(pvals[unit_num], alpha=alpha) # 0: pass alpha, 1 : alpha values
 
@@ -86,6 +87,7 @@ class DataHandler(object):
                 neural_data[subject_session_key]['units'][unit_num + 1]['firing_rates'] = firing_rates
                 #neural_data[subject_session_key]['units'][unit_num + 1]['responses'] = np.where((fdr_corrected[1] < alpha) & (consider > 0))[0]
                 neural_data[subject_session_key]['units'][unit_num + 1]['responses'] = np.where((pvals[unit_num] < alpha) & (consider > 0))[0]
+                neural_data[subject_session_key]['units'][unit_num + 1]['num_spikes'] = num_spikes
                 
    
         self.neural_data = neural_data
@@ -221,13 +223,15 @@ def get_dict_cat2object(objectnames, df_metadata, concept_source):
 
 def get_mean_firing_rate_normalized(all_trials, objectnumbers, min_t = 0, max_t = 1000, min_ratio_active_trials = 0.5, min_firing_rate = 1, min_active_trials = 5, min_t_baseline = -500) : 
 
-    consider = np.ones(max(objectnumbers) + 1)
-    firing_rates = np.zeros(max(objectnumbers) + 1) 
-    zscores = np.zeros(max(objectnumbers) + 1) 
+    num_objects = max(objectnumbers) + 1
+    consider = np.ones(num_objects)
+    firing_rates = np.zeros(num_objects) 
+    zscores = np.zeros(num_objects) 
     stimuli = np.unique(objectnumbers)
     factor = 1000 / (max_t - min_t)
     factor_baselines = 1000 / (0 - min_t_baseline)
-    baseline_firing_rates = np.zeros(max(objectnumbers) + 1) 
+    baseline_firing_rates = np.zeros(num_objects) 
+    num_spikes = np.zeros(num_objects)
 
     for stim in stimuli : 
         stim_trials = all_trials[np.where(objectnumbers == stim)]
@@ -241,6 +245,7 @@ def get_mean_firing_rate_normalized(all_trials, objectnumbers, min_t = 0, max_t 
             baseline_spikes = trial_spikes_all[np.where((trial_spikes_all >= min_t_baseline) & (trial_spikes_all < 0))]
             baseline_firing_rates[stim] += len(baseline_spikes) * factor_baselines
             firing_rates[stim] += len(trial_spikes_stim) * factor
+            num_spikes[stim] += len(trial_spikes_stim)
             #firing_rates_for_median.append(firing_rate)
             if len(trial_spikes_all) > 0 : 
                 num_active += 1
@@ -269,7 +274,7 @@ def get_mean_firing_rate_normalized(all_trials, objectnumbers, min_t = 0, max_t 
     #zscores = (firing_rates - mean_baselines) / stddev
     #zscores = stats.zscore(zscores)
     #zscores = (zscores - statistics.mean(zscores)) / statistics.stdev(zscores)
-    normalized_firing_rates = (firing_rates - min(firing_rates))
+    normalized_firing_rates = (firing_rates - min(firing_rates)) # (firing_rates - mean_baselines)
     normalized_firing_rates = normalized_firing_rates / max(normalized_firing_rates)
 
     #firing_rates = firing_rates - min(firing_rates)
@@ -278,8 +283,9 @@ def get_mean_firing_rate_normalized(all_trials, objectnumbers, min_t = 0, max_t 
     normalized_zscores = normalized_zscores / max(normalized_zscores)
     #for stim in stimuli : 
     #    zscores[stim] = (firing_rates[stim] - mean_baselines) / stddev
+    consider[np.where(zscores<2)] = 0
 
-    return normalized_firing_rates, zscores, consider
+    return normalized_firing_rates, zscores, consider, num_spikes
 
 
 def object2category(objectname, df_metadata, concept_source):
@@ -306,6 +312,50 @@ def get_category_list(objectnames, df_metadata, concept_source):
     category_list = sorted(category_list)
     return category_list
 
+
+def create_category_map(categories, concepts, path) : 
+    #suggested_mapping = {
+    #    "concepts" : concepts.columns
+    #}
+
+    preferred_categories = ["dessert", "fruit", "vegetable", "bird", "clothing accessory", "insect", "vegetables", "weapon", "kitchen appliance", "kitchen tool", "furniture", "medical equipment", "tool", "animal", "toy", "sports equipment", "home decor"]
+
+    concept_to_category_map = defaultdict(lambda:[])
+    concept_categories = categories.dot(categories.columns + ',').str.rstrip(',')
+    concept_categories_list_array = concept_categories.str.split(',').to_numpy()
+
+    suggested_mapping = []
+    index_distinct_mapping = []
+    i = -1
+    for category_list in concept_categories_list_array : 
+        i += 1
+
+        if len(category_list) == 1 and len(category_list[0]) != 0: 
+            suggested_mapping.append(category_list[0])
+            index_distinct_mapping.append(i)
+            continue
+
+        preferred_category_found = ""
+        for preferred_category in preferred_categories : 
+            if preferred_category in category_list : 
+                preferred_category_found = preferred_category
+                break
+        suggested_mapping.append(preferred_category_found)
+        
+    #concept_to_category_map["id"] = concepts.index
+    concept_to_category_map["concepts"] = concepts.values
+    concept_to_category_map["categories"] = concept_categories
+    concept_to_category_map["most specific"] = suggested_mapping
+    concept_to_category_map["suggested mapping"] = suggested_mapping
+
+    stimuli_to_category_map_df = pd.DataFrame(concept_to_category_map)
+    #stimuli_to_category_map_df.index.name = "id"
+    stimuli_to_category_map_df.to_csv(path + "concept_category_map_all.csv", sep=';', index_label="id")
+
+    ##stimuli_to_category_map_df = stimuli_to_category_map_df.drop(index_distinct_mapping)
+    ##stimuli_to_category_map_df.to_csv(args.path2semanticdata + "concept_category_map.csv", sep=';', index_label="id")
+
+    return stimuli_to_category_map_df #print("done") # TODO: add categories from wordnet (?)
 
     
 def prepare_features(data, session, unit):
